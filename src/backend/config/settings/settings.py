@@ -5,6 +5,11 @@ from datetime import timedelta
 
 load_dotenv()
 
+VOTE_TYPE_CHOICES = [
+    ('up', 'Upvote'),
+    ('down', 'Downvote'),
+]
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -31,11 +36,14 @@ DJANGO_APPS = [
 THIRD_PARTY_APPS = [
     'rest_framework',
     'rest_framework_simplejwt',
-    'rest_framework_simplejwt.token_blacklist'
+    'rest_framework_simplejwt.token_blacklist',
+    'drf_spectacular',
+    'django_filters',
 ]
 
 LOCAL_APPS = [
-    'apps.user'
+    'apps.user',
+    'apps.qa',
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -137,6 +145,12 @@ REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
         "rest_framework_simplejwt.authentication.JWTAuthentication",
     ],
+    'DEFAULT_FILTER_BACKENDS': [
+        'django_filters.rest_framework.DjangoFilterBackend',
+    ],
+    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.LimitOffsetPagination',
+    'PAGE_SIZE': 100,
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
 }
 
 SIMPLE_JWT = {
@@ -146,4 +160,19 @@ SIMPLE_JWT = {
     'BLACKLIST_AFTER_ROTATION': True,
     'USER_ID_FIELD': 'user_id',
     'USER_ID_CLAIM': 'user_id'
+}
+
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'StackOverflow 2.0',
+    'DESCRIPTION': 'API для проекта StackOverflow 2.0',
+    'VERSION': '1.0.0',
+    'SERVE_INCLUDE_SCHEMA': False,
+    'ENUM_NAME_OVERRIDES': {
+        'VoteTypeEnum': VOTE_TYPE_CHOICES,
+    },
+    'EXTENSIONS': {
+        'drf_spectacular.extensions': [
+            'drf_spectacular.contrib.django_filters.DjangoFilterExtension',
+        ],
+    },
 }
