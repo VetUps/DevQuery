@@ -9,6 +9,7 @@ import {
 import LoginPage from '@/pages/LoginPage.vue'
 import HomePage from '@/pages/HomePage.vue'
 import ProfilePage from '@/pages/ProfilePage.vue'
+import QuestionDetailPage from '@/pages/QuestionDetailPage.vue'
 import RegisterPage from '@/pages/RegisterPage.vue'
 import { loadStoredTokens } from '@/features/auth/lib/token-storage'
 import { useSessionStore } from '@/features/auth/stores/session'
@@ -28,6 +29,11 @@ export const routes: RouteRecordRaw[] = [
     path: '/register',
     name: 'register',
     component: RegisterPage,
+  },
+  {
+    path: '/questions/:questionId',
+    name: 'question-detail',
+    component: QuestionDetailPage,
   },
   {
     path: '/profile',
