@@ -25,6 +25,19 @@ class QuestionUpdateCreateSerializer(serializers.ModelSerializer):
         model = Question
         fields = ['question_title', 'question_body']
 
+class QuestionCreateResponseSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Question
+        fields = [
+            'question_id',
+            'user',
+            'question_title',
+            'question_body',
+            'question_status',
+            'question_created_at',
+            'question_updated_at',
+        ]
+
 class SolutionListSerializer(serializers.ModelSerializer):
     question_id = serializers.UUIDField(write_only=True)
     upvotes = serializers.IntegerField(source='vote_upvotes', read_only=True)
@@ -49,6 +62,19 @@ class SolutionCreateSerializer(serializers.ModelSerializer):
         if Solution.objects.filter(user=user, question=question).exists():
             raise serializers.ValidationError('Пользователь уже выложил решение на данный вопрос')
         return data
+
+class SolutionCreateResponseSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Solution
+        fields = [
+            'solution_id',
+            'user',
+            'question',
+            'solution_body',
+            'solution_is_best',
+            'solution_created_at',
+            'solution_updated_at',
+        ]
 
 class SolutionEditCreateSerializer(serializers.ModelSerializer):
     solution = serializers.PrimaryKeyRelatedField(

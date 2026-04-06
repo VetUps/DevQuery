@@ -3,6 +3,7 @@ import type { QuestionDetail } from '@/features/questions/api/questions'
 import type { PublicUserProfile } from '@/features/users/api/publicProfiles'
 import ReadOnlyVoteBlock from '@/features/questions/components/ReadOnlyVoteBlock.vue'
 import { formatLongDate, formatQuestionStatus } from '@/shared/lib/formatting'
+import MarkdownContent from '@/shared/ui/MarkdownContent.vue'
 
 const props = defineProps<{
   question: QuestionDetail
@@ -24,7 +25,9 @@ const props = defineProps<{
       </div>
 
       <h1 class="question-detail-hero__title">{{ question.question_title }}</h1>
-      <p class="question-detail-hero__body">{{ question.question_body }}</p>
+      <div class="question-detail-hero__body">
+        <MarkdownContent :source="question.question_body" />
+      </div>
 
       <div class="question-detail-hero__author">
         <div>
@@ -119,9 +122,7 @@ const props = defineProps<{
 }
 
 .question-detail-hero__body {
-  white-space: pre-line;
   font-size: 17px;
-  line-height: 1.75;
 }
 
 .question-detail-hero__author {

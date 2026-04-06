@@ -8,6 +8,8 @@ defineProps<{
   solutions: SolutionListItem[]
   isPending?: boolean
   isError?: boolean
+  successMessage?: string
+  freshSolutionId?: string | null
 }>()
 
 defineEmits<{
@@ -17,6 +19,8 @@ defineEmits<{
 
 <template>
   <section class="solution-list-section">
+    <slot name="authoring" />
+
     <div class="solution-list-section__header">
       <div>
         <p class="solution-list-section__eyebrow">Решения</p>
@@ -24,6 +28,10 @@ defineEmits<{
       </div>
       <p class="solution-list-section__meta">{{ solutions.length }} шт.</p>
     </div>
+
+    <p v-if="successMessage" class="solution-list-section__success">
+      {{ successMessage }}
+    </p>
 
     <p v-if="isPending" class="solution-list-section__muted">Загружаем решения…</p>
 
@@ -44,6 +52,7 @@ defineEmits<{
         :key="solution.solution_id"
         :solution="solution"
         :featured="index === 0"
+        :is-fresh="solution.solution_id === freshSolutionId"
       />
     </div>
   </section>
@@ -70,7 +79,8 @@ defineEmits<{
 .solution-list-section__eyebrow,
 .solution-list-section__title,
 .solution-list-section__meta,
-.solution-list-section__muted {
+.solution-list-section__muted,
+.solution-list-section__success {
   margin: 0;
 }
 
@@ -91,5 +101,13 @@ defineEmits<{
 .solution-list-section__muted {
   color: var(--color-muted);
   line-height: 1.6;
+}
+
+.solution-list-section__success {
+  padding: var(--space-md) var(--space-lg);
+  border: 1px solid rgb(47 133 90 / 0.24);
+  border-radius: var(--radius-md);
+  background: rgb(47 133 90 / 0.1);
+  color: #2F855A;
 }
 </style>

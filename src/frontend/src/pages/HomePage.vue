@@ -30,6 +30,7 @@ const questionListQuery = useQuestionListQuery(currentPage)
 const questionList = computed(() => questionListQuery.data.value?.results ?? [])
 const totalQuestions = computed(() => questionListQuery.data.value?.count ?? 0)
 const hasNextPage = computed(() => Boolean(questionListQuery.data.value?.next))
+const askQuestionTarget = computed(() => (isAuthenticated.value ? '/questions/ask' : '/register'))
 const isLoadingList = computed(
   () => questionListQuery.isPending.value && !questionListQuery.data.value,
 )
@@ -110,12 +111,17 @@ const isEmptyList = computed(
               </template>
             </p>
 
-            <div v-if="!isAuthenticated" class="home-page__sidebar-actions">
-              <RouterLink to="/register">
-                <AppButton>Создать аккаунт</AppButton>
+            <div class="home-page__sidebar-actions">
+              <RouterLink :to="askQuestionTarget">
+                <AppButton>Задать вопрос</AppButton>
               </RouterLink>
-              <RouterLink to="/login">
-                <AppButton variant="secondary">Войти</AppButton>
+
+              <RouterLink v-if="!isAuthenticated" to="/register">
+                <AppButton variant="secondary">Создать аккаунт</AppButton>
+              </RouterLink>
+
+              <RouterLink v-if="!isAuthenticated" to="/login">
+                <AppButton variant="ghost">Войти</AppButton>
               </RouterLink>
             </div>
           </SurfacePanel>

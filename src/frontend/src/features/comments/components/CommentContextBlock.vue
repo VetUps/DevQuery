@@ -20,7 +20,6 @@ defineEmits<{
   <section class="comment-context-block">
     <div class="comment-context-block__header">
       <h3 class="comment-context-block__title">{{ title }}</h3>
-      <span class="comment-context-block__subtitle">Первые 3 корневых комментария</span>
     </div>
 
     <p v-if="isPending" class="comment-context-block__muted">
@@ -80,7 +79,6 @@ defineEmits<{
 }
 
 .comment-context-block__title,
-.comment-context-block__subtitle,
 .comment-context-block__muted,
 .comment-context-block__body {
   margin: 0;
@@ -91,7 +89,6 @@ defineEmits<{
   line-height: 1.2;
 }
 
-.comment-context-block__subtitle,
 .comment-context-block__muted {
   color: var(--color-muted);
   font-size: 14px;

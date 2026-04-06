@@ -6,10 +6,12 @@ import ReadOnlyVoteBlock from '@/features/questions/components/ReadOnlyVoteBlock
 import CommentContextBlock from '@/features/comments/components/CommentContextBlock.vue'
 import { useCommentContextQuery } from '@/features/comments/queries/useCommentContextQuery'
 import { formatLongDate } from '@/shared/lib/formatting'
+import MarkdownContent from '@/shared/ui/MarkdownContent.vue'
 
 const props = defineProps<{
   solution: SolutionListItem
   featured?: boolean
+  isFresh?: boolean
 }>()
 
 const solutionId = computed(() => props.solution.solution_id)
@@ -18,8 +20,12 @@ const commentQuery = useCommentContextQuery('solution', solutionId)
 
 <template>
   <article
+    :id="`solution-${solution.solution_id}`"
     class="solution-read-card"
-    :class="{ 'solution-read-card--featured': featured }"
+    :class="{
+      'solution-read-card--featured': featured,
+      'solution-read-card--fresh': isFresh,
+    }"
   >
     <div class="solution-read-card__header">
       <div>
@@ -40,7 +46,9 @@ const commentQuery = useCommentContextQuery('solution', solutionId)
     </div>
 
     <div class="solution-read-card__content">
-      <p class="solution-read-card__body">{{ solution.solution_body }}</p>
+      <div class="solution-read-card__body">
+        <MarkdownContent :source="solution.solution_body" />
+      </div>
 
       <ReadOnlyVoteBlock
         :score="solution.score"
@@ -74,6 +82,13 @@ const commentQuery = useCommentContextQuery('solution', solutionId)
 
 .solution-read-card--featured {
   background: linear-gradient(180deg, rgb(255 255 255 / 0.82), rgb(247 243 234 / 0.9));
+}
+
+.solution-read-card--fresh {
+  animation: solution-fresh-highlight 2.4s ease;
+  box-shadow:
+    0 0 0 1px rgb(47 133 90 / 0.28),
+    0 0 0 8px rgb(47 133 90 / 0.08);
 }
 
 .solution-read-card__header,
@@ -119,8 +134,21 @@ const commentQuery = useCommentContextQuery('solution', solutionId)
 }
 
 .solution-read-card__body {
-  white-space: pre-line;
   line-height: 1.7;
+}
+
+@keyframes solution-fresh-highlight {
+  0% {
+    box-shadow:
+      0 0 0 1px rgb(47 133 90 / 0.42),
+      0 0 0 12px rgb(47 133 90 / 0.14);
+  }
+
+  100% {
+    box-shadow:
+      0 0 0 1px rgb(47 133 90 / 0.28),
+      0 0 0 8px rgb(47 133 90 / 0.08);
+  }
 }
 
 @media (width <= 900px) {

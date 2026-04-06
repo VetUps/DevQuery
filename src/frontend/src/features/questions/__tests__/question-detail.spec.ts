@@ -35,6 +35,18 @@ const profileState = {
   refetch: vi.fn(),
 }
 
+const currentUserState = {
+  data: ref(null),
+  isPending: ref(false),
+  isError: ref(false),
+  refetch: vi.fn(),
+}
+
+const createSolutionMutationState = {
+  isPending: ref(false),
+  mutateAsync: vi.fn(),
+}
+
 vi.mock('@/features/questions/queries/useQuestionDetailQuery', () => ({
   useQuestionDetailQuery: vi.fn(() => questionDetailState),
 }))
@@ -49,6 +61,14 @@ vi.mock('@/features/comments/queries/useCommentContextQuery', () => ({
 
 vi.mock('@/features/users/queries/usePublicProfileQuery', () => ({
   usePublicProfileQuery: vi.fn(() => profileState),
+}))
+
+vi.mock('@/features/auth/queries/useCurrentUserQuery', () => ({
+  useCurrentUserQuery: vi.fn(() => currentUserState),
+}))
+
+vi.mock('@/features/solutions/mutations/useCreateSolutionMutation', () => ({
+  useCreateSolutionMutation: vi.fn(() => createSolutionMutationState),
 }))
 
 async function mountQuestionDetailPage() {
@@ -95,6 +115,14 @@ describe('question detail page', () => {
     profileState.isPending.value = false
     profileState.isError.value = false
     profileState.refetch.mockReset()
+
+    currentUserState.data.value = null
+    currentUserState.isPending.value = false
+    currentUserState.isError.value = false
+    currentUserState.refetch.mockReset()
+
+    createSolutionMutationState.isPending.value = false
+    createSolutionMutationState.mutateAsync.mockReset()
   })
 
   it('renders the loading skeleton while the detail query is pending', async () => {

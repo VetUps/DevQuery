@@ -27,7 +27,15 @@ class UserRegisterSerializer(serializers.ModelSerializer):
 class UserProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = CustomUser
-        fields = ('user_name', 'user_email', 'user_reputation_score', 'user_avatar_url', 'user_bio', 'user_created_at')
+        fields = (
+            'user_id',
+            'user_name',
+            'user_email',
+            'user_reputation_score',
+            'user_avatar_url',
+            'user_bio',
+            'user_created_at',
+        )
 
 
 class PublicUserProfileSerializer(serializers.ModelSerializer):

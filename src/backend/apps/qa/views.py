@@ -10,7 +10,8 @@ from drf_spectacular.utils import extend_schema, OpenApiParameter
 from .models import Question, Solution, SolutionEdits, Comment
 from .serializers import (
     QuestionGetSerializer, QuestionListSerializer, QuestionUpdateCreateSerializer,
-    SolutionListSerializer, SolutionCreateSerializer,
+    QuestionCreateResponseSerializer, SolutionListSerializer, SolutionCreateSerializer,
+    SolutionCreateResponseSerializer,
     SolutionEditCreateSerializer, SolutionEditHistorySerializer,
     CommentListSerializer, CommentCreateSerializer, CommentDetailSerializer,
     VoteSerializer, VoteCreateSerializer, SolutionEditApprovalSerializer,
@@ -31,6 +32,7 @@ class QuestionViewSet(mixins.ListModelMixin,
     question_get_serializer = QuestionGetSerializer
     question_list_serializer = QuestionListSerializer
     question_create_serializer = QuestionUpdateCreateSerializer
+    question_create_response_serializer = QuestionCreateResponseSerializer
 
     def get_serializer_class(self):
         if self.action == 'list':
@@ -72,6 +74,20 @@ class QuestionViewSet(mixins.ListModelMixin,
     def perform_update(self, serializer):
         serializer.save()
 
+    @extend_schema(
+        request=QuestionUpdateCreateSerializer,
+        responses={201: QuestionCreateResponseSerializer},
+    )
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+
+        response_serializer = self.question_create_response_serializer(serializer.instance)
+        headers = self.get_success_headers(response_serializer.data)
+
+        return Response(response_serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+
 class SolutionViewSet(mixins.ListModelMixin,
                       mixins.CreateModelMixin,
                       viewsets.GenericViewSet):
@@ -79,6 +95,7 @@ class SolutionViewSet(mixins.ListModelMixin,
 
     solution_list_serializer = SolutionListSerializer
     solution_create_serializer = SolutionCreateSerializer
+    solution_create_response_serializer = SolutionCreateResponseSerializer
 
     def get_queryset(self):
         base_queryset = Solution.objects.select_related('user', 'question')
@@ -109,6 +126,20 @@ class SolutionViewSet(mixins.ListModelMixin,
 
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
+
+    @extend_schema(
+        request=SolutionCreateSerializer,
+        responses={201: SolutionCreateResponseSerializer},
+    )
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+
+        response_serializer = self.solution_create_response_serializer(serializer.instance)
+        headers = self.get_success_headers(response_serializer.data)
+
+        return Response(response_serializer.data, status=status.HTTP_201_CREATED, headers=headers)
 
     @extend_schema(
         parameters=[

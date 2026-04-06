@@ -23,7 +23,7 @@ const userVoteLabel = computed(() => {
     return 'Ваш прошлый голос: против'
   }
 
-  return 'Голоса показаны только для чтения'
+  return ''
 })
 </script>
 

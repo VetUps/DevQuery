@@ -7,6 +7,7 @@ import {
 } from 'vue-router'
 
 import LoginPage from '@/pages/LoginPage.vue'
+import AskQuestionPage from '@/pages/AskQuestionPage.vue'
 import HomePage from '@/pages/HomePage.vue'
 import ProfilePage from '@/pages/ProfilePage.vue'
 import QuestionDetailPage from '@/pages/QuestionDetailPage.vue'
@@ -34,6 +35,14 @@ export const routes: RouteRecordRaw[] = [
     path: '/questions/:questionId',
     name: 'question-detail',
     component: QuestionDetailPage,
+  },
+  {
+    path: '/questions/ask',
+    name: 'ask-question',
+    component: AskQuestionPage,
+    meta: {
+      requiresAuth: true,
+    },
   },
   {
     path: '/profile',

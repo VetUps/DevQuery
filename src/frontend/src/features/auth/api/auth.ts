@@ -3,6 +3,7 @@ import axios from 'axios'
 import { apiBaseUrl } from '@/shared/api/config'
 
 export interface UserProfile {
+  user_id: string
   user_name: string
   user_email: string
   user_reputation_score: number

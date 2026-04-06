@@ -16,6 +16,7 @@ const { isAuthenticated } = storeToRefs(sessionStore)
 const isMenuOpen = ref(false)
 
 const isSignedIn = computed(() => isAuthenticated.value)
+const askQuestionTarget = computed(() => (isSignedIn.value ? '/questions/ask' : '/register'))
 
 watch(
   () => route.fullPath,
@@ -40,6 +41,10 @@ async function handleLogout() {
 
       <nav class="app-header__nav" aria-label="Основная навигация">
         <template v-if="isSignedIn">
+          <RouterLink class="app-header__button-link" :to="askQuestionTarget">
+            <AppButton>Задать вопрос</AppButton>
+          </RouterLink>
+
           <RouterLink class="app-header__link" to="/">
             Главная
           </RouterLink>
@@ -52,8 +57,11 @@ async function handleLogout() {
         </template>
 
         <template v-else>
+          <RouterLink class="app-header__button-link" :to="askQuestionTarget">
+            <AppButton>Задать вопрос</AppButton>
+          </RouterLink>
           <RouterLink class="app-header__button-link" to="/register">
-            <AppButton>Создать аккаунт</AppButton>
+            <AppButton variant="secondary">Создать аккаунт</AppButton>
           </RouterLink>
           <RouterLink class="app-header__link" to="/login">
             Войти
