@@ -5,7 +5,7 @@ import { useCreateSolutionMutation } from '@/features/solutions/mutations/useCre
 import {
   extractSolutionFieldErrors,
   normalizeSolutionSubmitError,
-} from '@/features/solutions/lib/solution-form-errors'
+} from '@/features/solutions/libs/solution-form-errors'
 import type { CreateSolutionResponse } from '@/features/solutions/api/solutions'
 import MarkdownComposer from '@/features/questions/components/MarkdownComposer.vue'
 import AppButton from '@/shared/ui/AppButton.vue'

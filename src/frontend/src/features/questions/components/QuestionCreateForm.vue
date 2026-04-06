@@ -6,7 +6,7 @@ import { useCreateQuestionMutation } from '@/features/questions/mutations/useCre
 import {
   extractQuestionFieldErrors,
   normalizeQuestionSubmitError,
-} from '@/features/questions/lib/question-form-errors'
+} from '@/features/questions/libs/question-form-errors'
 import AppButton from '@/shared/ui/AppButton.vue'
 import AppInput from '@/shared/ui/AppInput.vue'
 

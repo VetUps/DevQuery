@@ -5,7 +5,7 @@ import type { SolutionListItem } from '@/features/solutions/api/solutions'
 import ReadOnlyVoteBlock from '@/features/questions/components/ReadOnlyVoteBlock.vue'
 import CommentContextBlock from '@/features/comments/components/CommentContextBlock.vue'
 import { useCommentContextQuery } from '@/features/comments/queries/useCommentContextQuery'
-import { formatLongDate } from '@/shared/lib/formatting'
+import { formatLongDate } from '@/shared/libs/formatting'
 import MarkdownContent from '@/shared/ui/MarkdownContent.vue'
 
 const props = defineProps<{

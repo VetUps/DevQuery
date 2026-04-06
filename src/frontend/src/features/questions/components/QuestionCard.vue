@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { QuestionListItem } from '@/features/questions/api/questions'
-import { formatLongDate, formatQuestionStatus } from '@/shared/lib/formatting'
+import { formatLongDate, formatQuestionStatus } from '@/shared/libs/formatting'
 
 const props = defineProps<{
   question: QuestionListItem

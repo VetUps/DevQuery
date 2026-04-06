@@ -2,7 +2,7 @@
 import type { QuestionDetail } from '@/features/questions/api/questions'
 import type { PublicUserProfile } from '@/features/users/api/publicProfiles'
 import ReadOnlyVoteBlock from '@/features/questions/components/ReadOnlyVoteBlock.vue'
-import { formatLongDate, formatQuestionStatus } from '@/shared/lib/formatting'
+import { formatLongDate, formatQuestionStatus } from '@/shared/libs/formatting'
 import MarkdownContent from '@/shared/ui/MarkdownContent.vue'
 
 const props = defineProps<{

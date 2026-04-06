@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { CommentListItem } from '@/features/comments/api/comments'
-import { formatLongDate } from '@/shared/lib/formatting'
+import { formatLongDate } from '@/shared/libs/formatting'
 import AppButton from '@/shared/ui/AppButton.vue'
 
 defineProps<{

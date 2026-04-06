@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMemoryHistory, createRouter } from 'vue-router'
 
 import { useSessionStore } from '@/features/auth/stores/session'
-import { normalizeSolutionSubmitError } from '@/features/solutions/lib/solution-form-errors'
+import { normalizeSolutionSubmitError } from '@/features/solutions/libs/solution-form-errors'
 import QuestionDetailPage from '@/pages/QuestionDetailPage.vue'
 
 const questionDetailState = {
