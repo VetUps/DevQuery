@@ -12,7 +12,7 @@ import HomePage from '@/pages/HomePage.vue'
 import ProfilePage from '@/pages/ProfilePage.vue'
 import QuestionDetailPage from '@/pages/QuestionDetailPage.vue'
 import RegisterPage from '@/pages/RegisterPage.vue'
-import { loadStoredTokens } from '@/features/auth/lib/token-storage'
+import { loadStoredTokens } from '@/features/auth/libs/token-storage'
 import { useSessionStore } from '@/features/auth/stores/session'
 
 export const routes: RouteRecordRaw[] = [

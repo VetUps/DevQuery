@@ -3,7 +3,7 @@ import { reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
 import { registerUser } from '@/features/auth/api/auth'
-import { normalizeAuthErrorMessage } from '@/features/auth/lib/auth-errors'
+import { normalizeAuthErrorMessage } from '@/features/auth/libs/auth-errors'
 import AppButton from '@/shared/ui/AppButton.vue'
 import AppInput from '@/shared/ui/AppInput.vue'
 

@@ -3,8 +3,8 @@ import { defineStore } from 'pinia'
 
 import { queryClient } from '@/app/query-client'
 import { logoutUser, type AuthTokens } from '@/features/auth/api/auth'
-import { refreshSession } from '@/features/auth/lib/refresh-session'
-import { clearStoredTokens, loadStoredTokens, saveStoredTokens, type StoredTokens } from '@/features/auth/lib/token-storage'
+import { refreshSession } from '@/features/auth/libs/refresh-session'
+import { clearStoredTokens, loadStoredTokens, saveStoredTokens, type StoredTokens } from '@/features/auth/libs/token-storage'
 import { registerHttpSessionHandlers } from '@/shared/api/http'
 
 type AuthStatus = 'anonymous' | 'authenticated' | 'restoring'

@@ -5,7 +5,7 @@ import { useRoute } from 'vue-router'
 import AuthLayout from '@/layouts/AuthLayout.vue'
 import AuthIntroBlock from '@/features/auth/components/AuthIntroBlock.vue'
 import LoginForm from '@/features/auth/components/LoginForm.vue'
-import { SESSION_EXPIRED_MESSAGE } from '@/features/auth/lib/auth-errors'
+import { SESSION_EXPIRED_MESSAGE } from '@/features/auth/libs/auth-errors'
 
 const route = useRoute()
 

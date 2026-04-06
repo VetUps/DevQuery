@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router'
 
 import { queryClient } from '@/app/query-client'
 import { loginUser } from '@/features/auth/api/auth'
-import { normalizeAuthErrorMessage } from '@/features/auth/lib/auth-errors'
+import { normalizeAuthErrorMessage } from '@/features/auth/libs/auth-errors'
 import { useSessionStore } from '@/features/auth/stores/session'
 import AppButton from '@/shared/ui/AppButton.vue'
 import AppInput from '@/shared/ui/AppInput.vue'

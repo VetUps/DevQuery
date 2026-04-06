@@ -1,7 +1,7 @@
 import axios, { AxiosHeaders, type AxiosError, type InternalAxiosRequestConfig } from 'axios'
 
-import { refreshSession } from '@/features/auth/lib/refresh-session'
-import { loadStoredTokens, type StoredTokens } from '@/features/auth/lib/token-storage'
+import { refreshSession } from '@/features/auth/libs/refresh-session'
+import { loadStoredTokens, type StoredTokens } from '@/features/auth/libs/token-storage'
 
 import { apiBaseUrl } from './config'
 
