@@ -79,6 +79,9 @@ celerybeat-schedule
 
 # dotenv
 .env
+.planning/
+src/frontend/node_modules/
+src/frontend/dist/
 # virtualenv
 venv/
 ENV/
