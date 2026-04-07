@@ -104,6 +104,20 @@ class SolutionEditCreateSerializer(serializers.ModelSerializer):
 
         return solution_edit
 
+
+class SolutionEditCreateResponseSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SolutionEdits
+        fields = [
+            'solution_edit_id',
+            'solution',
+            'user',
+            'solution_edit_body_before',
+            'solution_edit_body_after',
+            'solution_edit_is_approved',
+            'solution_edit_edited_at',
+        ]
+
 class SolutionEditHistorySerializer(serializers.ModelSerializer):
     class Meta:
         model = SolutionEdits
@@ -159,6 +173,8 @@ class CommentCreateSerializer(serializers.ModelSerializer):
                     raise serializers.ValidationError(
                         'Родительский комментарий должен относиться к той же цели'
                     )
+                if parent.parent_id is not None:
+                    raise serializers.ValidationError('Можно отвечать только на корневые комментарии')
             except Comment.DoesNotExist:
                 raise serializers.ValidationError('Родительский комментарий не найден')
 
@@ -193,6 +209,19 @@ class CommentCreateSerializer(serializers.ModelSerializer):
             **validated_data
         )
         return comment
+
+
+class CommentCreateResponseSerializer(serializers.ModelSerializer):
+    target_type = serializers.CharField(read_only=True)
+    user_name = serializers.CharField(source='user.user_name', read_only=True)
+    user_avatar_url = serializers.ImageField(source='user.user_avatar_url', read_only=True)
+    parent_id = serializers.UUIDField(source='parent.comment_id', read_only=True)
+    target_id = serializers.UUIDField(source='object_id', read_only=True)
+
+    class Meta:
+        model = Comment
+        fields = ['comment_id', 'user', 'user_name', 'user_avatar_url', 'target_type',
+                  'target_id', 'parent_id', 'body', 'created_at']
 
 
 class CommentDetailSerializer(serializers.ModelSerializer):

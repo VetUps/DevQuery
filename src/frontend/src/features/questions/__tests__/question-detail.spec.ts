@@ -3,9 +3,12 @@ import { createPinia, setActivePinia } from 'pinia'
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMemoryHistory, createRouter } from 'vue-router'
+import { VueQueryPlugin } from '@tanstack/vue-query'
 
+import { queryClient } from '@/app/query-client'
 import QuestionDetailPage from '@/pages/QuestionDetailPage.vue'
 import VoteBalanceMeter from '@/features/questions/components/VoteBalanceMeter.vue'
+import SignalVoteRail from '@/features/votes/components/SignalVoteRail.vue'
 
 const questionDetailState = {
   data: ref(null),
@@ -85,7 +88,7 @@ async function mountQuestionDetailPage() {
 
   const wrapper = mount(QuestionDetailPage, {
     global: {
-      plugins: [pinia, router],
+      plugins: [pinia, router, [VueQueryPlugin, { queryClient }]],
     },
   })
 
@@ -96,6 +99,8 @@ async function mountQuestionDetailPage() {
 
 describe('question detail page', () => {
   beforeEach(() => {
+    queryClient.clear()
+
     questionDetailState.data.value = null
     questionDetailState.isPending.value = false
     questionDetailState.isError.value = false
@@ -145,7 +150,7 @@ describe('question detail page', () => {
     expect(questionDetailState.refetch).toHaveBeenCalled()
   })
 
-  it('renders a read-only vote block on the public detail route', async () => {
+  it('renders the vote rail in readonly mode on the public detail route', async () => {
     questionDetailState.data.value = {
       question_id: 'question-1',
       user: 'user-1',
@@ -163,7 +168,8 @@ describe('question detail page', () => {
     const { wrapper } = await mountQuestionDetailPage()
 
     expect(wrapper.text()).toContain('Как типизировать read-only detail page?')
-    expect(wrapper.find('[data-testid="read-only-vote-block"]').exists()).toBe(true)
+    expect(wrapper.findComponent(SignalVoteRail).exists()).toBe(true)
     expect(wrapper.findComponent(VoteBalanceMeter).exists()).toBe(true)
+    expect(wrapper.text()).toContain('Чтобы голосовать, войдите в аккаунт.')
   })
 })

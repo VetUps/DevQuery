@@ -1,12 +1,27 @@
 import { computed, toValue, type MaybeRefOrGetter } from 'vue'
 import { useQuery } from '@tanstack/vue-query'
 
-import { fetchCommentContext, type CommentTargetType } from '@/features/comments/api/comments'
+import {
+  fetchCommentContext,
+  type CommentTargetType,
+  type CommentThreadItem,
+} from '@/features/comments/api/comments'
 
 export interface CommentContextSlice {
   count: number
   hasMore: boolean
-  comments: Awaited<ReturnType<typeof fetchCommentContext>>['results']
+  comments: CommentThreadItem[]
+}
+
+export function buildCommentContextQueryKey(targetType: CommentTargetType, targetId: string) {
+  return [
+    'comments',
+    'context',
+    {
+      targetType,
+      targetId,
+    },
+  ] as const
 }
 
 export function useCommentContextQuery(
@@ -17,22 +32,19 @@ export function useCommentContextQuery(
   const normalizedTargetId = computed(() => toValue(targetId).trim())
 
   return useQuery({
-    queryKey: computed(() => [
-      'comments',
-      'context',
-      {
-        targetType: normalizedTargetType.value,
-        targetId: normalizedTargetId.value,
-      },
-    ]),
+    queryKey: computed(() => buildCommentContextQueryKey(
+      normalizedTargetType.value,
+      normalizedTargetId.value,
+    )),
     enabled: computed(() => Boolean(normalizedTargetId.value)),
     queryFn: async (): Promise<CommentContextSlice> => {
       const response = await fetchCommentContext(normalizedTargetType.value, normalizedTargetId.value)
+      const compactComments = response.results.slice(-3)
 
       return {
         count: response.count,
         hasMore: response.count > 3,
-        comments: response.results.slice(0, 3),
+        comments: compactComments,
       }
     },
   })

@@ -1,13 +1,15 @@
 <script setup lang="ts">
 import type { QuestionDetail } from '@/features/questions/api/questions'
 import type { PublicUserProfile } from '@/features/users/api/publicProfiles'
-import ReadOnlyVoteBlock from '@/features/questions/components/ReadOnlyVoteBlock.vue'
+import SignalVoteRail from '@/features/votes/components/SignalVoteRail.vue'
 import { formatLongDate, formatQuestionStatus } from '@/shared/libs/formatting'
 import MarkdownContent from '@/shared/ui/MarkdownContent.vue'
 
 const props = defineProps<{
   question: QuestionDetail
   author: PublicUserProfile | null | undefined
+  currentUserId?: string
+  canVote?: boolean
 }>()
 </script>
 
@@ -54,11 +56,15 @@ const props = defineProps<{
       </div>
     </div>
 
-    <ReadOnlyVoteBlock
+    <SignalVoteRail
+      :mode="canVote ? 'interactive' : 'readonly'"
       :score="question.score"
       :upvotes="question.upvotes"
       :downvotes="question.downvotes"
       :user-vote="question.user_vote"
+      target-type="question"
+      :target-id="question.question_id"
+      :is-own-content="Boolean(currentUserId) && question.user === currentUserId"
       label="Оценка вопроса"
     />
   </section>

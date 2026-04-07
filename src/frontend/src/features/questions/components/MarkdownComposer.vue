@@ -10,11 +10,13 @@ interface Props {
   label: string
   placeholder?: string
   error?: string
+  showModeToggle?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
   placeholder: '',
   error: '',
+  showModeToggle: true,
 })
 
 const model = defineModel<string>({ required: true })
@@ -113,7 +115,7 @@ function insertCodeBlock() {
         </p>
       </div>
 
-      <MarkdownModeToggle v-model="mode" />
+      <MarkdownModeToggle v-if="showModeToggle" v-model="mode" />
     </div>
 
     <div class="markdown-composer__toolbar">

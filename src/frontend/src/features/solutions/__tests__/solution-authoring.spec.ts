@@ -3,7 +3,9 @@ import { createPinia, setActivePinia } from 'pinia'
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMemoryHistory, createRouter } from 'vue-router'
+import { VueQueryPlugin } from '@tanstack/vue-query'
 
+import { queryClient } from '@/app/query-client'
 import { useSessionStore } from '@/features/auth/stores/session'
 import { normalizeSolutionSubmitError } from '@/features/solutions/libs/solution-form-errors'
 import QuestionDetailPage from '@/pages/QuestionDetailPage.vue'
@@ -95,7 +97,7 @@ async function mountQuestionDetailPage(authenticated = false) {
   const wrapper = mount(QuestionDetailPage, {
     attachTo: document.body,
     global: {
-      plugins: [pinia, router],
+      plugins: [pinia, router, [VueQueryPlugin, { queryClient }]],
       stubs: {
         teleport: true,
       },
@@ -142,6 +144,7 @@ function buildSolution(overrides: Record<string, unknown> = {}) {
 
 describe('solution authoring flow', () => {
   beforeEach(() => {
+    queryClient.clear()
     HTMLElement.prototype.scrollIntoView = vi.fn()
 
     questionDetailState.data.value = buildQuestionDetail()

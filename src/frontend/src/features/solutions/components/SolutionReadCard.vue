@@ -1,21 +1,53 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 
 import type { SolutionListItem } from '@/features/solutions/api/solutions'
-import ReadOnlyVoteBlock from '@/features/questions/components/ReadOnlyVoteBlock.vue'
 import CommentContextBlock from '@/features/comments/components/CommentContextBlock.vue'
+import DiscussionThreadModal from '@/features/comments/components/DiscussionThreadModal.vue'
 import { useCommentContextQuery } from '@/features/comments/queries/useCommentContextQuery'
+import type { CreateSolutionEditResponse } from '@/features/solutions/api/solutionEdits'
+import SolutionEditProposalModal from '@/features/solutions/components/SolutionEditProposalModal.vue'
+import SignalVoteRail from '@/features/votes/components/SignalVoteRail.vue'
 import { formatLongDate } from '@/shared/libs/formatting'
+import AppButton from '@/shared/ui/AppButton.vue'
 import MarkdownContent from '@/shared/ui/MarkdownContent.vue'
 
 const props = defineProps<{
   solution: SolutionListItem
+  questionId: string
+  viewerUserId?: string
+  isAuthenticated?: boolean
+  activeComposerKey?: string | null
   featured?: boolean
   isFresh?: boolean
 }>()
 
+const emit = defineEmits<{
+  requestComposer: [key: string | null]
+}>()
+
 const solutionId = computed(() => props.solution.solution_id)
 const commentQuery = useCommentContextQuery('solution', solutionId)
+const isDiscussionOpen = ref(false)
+const isEditModalOpen = ref(false)
+const editSuccessMessage = ref('')
+
+const canSuggestEdit = computed(() => (
+  Boolean(props.isAuthenticated) &&
+  Boolean(props.viewerUserId) &&
+  props.viewerUserId !== props.solution.user
+))
+
+watch(solutionId, () => {
+  isDiscussionOpen.value = false
+  isEditModalOpen.value = false
+  editSuccessMessage.value = ''
+})
+
+function handleEditSubmitted(_createdEdit: CreateSolutionEditResponse) {
+  isEditModalOpen.value = false
+  editSuccessMessage.value = 'Правка отправлена на проверку'
+}
 </script>
 
 <template>
@@ -50,22 +82,70 @@ const commentQuery = useCommentContextQuery('solution', solutionId)
         <MarkdownContent :source="solution.solution_body" />
       </div>
 
-      <ReadOnlyVoteBlock
+      <SignalVoteRail
+        :mode="isAuthenticated ? 'interactive' : 'readonly'"
         :score="solution.score"
         :upvotes="solution.upvotes"
         :downvotes="solution.downvotes"
         :user-vote="solution.user_vote"
+        target-type="solution"
+        :target-id="solution.solution_id"
+        :question-id="questionId"
+        :is-own-content="Boolean(viewerUserId) && solution.user === viewerUserId"
         label="Оценка решения"
       />
     </div>
 
+    <div v-if="canSuggestEdit || editSuccessMessage" class="solution-read-card__actions">
+      <AppButton
+        v-if="canSuggestEdit && !editSuccessMessage"
+        variant="secondary"
+        @click="isEditModalOpen = true"
+      >
+        Предложить правку
+      </AppButton>
+
+      <p v-else class="solution-read-card__edit-success">
+        {{ editSuccessMessage }}
+      </p>
+    </div>
+
     <CommentContextBlock
       title="Комментарии к решению"
+      target-type="solution"
+      :target-id="solutionId"
       :comments="commentQuery.data.value?.comments ?? []"
+      :composer-key-prefix="`solution:${solution.solution_id}`"
+      :active-composer-key="activeComposerKey"
+      :can-comment="isAuthenticated"
       :is-pending="commentQuery.isPending.value"
       :is-error="commentQuery.isError.value"
       :has-more="commentQuery.data.value?.hasMore ?? false"
       @retry="commentQuery.refetch()"
+      @request-composer="$emit('requestComposer', $event)"
+      @open-thread="isDiscussionOpen = true"
+    />
+
+    <DiscussionThreadModal
+      v-if="isDiscussionOpen"
+      :open="isDiscussionOpen"
+      title="Комментарии к решению"
+      target-type="solution"
+      :target-id="solutionId"
+      context-eyebrow="Контекст решения"
+      :context-title="solution.solution_is_best ? 'Лучшее решение' : 'Решение автора'"
+      :context-body="solution.solution_body"
+      :can-comment="isAuthenticated"
+      @close="isDiscussionOpen = false"
+    />
+
+    <SolutionEditProposalModal
+      v-if="isEditModalOpen"
+      :open="isEditModalOpen"
+      :solution-id="solution.solution_id"
+      :original-body="solution.solution_body"
+      @close="isEditModalOpen = false"
+      @submitted="handleEditSubmitted"
     />
   </article>
 </template>
@@ -92,7 +172,8 @@ const commentQuery = useCommentContextQuery('solution', solutionId)
 }
 
 .solution-read-card__header,
-.solution-read-card__content {
+.solution-read-card__content,
+.solution-read-card__actions {
   display: grid;
   gap: var(--space-md);
 }
@@ -135,6 +216,23 @@ const commentQuery = useCommentContextQuery('solution', solutionId)
 
 .solution-read-card__body {
   line-height: 1.7;
+}
+
+.solution-read-card__actions {
+  justify-items: start;
+  padding-top: var(--space-md);
+  border-top: 1px solid rgb(207 198 180 / 0.62);
+}
+
+.solution-read-card__edit-success {
+  margin: 0;
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid rgb(47 133 90 / 0.24);
+  border-radius: 999px;
+  background: rgb(47 133 90 / 0.1);
+  color: #2F855A;
+  font-size: 14px;
+  font-weight: 600;
 }
 
 @keyframes solution-fresh-highlight {

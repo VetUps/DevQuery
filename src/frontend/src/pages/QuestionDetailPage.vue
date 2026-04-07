@@ -4,6 +4,7 @@ import { storeToRefs } from 'pinia'
 import { useRoute } from 'vue-router'
 
 import CommentContextBlock from '@/features/comments/components/CommentContextBlock.vue'
+import DiscussionThreadModal from '@/features/comments/components/DiscussionThreadModal.vue'
 import { useCommentContextQuery } from '@/features/comments/queries/useCommentContextQuery'
 import { useCurrentUserQuery } from '@/features/auth/queries/useCurrentUserQuery'
 import { useSessionStore } from '@/features/auth/stores/session'
@@ -37,6 +38,8 @@ const questionAuthorQuery = usePublicProfileQuery(questionAuthorId)
 const isComposerOpen = ref(false)
 const solutionSuccessMessage = ref('')
 const freshSolutionId = ref<string | null>(null)
+const activeInlineComposerKey = ref<string | null>(null)
+const isQuestionDiscussionOpen = ref(false)
 
 let clearFreshSolutionTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -93,6 +96,8 @@ watch(
     isComposerOpen.value = false
     solutionSuccessMessage.value = ''
     freshSolutionId.value = null
+    activeInlineComposerKey.value = null
+    isQuestionDiscussionOpen.value = false
 
     if (clearFreshSolutionTimer) {
       clearTimeout(clearFreshSolutionTimer)
@@ -136,24 +141,38 @@ onBeforeUnmount(() => {
         <QuestionDetailHero
           :question="questionDetailQuery.data.value"
           :author="questionAuthorQuery.data.value"
+          :current-user-id="currentUserId"
+          :can-vote="isAuthenticated"
         />
 
         <CommentContextBlock
           title="Комментарии к вопросу"
+          target-type="question"
+          :target-id="questionId"
           :comments="questionCommentsQuery.data.value?.comments ?? []"
+          composer-key-prefix="question"
+          :active-composer-key="activeInlineComposerKey"
+          :can-comment="isAuthenticated"
           :is-pending="questionCommentsQuery.isPending.value"
           :is-error="questionCommentsQuery.isError.value"
           :has-more="questionCommentsQuery.data.value?.hasMore ?? false"
           @retry="questionCommentsQuery.refetch()"
+          @request-composer="activeInlineComposerKey = $event"
+          @open-thread="isQuestionDiscussionOpen = true"
         />
 
         <SolutionListSection
           :solutions="solutionsQuery.data.value ?? []"
+          :question-id="questionId"
+          :viewer-user-id="currentUserId"
+          :is-authenticated="isAuthenticated"
+          :active-composer-key="activeInlineComposerKey"
           :is-pending="solutionsQuery.isPending.value"
           :is-error="solutionsQuery.isError.value"
           :success-message="solutionSuccessMessage"
           :fresh-solution-id="freshSolutionId"
           @retry="solutionsQuery.refetch()"
+          @request-composer="activeInlineComposerKey = $event"
         >
           <template #authoring>
             <SolutionExistingNotice
@@ -185,6 +204,19 @@ onBeforeUnmount(() => {
           :question-title="questionDetailQuery.data.value.question_title"
           @close="isComposerOpen = false"
           @submitted="handleSolutionSubmitted"
+        />
+
+        <DiscussionThreadModal
+          v-if="isQuestionDiscussionOpen && questionDetailQuery.data.value"
+          :open="isQuestionDiscussionOpen"
+          title="Комментарии к вопросу"
+          target-type="question"
+          :target-id="questionId"
+          context-eyebrow="Контекст вопроса"
+          :context-title="questionDetailQuery.data.value.question_title"
+          :context-body="questionDetailQuery.data.value.question_body"
+          :can-comment="isAuthenticated"
+          @close="isQuestionDiscussionOpen = false"
         />
       </template>
     </section>

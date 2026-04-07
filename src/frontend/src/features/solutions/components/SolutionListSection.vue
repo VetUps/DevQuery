@@ -6,6 +6,10 @@ import SolutionReadCard from './SolutionReadCard.vue'
 
 defineProps<{
   solutions: SolutionListItem[]
+  questionId: string
+  viewerUserId?: string
+  isAuthenticated?: boolean
+  activeComposerKey?: string | null
   isPending?: boolean
   isError?: boolean
   successMessage?: string
@@ -14,6 +18,7 @@ defineProps<{
 
 defineEmits<{
   retry: []
+  requestComposer: [key: string | null]
 }>()
 </script>
 
@@ -51,8 +56,13 @@ defineEmits<{
         v-for="(solution, index) in solutions"
         :key="solution.solution_id"
         :solution="solution"
+        :question-id="questionId"
+        :viewer-user-id="viewerUserId"
+        :is-authenticated="isAuthenticated"
+        :active-composer-key="activeComposerKey"
         :featured="index === 0"
         :is-fresh="solution.solution_id === freshSolutionId"
+        @request-composer="$emit('requestComposer', $event)"
       />
     </div>
   </section>

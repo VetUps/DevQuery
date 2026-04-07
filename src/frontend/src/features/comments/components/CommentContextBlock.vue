@@ -1,26 +1,106 @@
 <script setup lang="ts">
-import type { CommentListItem } from '@/features/comments/api/comments'
-import { formatLongDate } from '@/shared/libs/formatting'
+import { ref, watch } from 'vue'
+
+import type { CommentTargetType, CommentThreadItem } from '@/features/comments/api/comments'
+import CommentComposer from '@/features/comments/components/CommentComposer.vue'
+import CommentThreadItemComponent from '@/features/comments/components/CommentThreadItem.vue'
+import { useCreateCommentMutation } from '@/features/comments/mutations/useCreateCommentMutation'
+import {
+  extractCommentFieldErrors,
+  normalizeCommentSubmitError,
+} from '@/features/comments/lib/comment-form-errors'
 import AppButton from '@/shared/ui/AppButton.vue'
 
-defineProps<{
+interface Props {
   title: string
-  comments: CommentListItem[]
+  targetType: CommentTargetType
+  targetId: string
+  comments: CommentThreadItem[]
+  composerKeyPrefix: string
+  activeComposerKey?: string | null
+  canComment?: boolean
   isPending?: boolean
   isError?: boolean
   hasMore?: boolean
+}
+
+const props = withDefaults(defineProps<Props>(), {
+  activeComposerKey: null,
+  canComment: false,
+  isPending: false,
+  isError: false,
+  hasMore: false,
+})
+
+const emit = defineEmits<{
+  retry: []
+  requestComposer: [key: string | null]
+  openThread: []
+  commentSubmitted: [commentId: string]
 }>()
 
-defineEmits<{
-  retry: []
-}>()
+const createCommentMutation = useCreateCommentMutation()
+const fieldError = ref('')
+const summary = ref('')
+
+const rootComposerKey = `${props.composerKeyPrefix}:root`
+
+watch(
+  () => props.activeComposerKey,
+  (nextKey) => {
+    if (nextKey !== rootComposerKey) {
+      fieldError.value = ''
+      summary.value = ''
+    }
+  },
+)
+
+async function handleRootSubmit(body: string) {
+  fieldError.value = ''
+  summary.value = ''
+
+  try {
+    const createdComment = await createCommentMutation.mutateAsync({
+      target_type: props.targetType,
+      target_id: props.targetId,
+      body,
+    })
+
+    emit('requestComposer', null)
+    emit('commentSubmitted', createdComment.comment_id)
+  } catch (error) {
+    const nextFieldErrors = extractCommentFieldErrors(error)
+
+    fieldError.value = nextFieldErrors.body
+    summary.value = normalizeCommentSubmitError(error)
+  }
+}
 </script>
 
 <template>
   <section class="comment-context-block">
     <div class="comment-context-block__header">
       <h3 class="comment-context-block__title">{{ title }}</h3>
+
+      <AppButton
+        v-if="canComment"
+        variant="secondary"
+        @click="$emit('requestComposer', activeComposerKey === rootComposerKey ? null : rootComposerKey)"
+      >
+        {{ activeComposerKey === rootComposerKey ? 'Скрыть форму' : 'Комментировать' }}
+      </AppButton>
     </div>
+
+    <CommentComposer
+      v-if="canComment && activeComposerKey === rootComposerKey"
+      heading="Новый комментарий"
+      :pending="createCommentMutation.isPending.value"
+      :summary="summary"
+      :field-error="fieldError"
+      :auto-focus="true"
+      @cancel="$emit('requestComposer', null)"
+      @submit="handleRootSubmit"
+    />
 
     <p v-if="isPending" class="comment-context-block__muted">
       Загружаем комментарии…
@@ -38,23 +118,24 @@ defineEmits<{
     </div>
 
     <div v-else class="comment-context-block__list">
-      <article
+      <CommentThreadItemComponent
         v-for="comment in comments"
         :key="comment.comment_id"
-        class="comment-context-block__item"
-      >
-        <div class="comment-context-block__item-meta">
-          <strong>{{ comment.user_name }}</strong>
-          <span>{{ formatLongDate(comment.created_at) }}</span>
-        </div>
-        <p class="comment-context-block__body">{{ comment.body }}</p>
-      </article>
+        :comment="comment"
+        :target-type="targetType"
+        :target-id="targetId"
+        :can-reply="canComment"
+        :reply-composer-open="activeComposerKey === `${composerKeyPrefix}:reply:${comment.comment_id}`"
+        @request-composer="$emit('requestComposer', $event ? `${composerKeyPrefix}:${$event}` : null)"
+        @submitted="$emit('commentSubmitted', $event)"
+      />
     </div>
 
     <button
       class="comment-context-block__more"
       type="button"
       :disabled="!hasMore"
+      @click="$emit('openThread')"
     >
       Показать ещё
     </button>
@@ -71,7 +152,14 @@ defineEmits<{
   background: rgb(255 255 255 / 0.62);
 }
 
-.comment-context-block__header,
+.comment-context-block__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+}
+
 .comment-context-block__feedback,
 .comment-context-block__list {
   display: grid;
@@ -79,8 +167,7 @@ defineEmits<{
 }
 
 .comment-context-block__title,
-.comment-context-block__muted,
-.comment-context-block__body {
+.comment-context-block__muted {
   margin: 0;
 }
 
@@ -92,30 +179,6 @@ defineEmits<{
 .comment-context-block__muted {
   color: var(--color-muted);
   font-size: 14px;
-}
-
-.comment-context-block__item {
-  display: grid;
-  gap: var(--space-xs);
-  padding-top: var(--space-md);
-  border-top: 1px solid rgb(207 198 180 / 0.62);
-}
-
-.comment-context-block__item:first-child {
-  padding-top: 0;
-  border-top: 0;
-}
-
-.comment-context-block__item-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-sm);
-  color: var(--color-muted);
-  font-size: 14px;
-}
-
-.comment-context-block__body {
-  line-height: 1.6;
 }
 
 .comment-context-block__more {

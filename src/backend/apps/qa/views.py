@@ -12,8 +12,8 @@ from .serializers import (
     QuestionGetSerializer, QuestionListSerializer, QuestionUpdateCreateSerializer,
     QuestionCreateResponseSerializer, SolutionListSerializer, SolutionCreateSerializer,
     SolutionCreateResponseSerializer,
-    SolutionEditCreateSerializer, SolutionEditHistorySerializer,
-    CommentListSerializer, CommentCreateSerializer, CommentDetailSerializer,
+    SolutionEditCreateSerializer, SolutionEditCreateResponseSerializer, SolutionEditHistorySerializer,
+    CommentCreateResponseSerializer, CommentListSerializer, CommentCreateSerializer, CommentDetailSerializer,
     VoteSerializer, VoteCreateSerializer, SolutionEditApprovalSerializer,
 )
 from .services.solution_edits_service import SolutionEditService
@@ -156,6 +156,7 @@ class SolutionEditsViewSet(mixins.CreateModelMixin,
                            viewsets.GenericViewSet):
     serializer_class = SolutionEditHistorySerializer
     solution_edit_create_serializer = SolutionEditCreateSerializer
+    solution_edit_create_response_serializer = SolutionEditCreateResponseSerializer
 
     def get_queryset(self):
         return SolutionEdits.objects.select_related('solution', 'user')
@@ -186,6 +187,20 @@ class SolutionEditsViewSet(mixins.CreateModelMixin,
         if is_author:
             solution.solution_body = serializer.validated_data['solution_edit_body_after']
             solution.save(update_fields=['solution_body', 'solution_updated_at'])
+
+    @extend_schema(
+        request=SolutionEditCreateSerializer,
+        responses={201: SolutionEditCreateResponseSerializer},
+    )
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+
+        response_serializer = self.solution_edit_create_response_serializer(serializer.instance)
+        headers = self.get_success_headers(response_serializer.data)
+
+        return Response(response_serializer.data, status=status.HTTP_201_CREATED, headers=headers)
 
     @action(detail=False, methods=['get'], url_path='history/(?P<solution_id>[^/.]+)')
     @extend_schema(responses=SolutionEditHistorySerializer(many=True))
@@ -251,6 +266,7 @@ class CommentViewSet(mixins.ListModelMixin,
 
     comment_list_serializer = CommentListSerializer
     comment_create_serializer = CommentCreateSerializer
+    comment_create_response_serializer = CommentCreateResponseSerializer
     comment_detail_serializer = CommentDetailSerializer
 
     @extend_schema(
@@ -282,10 +298,18 @@ class CommentViewSet(mixins.ListModelMixin,
         return super().list(request, *args, **kwargs)
 
     @extend_schema(
-        request=CommentCreateSerializer
+        request=CommentCreateSerializer,
+        responses={201: CommentCreateResponseSerializer},
     )
     def create(self, request, *args, **kwargs):
-        return super().create(request, *args, **kwargs)
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+
+        response_serializer = self.comment_create_response_serializer(serializer.instance)
+        headers = self.get_success_headers(response_serializer.data)
+
+        return Response(response_serializer.data, status=status.HTTP_201_CREATED, headers=headers)
 
     def get_queryset(self):
         target_type = self.request.query_params.get('target_type')
@@ -322,7 +346,7 @@ class CommentViewSet(mixins.ListModelMixin,
 
     def get_serializer_class(self):
         if self.action == 'list':
-            return self.comment_list_serializer
+            return self.comment_detail_serializer
         if self.action == 'create':
             return self.comment_create_serializer
         if self.action == 'retrieve':

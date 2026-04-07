@@ -15,13 +15,48 @@ export interface CommentListItem {
   created_at: string
 }
 
+export interface CommentThreadItem extends CommentListItem {
+  replies: CommentListItem[]
+}
+
+export interface CreateCommentPayload {
+  target_type: CommentTargetType
+  target_id: string
+  parent_id?: string | null
+  body: string
+}
+
+export type CreateCommentResponse = CommentListItem
+
 export async function fetchCommentContext(target_type: CommentTargetType, target_id: string) {
-  const response = await http.get<PaginatedResponse<CommentListItem>>('/comment/', {
+  const response = await http.get<PaginatedResponse<CommentThreadItem>>('/comment/', {
     params: {
       target_type,
       target_id,
     },
   })
+
+  return response.data
+}
+
+export async function fetchCommentThread(
+  target_type: CommentTargetType,
+  target_id: string,
+  parent_id?: string | null,
+) {
+  const response = await http.get<PaginatedResponse<CommentThreadItem>>('/comment/', {
+    params: {
+      target_type,
+      target_id,
+      ...(parent_id ? { parent_id } : {}),
+    },
+  })
+
+  return response.data
+}
+
+export async function createComment(payload: CreateCommentPayload) {
+  const response = await http.post<CreateCommentResponse>('/comment/', payload)
 
   return response.data
 }
