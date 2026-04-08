@@ -11,7 +11,7 @@ import { useCreateCommentMutation } from '@/features/comments/mutations/useCreat
 import {
   extractCommentFieldErrors,
   normalizeCommentSubmitError,
-} from '@/features/comments/lib/comment-form-errors'
+} from '@/features/comments/libs/comment-form-errors'
 import { formatLongDate } from '@/shared/libs/formatting'
 
 interface Props {

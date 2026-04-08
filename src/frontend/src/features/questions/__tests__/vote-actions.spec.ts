@@ -6,7 +6,7 @@ import { VueQueryPlugin } from '@tanstack/vue-query'
 import { queryClient } from '@/app/query-client'
 import type { QuestionDetail } from '@/features/questions/api/questions'
 import SignalVoteRail from '@/features/votes/components/SignalVoteRail.vue'
-import { applyVoteState } from '@/features/votes/lib/apply-vote-state'
+import { applyVoteState } from '@/features/votes/libs/apply-vote-state'
 import { useVoteMutation } from '@/features/votes/mutations/useVoteMutation'
 import { useToastStore } from '@/shared/stores/toast'
 

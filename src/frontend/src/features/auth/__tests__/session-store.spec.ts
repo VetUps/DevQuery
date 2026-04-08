@@ -6,7 +6,7 @@ import { ACCESS_TOKEN_STORAGE_KEY, REFRESH_TOKEN_STORAGE_KEY } from '@/features/
 
 const refreshSessionMock = vi.fn()
 
-vi.mock('@/features/auth/lib/refresh-session', () => ({
+vi.mock('@/features/auth/libs/refresh-session', () => ({
   refreshSession: refreshSessionMock,
 }))
 

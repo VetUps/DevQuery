@@ -9,7 +9,7 @@ import { useCommentThreadQuery } from '@/features/comments/queries/useCommentThr
 import {
   extractCommentFieldErrors,
   normalizeCommentSubmitError,
-} from '@/features/comments/lib/comment-form-errors'
+} from '@/features/comments/libs/comment-form-errors'
 import AppButton from '@/shared/ui/AppButton.vue'
 import AppDialog from '@/shared/ui/AppDialog.vue'
 import MarkdownContent from '@/shared/ui/MarkdownContent.vue'

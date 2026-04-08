@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 
-import { buildSolutionEditDiff } from '@/features/solutions/lib/solution-edit-diff'
+import { buildSolutionEditDiff } from '@/features/solutions/libs/solution-edit-diff'
 
 interface Props {
   before: string

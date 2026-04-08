@@ -5,7 +5,7 @@ import { queryClient } from '@/app/query-client'
 import type { QuestionDetail } from '@/features/questions/api/questions'
 import type { SolutionListItem } from '@/features/solutions/api/solutions'
 import { castVote, removeVote, type VoteTargetType, type VoteType } from '@/features/votes/api/votes'
-import { applyVoteState, resolveNextVote } from '@/features/votes/lib/apply-vote-state'
+import { applyVoteState, resolveNextVote } from '@/features/votes/libs/apply-vote-state'
 import { useToastStore } from '@/shared/stores/toast'
 
 interface VoteMutationPayload {

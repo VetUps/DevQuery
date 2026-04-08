@@ -10,7 +10,7 @@ import {
 import { buildCommentContextQueryKey, type CommentContextSlice } from '@/features/comments/queries/useCommentContextQuery'
 import { buildCommentThreadQueryKey } from '@/features/comments/queries/useCommentThreadQuery'
 import { queryClient } from '@/app/query-client'
-import { normalizeCommentSubmitError } from '@/features/comments/lib/comment-form-errors'
+import { normalizeCommentSubmitError } from '@/features/comments/libs/comment-form-errors'
 import { useToastStore } from '@/shared/stores/toast'
 
 interface CommentMutationContext {

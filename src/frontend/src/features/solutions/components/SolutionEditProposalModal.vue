@@ -7,7 +7,7 @@ import SolutionEditComparePane from '@/features/solutions/components/SolutionEdi
 import {
   extractSolutionEditFieldErrors,
   normalizeSolutionEditError,
-} from '@/features/solutions/lib/solution-edit-errors'
+} from '@/features/solutions/libs/solution-edit-errors'
 import { useCreateSolutionEditMutation } from '@/features/solutions/mutations/useCreateSolutionEditMutation'
 import AppButton from '@/shared/ui/AppButton.vue'
 import AppDialog from '@/shared/ui/AppDialog.vue'
