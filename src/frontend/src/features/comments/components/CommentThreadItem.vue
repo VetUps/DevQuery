@@ -37,10 +37,13 @@ const emit = defineEmits<{
 const createCommentMutation = useCreateCommentMutation()
 const fieldError = ref('')
 const summary = ref('')
+const areRepliesVisible = ref(false)
 
 const replies = computed(() => ('replies' in props.comment ? props.comment.replies ?? [] : []))
+const hasReplies = computed(() => replies.value.length > 0)
 const isHighlighted = computed(() => props.highlightedCommentId === props.comment.comment_id)
 const replyComposerKey = computed(() => `reply:${props.comment.comment_id}`)
+const hasHighlightedReply = computed(() => replies.value.some((reply) => reply.comment_id === props.highlightedCommentId))
 
 watch(
   () => props.replyComposerOpen,
@@ -50,6 +53,16 @@ watch(
       summary.value = ''
     }
   },
+)
+
+watch(
+  hasHighlightedReply,
+  (nextHasHighlightedReply) => {
+    if (nextHasHighlightedReply) {
+      areRepliesVisible.value = true
+    }
+  },
+  { immediate: true },
 )
 
 async function handleReplySubmit(body: string) {
@@ -64,6 +77,7 @@ async function handleReplySubmit(body: string) {
       body,
     })
 
+    areRepliesVisible.value = true
     emit('requestComposer', null)
     emit('submitted', createdComment.comment_id)
   } catch (error) {
@@ -88,13 +102,23 @@ async function handleReplySubmit(body: string) {
 
     <p class="comment-thread-item__body">{{ comment.body }}</p>
 
-    <div v-if="canReply" class="comment-thread-item__actions">
+    <div v-if="canReply || hasReplies" class="comment-thread-item__actions">
       <button
+        v-if="canReply"
         type="button"
         class="comment-thread-item__action"
         @click="$emit('requestComposer', replyComposerOpen ? null : replyComposerKey)"
       >
         {{ replyComposerOpen ? 'Скрыть форму' : 'Ответить' }}
+      </button>
+
+      <button
+        v-if="hasReplies"
+        type="button"
+        class="comment-thread-item__action comment-thread-item__action--muted"
+        @click="areRepliesVisible = !areRepliesVisible"
+      >
+        {{ areRepliesVisible ? 'Скрыть ответы' : `Показать ответы (${replies.length})` }}
       </button>
     </div>
 
@@ -111,7 +135,7 @@ async function handleReplySubmit(body: string) {
       @submit="handleReplySubmit"
     />
 
-    <div v-if="replies.length > 0" class="comment-thread-item__replies">
+    <div v-if="hasReplies && areRepliesVisible" class="comment-thread-item__replies">
       <CommentThreadItem
         v-for="reply in replies"
         :key="reply.comment_id"
@@ -168,6 +192,10 @@ async function handleReplySubmit(body: string) {
   color: var(--color-accent);
   font-size: 14px;
   font-weight: 600;
+}
+
+.comment-thread-item__action--muted {
+  color: var(--color-text);
 }
 
 .comment-thread-item__replies {

@@ -5,11 +5,13 @@ interface Props {
   open: boolean
   title?: string
   description?: string
+  size?: 'default' | 'wide'
 }
 
 const props = withDefaults(defineProps<Props>(), {
   title: '',
   description: '',
+  size: 'default',
 })
 
 const emit = defineEmits<{
@@ -65,6 +67,7 @@ onBeforeUnmount(() => {
     >
       <div
         class="app-dialog__panel"
+        :class="`app-dialog__panel--${size}`"
         role="dialog"
         aria-modal="true"
         :aria-label="title || 'Диалог'"
@@ -109,6 +112,11 @@ onBeforeUnmount(() => {
   border-radius: var(--radius-lg);
   background: linear-gradient(180deg, rgb(255 255 255 / 0.96), rgb(247 243 234 / 0.98));
   box-shadow: 0 28px 60px rgb(31 41 51 / 0.18);
+}
+
+.app-dialog__panel--wide {
+  width: min(1240px, 100%);
+  max-height: min(92vh, 1040px);
 }
 
 .app-dialog__header {

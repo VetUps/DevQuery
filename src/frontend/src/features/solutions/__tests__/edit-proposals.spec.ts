@@ -108,6 +108,7 @@ describe('edit proposals', () => {
     expect(wrapper.text()).toContain('Редактор')
     expect(wrapper.text()).toContain('Предпросмотр')
     expect(wrapper.text()).toContain('Изменения')
+    expect(wrapper.find('.app-dialog__panel--wide').exists()).toBe(true)
 
     await wrapper.get('#solution-edit-body').setValue('```ts\\nconsole.log(\"after\")\\n```')
     const changesTab = wrapper.findAll('button').find((button) => button.text().trim() === 'Изменения')

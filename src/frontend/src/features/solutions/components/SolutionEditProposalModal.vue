@@ -99,6 +99,7 @@ async function handleSubmit() {
 <template>
   <AppDialog
     :open="open"
+    size="wide"
     title="Предложить правку"
     description="Сравните исходное решение с новой версией и отправьте её на проверку."
     @close="$emit('close')"
@@ -207,7 +208,7 @@ async function handleSubmit() {
 
 .solution-edit-proposal-modal__layout {
   display: grid;
-  grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
+  grid-template-columns: minmax(300px, 380px) minmax(0, 1fr);
   gap: var(--space-lg);
 }
 
@@ -233,6 +234,7 @@ async function handleSubmit() {
 .solution-edit-proposal-modal__main {
   display: grid;
   gap: var(--space-md);
+  min-width: 0;
 }
 
 .solution-edit-proposal-modal__tabs {
@@ -270,6 +272,11 @@ async function handleSubmit() {
   max-width: 52ch;
   color: var(--color-muted);
   line-height: 1.6;
+}
+
+.solution-edit-proposal-modal :deep(.markdown-composer__textarea),
+.solution-edit-proposal-modal :deep(.markdown-composer__preview) {
+  min-height: 420px;
 }
 
 @media (width <= 900px) {

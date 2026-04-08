@@ -279,6 +279,24 @@ describe('comment interactions', () => {
     expect(wrapper.text()).toContain('Нужно добавить modal для полной дискуссии.')
   })
 
+  it('shows replies only on demand and lets the user hide them again', async () => {
+    const { wrapper } = await mountQuestionDetailPage(true)
+
+    expect(wrapper.text()).not.toContain('Короткий ответ')
+
+    const showRepliesButton = wrapper.findAll('button').find((button) => button.text().trim() === 'Показать ответы (1)')
+    await showRepliesButton!.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Короткий ответ')
+
+    const hideRepliesButton = wrapper.findAll('button').find((button) => button.text().trim() === 'Скрыть ответы')
+    await hideRepliesButton!.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('Короткий ответ')
+  })
+
   it('optimistically inserts a comment and rolls it back on failure', async () => {
     let rejectRequest: ((reason?: unknown) => void) | null = null
 
