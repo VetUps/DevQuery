@@ -4,6 +4,7 @@ import { storeToRefs } from 'pinia'
 import { useRoute } from 'vue-router'
 
 import { useQuestionListQuery } from '@/features/questions/queries/useQuestionListQuery'
+import DiscoverySearchReserve from '@/features/questions/components/DiscoverySearchReserve.vue'
 import PublicDiscoveryIntro from '@/features/questions/components/PublicDiscoveryIntro.vue'
 import QuestionCard from '@/features/questions/components/QuestionCard.vue'
 import QuestionListPagination from '@/features/questions/components/QuestionListPagination.vue'
@@ -44,7 +45,7 @@ const isEmptyList = computed(
     <section class="home-page">
       <div class="home-page__content">
         <div class="home-page__main">
-          <PublicDiscoveryIntro :total-questions="totalQuestions" />
+          <DiscoverySearchReserve :total-questions="totalQuestions" />
 
           <SurfacePanel class="home-page__list-section" aria-label="Лента вопросов">
             <div class="home-page__section-heading">
@@ -96,6 +97,8 @@ const isEmptyList = computed(
         </div>
 
         <aside class="home-page__sidebar" aria-label="Дополнительная информация">
+          <PublicDiscoveryIntro :total-questions="totalQuestions" />
+
           <SurfacePanel class="home-page__sidebar-card">
             <p class="home-page__eyebrow">Быстрый вход</p>
             <h2 class="home-page__sidebar-title">
@@ -125,13 +128,6 @@ const isEmptyList = computed(
               </RouterLink>
             </div>
           </SurfacePanel>
-
-          <SurfacePanel class="home-page__sidebar-card" variant="muted" padding="lg">
-            <p class="home-page__eyebrow">Что дальше</p>
-            <h2 class="home-page__sidebar-title">Пространство под расширение</h2>
-            <p class="home-page__sidebar-text">
-            </p>
-          </SurfacePanel>
         </aside>
       </div>
     </section>
@@ -156,18 +152,10 @@ const isEmptyList = computed(
   align-content: start;
 }
 
-.home-page__sidebar-card {
-  top: 96px;
-}
-
 .home-page__list-section,
 .home-page__sidebar-card {
   display: grid;
   gap: var(--space-lg);
-}
-
-.home-page__sidebar-card {
-  position: sticky;
 }
 
 .home-page__section-heading {

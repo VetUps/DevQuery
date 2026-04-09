@@ -40,6 +40,7 @@ class QuestionCreateResponseSerializer(serializers.ModelSerializer):
 
 class SolutionListSerializer(serializers.ModelSerializer):
     question_id = serializers.UUIDField(write_only=True)
+    user_name = serializers.CharField(source='user.user_name', read_only=True)
     upvotes = serializers.IntegerField(source='vote_upvotes', read_only=True)
     downvotes = serializers.IntegerField(source='vote_downvotes', read_only=True)
     score = serializers.IntegerField(source='vote_score', read_only=True)
@@ -47,7 +48,7 @@ class SolutionListSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Solution
-        fields = ['solution_id', 'user', 'question_id', 'solution_body', 'solution_is_best',
+        fields = ['solution_id', 'user', 'user_name', 'question_id', 'solution_body', 'solution_is_best',
                   'solution_created_at', 'solution_updated_at', 'upvotes', 'downvotes', 'score', 'user_vote']
 
 class SolutionCreateSerializer(serializers.ModelSerializer):
@@ -64,11 +65,14 @@ class SolutionCreateSerializer(serializers.ModelSerializer):
         return data
 
 class SolutionCreateResponseSerializer(serializers.ModelSerializer):
+    user_name = serializers.CharField(source='user.user_name', read_only=True)
+
     class Meta:
         model = Solution
         fields = [
             'solution_id',
             'user',
+            'user_name',
             'question',
             'solution_body',
             'solution_is_best',
@@ -141,6 +145,8 @@ class CommentCreateSerializer(serializers.ModelSerializer):
     class TargetType(TextChoices):
         QUESTION = 'question', 'Question'
         SOLUTION = 'solution', 'Solution'
+
+    COMMENT_BODY_LIMIT = 800
     
     target_type = serializers.ChoiceField(choices=TargetType.choices)
     target_id = serializers.UUIDField(write_only=True)
@@ -149,6 +155,17 @@ class CommentCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Comment
         fields = ['target_type', 'target_id', 'parent_id', 'body']
+
+    def validate_body(self, value):
+        normalized_value = value.strip()
+
+        if not normalized_value:
+            raise serializers.ValidationError('Добавьте текст комментария.')
+
+        if len(normalized_value) > self.COMMENT_BODY_LIMIT:
+            raise serializers.ValidationError('Комментарий не должен быть длиннее 800 символов.')
+
+        return normalized_value
 
     def validate(self, data):
         target_type = data.get('target_type')

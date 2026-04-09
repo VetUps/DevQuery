@@ -3,6 +3,7 @@ import { storeToRefs } from 'pinia'
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
+import { useCurrentUserQuery } from '@/features/auth/queries/useCurrentUserQuery'
 import { useSessionStore } from '@/features/auth/stores/session'
 import AppButton from '@/shared/ui/AppButton.vue'
 
@@ -17,6 +18,15 @@ const isMenuOpen = ref(false)
 
 const isSignedIn = computed(() => isAuthenticated.value)
 const askQuestionTarget = computed(() => (isSignedIn.value ? '/questions/ask' : '/register'))
+let accountLabel = computed(() => 'Аккаунт')
+
+try {
+  const currentUserQuery = useCurrentUserQuery()
+
+  accountLabel = computed(() => currentUserQuery.data.value?.user_name?.trim() || 'Аккаунт')
+} catch {
+  accountLabel = computed(() => 'Аккаунт')
+}
 
 watch(
   () => route.fullPath,
@@ -50,6 +60,7 @@ async function handleLogout() {
           </RouterLink>
 
           <AccountMenu
+            :label="accountLabel"
             :open="isMenuOpen"
             @close="isMenuOpen = !isMenuOpen"
             @logout="handleLogout"

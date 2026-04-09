@@ -60,13 +60,19 @@ function handleEditSubmitted(_createdEdit: CreateSolutionEditResponse) {
     }"
   >
     <div class="solution-read-card__header">
-      <div>
+      <div class="solution-read-card__identity">
         <p class="solution-read-card__eyebrow">
           {{ featured ? 'Развёрнутое решение' : 'Решение' }}
         </p>
-        <p class="solution-read-card__stamp">
-          Обновлено {{ formatLongDate(solution.solution_updated_at) }}
-        </p>
+        <div class="solution-read-card__meta">
+          <strong class="solution-read-card__author">
+            {{ solution.user_name || 'Автор решения' }}
+          </strong>
+          <span class="solution-read-card__meta-separator" aria-hidden="true">•</span>
+          <p class="solution-read-card__stamp">
+            Обновлено {{ formatLongDate(solution.solution_updated_at) }}
+          </p>
+        </div>
       </div>
 
       <span
@@ -115,6 +121,7 @@ function handleEditSubmitted(_createdEdit: CreateSolutionEditResponse) {
       target-type="solution"
       :target-id="solutionId"
       :comments="commentQuery.data.value?.comments ?? []"
+      :count="commentQuery.data.value?.count ?? 0"
       :composer-key-prefix="`solution:${solution.solution_id}`"
       :active-composer-key="activeComposerKey"
       :can-comment="isAuthenticated"
@@ -178,15 +185,33 @@ function handleEditSubmitted(_createdEdit: CreateSolutionEditResponse) {
   gap: var(--space-md);
 }
 
+.solution-read-card__header {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+}
+
 .solution-read-card__content {
   grid-template-columns: minmax(0, 1fr) minmax(220px, 260px);
   align-items: start;
 }
 
 .solution-read-card__eyebrow,
-.solution-readCard__stamp,
-.solution-read-card__body {
+.solution-read-card__body,
+.solution-read-card__author,
+.solution-read-card__stamp {
   margin: 0;
+}
+
+.solution-read-card__identity,
+.solution-read-card__meta {
+  display: grid;
+  gap: var(--space-xs);
+}
+
+.solution-read-card__meta {
+  grid-template-columns: repeat(3, max-content);
+  align-items: center;
+  column-gap: 8px;
 }
 
 .solution-read-card__eyebrow {
@@ -197,8 +222,14 @@ function handleEditSubmitted(_createdEdit: CreateSolutionEditResponse) {
   letter-spacing: 0.08em;
 }
 
+.solution-read-card__author {
+  color: var(--color-text);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.solution-read-card__meta-separator,
 .solution-read-card__stamp {
-  margin: 0;
   color: var(--color-muted);
   font-size: 14px;
 }
@@ -251,6 +282,10 @@ function handleEditSubmitted(_createdEdit: CreateSolutionEditResponse) {
 
 @media (width <= 900px) {
   .solution-read-card__content {
+    grid-template-columns: 1fr;
+  }
+
+  .solution-read-card__header {
     grid-template-columns: 1fr;
   }
 }

@@ -150,6 +150,7 @@ onBeforeUnmount(() => {
           target-type="question"
           :target-id="questionId"
           :comments="questionCommentsQuery.data.value?.comments ?? []"
+          :count="questionCommentsQuery.data.value?.count ?? 0"
           composer-key-prefix="question"
           :active-composer-key="activeInlineComposerKey"
           :can-comment="isAuthenticated"

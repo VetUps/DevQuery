@@ -246,32 +246,26 @@ describe('comment interactions', () => {
     createSolutionMutationState.mutateAsync.mockReset()
   })
 
-  it('keeps only one inline composer open across the detail page', async () => {
+  it('keeps comments hidden on the detail page until the discussion modal is opened', async () => {
     const { wrapper } = await mountQuestionDetailPage(true)
 
-    const blocks = wrapper.findAll('.comment-context-block')
-    expect(blocks).toHaveLength(2)
+    const entryTriggers = wrapper.findAll('[data-testid="comment-entry-trigger"]')
+    expect(entryTriggers).toHaveLength(2)
 
-    const questionCommentButton = blocks[0].findAll('button').find((button) => button.text().includes('Комментировать'))
-    await questionCommentButton!.trigger('click')
+    expect(wrapper.text()).not.toContain('Корневой комментарий')
+    expect(wrapper.text()).not.toContain('Короткий ответ')
+
+    await entryTriggers[0].trigger('click')
     await flushPromises()
 
-    expect(blocks[0].find('textarea').exists()).toBe(true)
-    expect(blocks[1].find('textarea').exists()).toBe(false)
-
-    const solutionCommentButton = blocks[1].findAll('button').find((button) => button.text().includes('Комментировать'))
-    await solutionCommentButton!.trigger('click')
-    await flushPromises()
-
-    expect(blocks[0].find('textarea').exists()).toBe(false)
-    expect(blocks[1].find('textarea').exists()).toBe(true)
+    expect(wrapper.text()).toContain('Полная дискуссия')
+    expect(wrapper.text()).toContain('Корневой комментарий')
   })
 
   it('opens the full discussion modal with question context', async () => {
     const { wrapper } = await mountQuestionDetailPage(true)
 
-    const showMoreButton = wrapper.findAll('button').find((button) => button.text().trim() === 'Показать ещё')
-    await showMoreButton!.trigger('click')
+    await wrapper.findAll('[data-testid="comment-entry-trigger"]')[0].trigger('click')
     await flushPromises()
 
     expect(wrapper.text()).toContain('Полная дискуссия')
@@ -283,6 +277,9 @@ describe('comment interactions', () => {
     const { wrapper } = await mountQuestionDetailPage(true)
 
     expect(wrapper.text()).not.toContain('Короткий ответ')
+
+    await wrapper.findAll('[data-testid="comment-entry-trigger"]')[0].trigger('click')
+    await flushPromises()
 
     const showRepliesButton = wrapper.findAll('button').find((button) => button.text().trim() === 'Показать ответы (1)')
     await showRepliesButton!.trigger('click')

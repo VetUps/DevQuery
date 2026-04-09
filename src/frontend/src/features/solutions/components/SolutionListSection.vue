@@ -84,6 +84,12 @@ defineEmits<{
 .solution-list-section__header {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: end;
+  padding: var(--space-lg);
+  border: 1px solid rgb(207 198 180 / 0.72);
+  border-radius: var(--radius-lg);
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 0.78), rgb(247 243 234 / 0.84)),
+    linear-gradient(135deg, rgb(14 116 144 / 0.05), transparent);
 }
 
 .solution-list-section__eyebrow,
@@ -105,6 +111,7 @@ defineEmits<{
 .solution-list-section__title {
   font-size: 28px;
   line-height: 1.1;
+  letter-spacing: -0.03em;
 }
 
 .solution-list-section__meta,

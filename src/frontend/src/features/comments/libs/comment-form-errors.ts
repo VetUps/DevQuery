@@ -4,6 +4,24 @@ export interface CommentFieldErrors {
   body: string
 }
 
+function normalizeCommentBodyError(message: string) {
+  if (!message) {
+    return ''
+  }
+
+  const normalizedMessage = message.toLowerCase()
+
+  if (normalizedMessage.includes('800') || normalizedMessage.includes('символ')) {
+    return 'Комментарий не должен быть длиннее 800 символов.'
+  }
+
+  if (normalizedMessage.includes('добавьте текст комментария')) {
+    return 'Добавьте текст комментария.'
+  }
+
+  return message
+}
+
 function getFirstErrorMessage(value: unknown): string {
   if (typeof value === 'string') {
     return value
@@ -26,7 +44,7 @@ export function extractCommentFieldErrors(error: unknown): CommentFieldErrors {
   }
 
   const data = error.response.data as Record<string, unknown>
-  fieldErrors.body = getFirstErrorMessage(data.body)
+  fieldErrors.body = normalizeCommentBodyError(getFirstErrorMessage(data.body))
 
   return fieldErrors
 }
@@ -41,7 +59,7 @@ export function normalizeCommentSubmitError(error: unknown) {
   return (
     getFirstErrorMessage(data.detail) ||
     getFirstErrorMessage(data.non_field_errors) ||
-    getFirstErrorMessage(data.body) ||
+    normalizeCommentBodyError(getFirstErrorMessage(data.body)) ||
     'Не удалось отправить комментарий. Попробуйте ещё раз.'
   )
 }

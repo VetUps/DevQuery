@@ -4,6 +4,7 @@ import type { PaginatedResponse, VoteContext } from '@/features/questions/api/qu
 export interface SolutionListItem extends VoteContext {
   solution_id: string
   user: string
+  user_name: string
   question_id?: string
   solution_body: string
   solution_is_best: boolean
@@ -19,6 +20,7 @@ export interface CreateSolutionPayload {
 export interface CreateSolutionResponse {
   solution_id: string
   user: string
+  user_name: string
   question: string
   solution_body: string
   solution_is_best: boolean

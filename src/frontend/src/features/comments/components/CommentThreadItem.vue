@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, useTemplateRef, watch } from 'vue'
 
 import type {
   CommentListItem,
@@ -12,7 +12,7 @@ import {
   extractCommentFieldErrors,
   normalizeCommentSubmitError,
 } from '@/features/comments/libs/comment-form-errors'
-import { formatLongDate } from '@/shared/libs/formatting'
+import { formatDateTime } from '@/shared/libs/formatting'
 
 interface Props {
   comment: CommentThreadEntry | CommentListItem
@@ -38,12 +38,19 @@ const createCommentMutation = useCreateCommentMutation()
 const fieldError = ref('')
 const summary = ref('')
 const areRepliesVisible = ref(false)
+const isExpanded = ref(false)
+const isExpandable = ref(false)
+const bodyRef = useTemplateRef<HTMLParagraphElement>('body')
 
 const replies = computed(() => ('replies' in props.comment ? props.comment.replies ?? [] : []))
 const hasReplies = computed(() => replies.value.length > 0)
 const isHighlighted = computed(() => props.highlightedCommentId === props.comment.comment_id)
 const replyComposerKey = computed(() => `reply:${props.comment.comment_id}`)
 const hasHighlightedReply = computed(() => replies.value.some((reply) => reply.comment_id === props.highlightedCommentId))
+const hasTextBasedOverflow = computed(() => (
+  props.comment.body.length > 220 ||
+  props.comment.body.split('\n').length > 3
+))
 
 watch(
   () => props.replyComposerOpen,
@@ -61,6 +68,26 @@ watch(
     if (nextHasHighlightedReply) {
       areRepliesVisible.value = true
     }
+  },
+  { immediate: true },
+)
+
+async function updateExpandability() {
+  if (!bodyRef.value) {
+    isExpandable.value = hasTextBasedOverflow.value
+    return
+  }
+
+  await nextTick()
+  const hasMeasuredOverflow = bodyRef.value.scrollHeight > bodyRef.value.clientHeight + 1
+  isExpandable.value = hasMeasuredOverflow || hasTextBasedOverflow.value
+}
+
+watch(
+  () => props.comment.body,
+  () => {
+    isExpanded.value = false
+    void updateExpandability()
   },
   { immediate: true },
 )
@@ -96,11 +123,26 @@ async function handleReplySubmit(body: string) {
     :class="{ 'comment-thread-item--highlighted': isHighlighted }"
   >
     <div class="comment-thread-item__meta">
-      <strong>{{ comment.user_name }}</strong>
-      <span>{{ formatLongDate(comment.created_at) }}</span>
+      <strong class="comment-thread-item__author">{{ comment.user_name }}</strong>
+      <span class="comment-thread-item__timestamp">{{ formatDateTime(comment.created_at) }}</span>
     </div>
 
-    <p class="comment-thread-item__body">{{ comment.body }}</p>
+    <p
+      ref="body"
+      class="comment-thread-item__body"
+      :class="{ 'comment-thread-item__body--clamped': !isExpanded }"
+    >
+      {{ comment.body }}
+    </p>
+
+    <button
+      v-if="isExpandable"
+      type="button"
+      class="comment-thread-item__action comment-thread-item__action--inline"
+      @click="isExpanded = !isExpanded"
+    >
+      {{ isExpanded ? 'Свернуть' : 'Развернуть' }}
+    </button>
 
     <div v-if="canReply || hasReplies" class="comment-thread-item__actions">
       <button
@@ -174,13 +216,34 @@ async function handleReplySubmit(body: string) {
 }
 
 .comment-thread-item__meta {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: var(--space-sm);
   color: var(--color-muted);
   font-size: 14px;
+}
+
+.comment-thread-item__author {
+  color: var(--color-text);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.comment-thread-item__timestamp {
+  text-align: right;
+  white-space: nowrap;
 }
 
 .comment-thread-item__body {
   margin: 0;
   line-height: 1.6;
+}
+
+.comment-thread-item__body--clamped {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
 }
 
 .comment-thread-item__action {
@@ -192,6 +255,10 @@ async function handleReplySubmit(body: string) {
   color: var(--color-accent);
   font-size: 14px;
   font-weight: 600;
+}
+
+.comment-thread-item__action--inline {
+  min-height: auto;
 }
 
 .comment-thread-item__action--muted {

@@ -1,9 +1,12 @@
 <script setup lang="ts">
 import AppButton from '@/shared/ui/AppButton.vue'
 
-defineProps<{
+const props = withDefaults(defineProps<{
   open: boolean
-}>()
+  label?: string
+}>(), {
+  label: 'Аккаунт',
+})
 
 defineEmits<{
   close: []
@@ -16,9 +19,10 @@ defineEmits<{
     <AppButton
       variant="secondary"
       data-testid="account-menu-toggle"
+      :title="props.label"
       @click="$emit('close')"
     >
-      Аккаунт
+      <span class="account-menu__label">{{ props.label }}</span>
     </AppButton>
 
     <div
@@ -42,6 +46,14 @@ defineEmits<{
 <style scoped>
 .account-menu {
   position: relative;
+}
+
+.account-menu__label {
+  display: inline-block;
+  max-width: 16ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .account-menu__panel {

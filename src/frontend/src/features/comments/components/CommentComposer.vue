@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, useTemplateRef } from 'vue'
+import { computed, ref, useTemplateRef } from 'vue'
 
 import AppButton from '@/shared/ui/AppButton.vue'
 
@@ -28,9 +28,12 @@ const emit = defineEmits<{
   cancel: []
 }>()
 
+const MAX_COMMENT_LENGTH = 800
 const textareaRef = useTemplateRef<HTMLTextAreaElement>('textarea')
 const body = ref('')
 const localFieldError = ref('')
+const normalizedLength = computed(() => body.value.trim().length)
+const counterLabel = computed(() => `${normalizedLength.value} / ${MAX_COMMENT_LENGTH}`)
 
 if (props.autoFocus && typeof window !== 'undefined') {
   requestAnimationFrame(() => {
@@ -39,9 +42,20 @@ if (props.autoFocus && typeof window !== 'undefined') {
 }
 
 function validate() {
-  localFieldError.value = body.value.trim() ? '' : 'Добавьте текст комментария.'
+  const normalizedBody = body.value.trim()
 
-  return !localFieldError.value
+  if (!normalizedBody) {
+    localFieldError.value = 'Добавьте текст комментария.'
+    return false
+  }
+
+  if (normalizedBody.length > MAX_COMMENT_LENGTH) {
+    localFieldError.value = 'Комментарий не должен быть длиннее 800 символов.'
+    return false
+  }
+
+  localFieldError.value = ''
+  return true
 }
 
 function handleSubmit() {
@@ -73,12 +87,16 @@ function handleInput() {
       :class="{ 'comment-composer__textarea--error': fieldError || localFieldError }"
       :placeholder="placeholder"
       :disabled="pending"
+      :maxlength="MAX_COMMENT_LENGTH"
       @input="handleInput"
     />
 
-    <p v-if="fieldError || localFieldError" class="comment-composer__error">
-      {{ fieldError || localFieldError }}
-    </p>
+    <div class="comment-composer__meta">
+      <p v-if="fieldError || localFieldError" class="comment-composer__error">
+        {{ fieldError || localFieldError }}
+      </p>
+      <p class="comment-composer__counter">{{ counterLabel }}</p>
+    </div>
 
     <div class="comment-composer__actions">
       <AppButton type="button" variant="ghost" @click="$emit('cancel')">
@@ -108,7 +126,8 @@ function handleInput() {
 
 .comment-composer__heading,
 .comment-composer__summary,
-.comment-composer__error {
+.comment-composer__error,
+.comment-composer__counter {
   margin: 0;
 }
 
@@ -126,6 +145,20 @@ function handleInput() {
 .comment-composer__summary,
 .comment-composer__error {
   color: #B42318;
+}
+
+.comment-composer__meta {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-md);
+}
+
+.comment-composer__counter {
+  margin-left: auto;
+  color: var(--color-muted);
+  font-size: 13px;
+  white-space: nowrap;
 }
 
 .comment-composer__textarea {
