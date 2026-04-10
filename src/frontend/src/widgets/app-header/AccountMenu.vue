@@ -33,9 +33,13 @@ defineEmits<{
       <RouterLink class="account-menu__link" to="/profile">
         Профиль
       </RouterLink>
-      <button class="account-menu__placeholder" data-testid="future-placeholder" disabled>
-        Проверка правок скоро появится
-      </button>
+      <RouterLink
+        class="account-menu__link"
+        data-testid="review-menu-link"
+        :to="{ path: '/profile', query: { tab: 'review' } }"
+      >
+        Проверка правок
+      </RouterLink>
       <button class="account-menu__logout" data-testid="logout-button" @click="$emit('logout')">
         Выйти
       </button>
@@ -71,8 +75,7 @@ defineEmits<{
 }
 
 .account-menu__link,
-.account-menu__logout,
-.account-menu__placeholder {
+.account-menu__logout {
   display: flex;
   align-items: center;
   justify-content: flex-start;
@@ -88,12 +91,6 @@ defineEmits<{
 .account-menu__link:hover,
 .account-menu__logout:hover {
   background: rgb(14 116 144 / 0.08);
-}
-
-.account-menu__placeholder {
-  color: var(--color-muted);
-  border-color: var(--color-border);
-  cursor: not-allowed;
 }
 
 .account-menu__logout {

@@ -49,3 +49,17 @@ export function normalizeSolutionEditError(error: unknown) {
     'Не удалось отправить правку. Попробуйте ещё раз.'
   )
 }
+
+export function normalizeSolutionEditModerationError(error: unknown) {
+  if (!axios.isAxiosError(error) || !error.response?.data || typeof error.response.data !== 'object') {
+    return 'Не удалось обновить статус правки. Попробуйте ещё раз.'
+  }
+
+  const data = error.response.data as Record<string, unknown>
+
+  return (
+    getFirstErrorMessage(data.detail) ||
+    getFirstErrorMessage(data.non_field_errors) ||
+    'Не удалось обновить статус правки. Попробуйте ещё раз.'
+  )
+}

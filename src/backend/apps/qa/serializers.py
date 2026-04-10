@@ -1,3 +1,5 @@
+import re
+
 from django.contrib.contenttypes.models import ContentType
 from django.db.models import TextChoices
 from rest_framework import serializers
@@ -122,10 +124,54 @@ class SolutionEditCreateResponseSerializer(serializers.ModelSerializer):
             'solution_edit_edited_at',
         ]
 
+
+def build_solution_excerpt(value: str, limit: int = 180) -> str:
+    normalized_value = re.sub(r'\s+', ' ', value).strip()
+
+    if len(normalized_value) <= limit:
+        return normalized_value
+
+    return f'{normalized_value[: limit - 3].rstrip()}...'
+
+
 class SolutionEditHistorySerializer(serializers.ModelSerializer):
+    solution_id = serializers.UUIDField(source='solution.solution_id', read_only=True)
+    solution_question_id = serializers.UUIDField(source='solution.question.question_id', read_only=True)
+    solution_question_title = serializers.CharField(source='solution.question.question_title', read_only=True)
+    solution_owner_id = serializers.UUIDField(source='solution.user.user_id', read_only=True, allow_null=True)
+    solution_owner_name = serializers.SerializerMethodField()
+    edit_author_id = serializers.UUIDField(source='user.user_id', read_only=True, allow_null=True)
+    edit_author_name = serializers.SerializerMethodField()
+    solution_excerpt = serializers.SerializerMethodField()
+
     class Meta:
         model = SolutionEdits
-        fields = '__all__'
+        fields = [
+            'solution_edit_id',
+            'solution',
+            'solution_id',
+            'solution_question_id',
+            'solution_question_title',
+            'solution_owner_id',
+            'solution_owner_name',
+            'user',
+            'edit_author_id',
+            'edit_author_name',
+            'solution_excerpt',
+            'solution_edit_body_before',
+            'solution_edit_body_after',
+            'solution_edit_is_approved',
+            'solution_edit_edited_at',
+        ]
+
+    def get_solution_owner_name(self, obj: SolutionEdits) -> str:
+        return obj.solution.user.user_name if obj.solution.user else 'Автор решения'
+
+    def get_edit_author_name(self, obj: SolutionEdits) -> str:
+        return obj.user.user_name if obj.user else 'Пользователь удалён'
+
+    def get_solution_excerpt(self, obj: SolutionEdits) -> str:
+        return build_solution_excerpt(obj.solution_edit_body_before)
 
 
 class CommentListSerializer(serializers.ModelSerializer):

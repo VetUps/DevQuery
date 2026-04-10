@@ -157,9 +157,10 @@ class SolutionEditsViewSet(mixins.CreateModelMixin,
     serializer_class = SolutionEditHistorySerializer
     solution_edit_create_serializer = SolutionEditCreateSerializer
     solution_edit_create_response_serializer = SolutionEditCreateResponseSerializer
+    solution_edit_history_serializer = SolutionEditHistorySerializer
 
     def get_queryset(self):
-        return SolutionEdits.objects.select_related('solution', 'user')
+        return SolutionEdits.objects.select_related('solution__question', 'solution__user', 'user')
 
     def get_serializer_class(self):
         if self.action == 'create':
@@ -167,7 +168,7 @@ class SolutionEditsViewSet(mixins.CreateModelMixin,
         return self.serializer_class
 
     def get_permissions(self):
-        if self.action in ['create', 'approve', 'disapprove', 'not_approved']:
+        if self.action in ['create', 'approve', 'disapprove', 'not_approved', 'review_queue', 'my_history']:
             permission_classes = [IsAuthenticated]
         else:
             permission_classes = [AllowAny]
@@ -206,7 +207,7 @@ class SolutionEditsViewSet(mixins.CreateModelMixin,
     @extend_schema(responses=SolutionEditHistorySerializer(many=True))
     def history(self, request, solution_id):
         result = SolutionEditService.history(solution_id)
-        serializer = SolutionEditHistorySerializer(result, many=True)
+        serializer = self.solution_edit_history_serializer(result, many=True)
 
         return Response(
             serializer.data,
@@ -218,7 +219,29 @@ class SolutionEditsViewSet(mixins.CreateModelMixin,
     def not_approved(self, request, solution_id):
         user = request.user
         result = SolutionEditService.not_approved(solution_id, user)
-        serializer = SolutionEditHistorySerializer(result, many=True)
+        serializer = self.solution_edit_history_serializer(result, many=True)
+
+        return Response(
+            serializer.data,
+            status=status.HTTP_200_OK,
+        )
+
+    @action(detail=False, methods=['get'], url_path='review_queue')
+    @extend_schema(responses=SolutionEditHistorySerializer(many=True))
+    def review_queue(self, request):
+        result = SolutionEditService.review_queue(request.user)
+        serializer = self.solution_edit_history_serializer(result, many=True)
+
+        return Response(
+            serializer.data,
+            status=status.HTTP_200_OK,
+        )
+
+    @action(detail=False, methods=['get'], url_path='my_history')
+    @extend_schema(responses=SolutionEditHistorySerializer(many=True))
+    def my_history(self, request):
+        result = SolutionEditService.my_history(request.user)
+        serializer = self.solution_edit_history_serializer(result, many=True)
 
         return Response(
             serializer.data,

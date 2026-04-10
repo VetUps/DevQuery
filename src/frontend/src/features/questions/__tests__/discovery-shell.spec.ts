@@ -24,6 +24,15 @@ vi.mock('@/features/questions/queries/useQuestionListQuery', () => ({
   useQuestionListQuery: vi.fn(() => queryState),
 }))
 
+vi.mock('@/features/auth/queries/useCurrentUserQuery', () => ({
+  useCurrentUserQuery: vi.fn(() => ({
+    data: ref(null),
+    isPending: ref(false),
+    isError: ref(false),
+    refetch: vi.fn(),
+  })),
+}))
+
 async function mountHomePage(options: { authenticated?: boolean } = {}) {
   const pinia = createPinia()
   setActivePinia(pinia)
@@ -92,9 +101,10 @@ describe('discovery shell polish', () => {
     const { wrapper } = await mountHomePage()
 
     expect(wrapper.get('[data-testid="discovery-search-reserve"]').text()).toContain(
-      'Поиск по title появится позже',
+      'Поиск по названию...',
     )
-    expect(wrapper.text()).toContain('Сначала откройте похожие обсуждения')
+    expect(wrapper.text()).toContain('Поиск по заголовкам')
+    expect(wrapper.text()).toContain('Сортировка по дате')
   })
 
   it('keeps guest ask-question entry pointed at registration', async () => {

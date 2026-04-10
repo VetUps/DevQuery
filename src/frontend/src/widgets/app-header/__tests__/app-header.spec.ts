@@ -64,8 +64,10 @@ describe('AppHeader', () => {
     await wrapper.get('[data-testid="account-menu-toggle"]').trigger('click')
 
     expect(wrapper.text()).toContain('Профиль')
+    expect(wrapper.text()).toContain('Проверка правок')
     expect(wrapper.text()).toContain('Выйти')
-    expect(wrapper.get('[data-testid="future-placeholder"]').text()).toContain('Проверка правок скоро появится')
+    expect(wrapper.find('[data-testid="future-placeholder"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="review-menu-link"]').attributes('href')).toBe('/profile?tab=review')
 
     await wrapper.get('[data-testid="logout-button"]').trigger('click')
     await flushPromises()

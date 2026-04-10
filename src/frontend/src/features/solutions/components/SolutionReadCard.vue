@@ -6,6 +6,7 @@ import CommentContextBlock from '@/features/comments/components/CommentContextBl
 import DiscussionThreadModal from '@/features/comments/components/DiscussionThreadModal.vue'
 import { useCommentContextQuery } from '@/features/comments/queries/useCommentContextQuery'
 import type { CreateSolutionEditResponse } from '@/features/solutions/api/solutionEdits'
+import PublicSolutionEditHistoryButton from '@/features/solutions/components/PublicSolutionEditHistoryButton.vue'
 import SolutionEditProposalModal from '@/features/solutions/components/SolutionEditProposalModal.vue'
 import SignalVoteRail from '@/features/votes/components/SignalVoteRail.vue'
 import { formatLongDate } from '@/shared/libs/formatting'
@@ -102,7 +103,9 @@ function handleEditSubmitted(_createdEdit: CreateSolutionEditResponse) {
       />
     </div>
 
-    <div v-if="canSuggestEdit || editSuccessMessage" class="solution-read-card__actions">
+    <div class="solution-read-card__actions">
+      <PublicSolutionEditHistoryButton :solution-id="solution.solution_id" />
+
       <AppButton
         v-if="canSuggestEdit && !editSuccessMessage"
         variant="secondary"
@@ -250,7 +253,11 @@ function handleEditSubmitted(_createdEdit: CreateSolutionEditResponse) {
 }
 
 .solution-read-card__actions {
-  justify-items: start;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--space-md);
   padding-top: var(--space-md);
   border-top: 1px solid rgb(207 198 180 / 0.62);
 }

@@ -105,6 +105,9 @@ describe('identity polish', () => {
           CommentContextBlock: {
             template: '<div data-testid="comment-context-block" />',
           },
+          PublicSolutionEditHistoryButton: {
+            template: '<div data-testid="public-history-button">История изменений</div>',
+          },
           DiscussionThreadModal: true,
           SolutionEditProposalModal: true,
           MarkdownContent: {

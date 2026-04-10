@@ -9,6 +9,14 @@ from .solution_service import SolutionService
 
 class SolutionEditService:
     @staticmethod
+    def _base_queryset() -> QuerySet[SolutionEdits]:
+        return SolutionEdits.objects.select_related(
+            'solution__question',
+            'solution__user',
+            'user',
+        )
+
+    @staticmethod
     def get_solution_edit(solution_edit_id: str) -> SolutionEdits:
         """
         Возвращает правку по её ID
@@ -60,7 +68,7 @@ class SolutionEditService:
     @staticmethod
     def history(solution_id: str) -> QuerySet[SolutionEdits]:
         solution = SolutionService.get_solution(solution_id)
-        solution_edits = (SolutionEdits.objects
+        solution_edits = (SolutionEditService._base_queryset()
                           .filter(solution=solution, solution_edit_is_approved=True)
                           .order_by('-solution_edit_edited_at'))
 
@@ -70,11 +78,27 @@ class SolutionEditService:
     def not_approved(solution_id: str, user: CustomUser) -> QuerySet[SolutionEdits]:
         solution = SolutionService.get_solution(solution_id)
         SolutionEditService.is_user_solution_author(solution, user)
-        solution_edits = (SolutionEdits.objects
+        solution_edits = (SolutionEditService._base_queryset()
                           .filter(solution=solution, solution_edit_is_approved__isnull=True)
                           .order_by('-solution_edit_edited_at'))
 
         return solution_edits
+
+    @staticmethod
+    def review_queue(user: CustomUser) -> QuerySet[SolutionEdits]:
+        return (
+            SolutionEditService._base_queryset()
+            .filter(solution__user=user, solution_edit_is_approved__isnull=True)
+            .order_by('-solution_edit_edited_at')
+        )
+
+    @staticmethod
+    def my_history(user: CustomUser) -> QuerySet[SolutionEdits]:
+        return (
+            SolutionEditService._base_queryset()
+            .filter(solution__user=user, solution_edit_is_approved__isnull=False)
+            .order_by('-solution_edit_edited_at')
+        )
 
     @staticmethod
     def _validate_change_approve(
