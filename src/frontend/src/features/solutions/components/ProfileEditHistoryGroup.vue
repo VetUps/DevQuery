@@ -56,7 +56,9 @@ defineEmits<{
 .profile-edit-history-group,
 .profile-edit-history-group__header,
 .profile-edit-history-group__timeline {
-  display: grid;
+  display: flex;
+  flex-wrap: wrap;
+  min-width: 0;
 }
 
 .profile-edit-history-group {
@@ -76,6 +78,7 @@ defineEmits<{
 .profile-edit-history-group__title,
 .profile-edit-history-group__excerpt {
   margin: 0;
+  overflow-wrap: anywhere;
 }
 
 .profile-edit-history-group__eyebrow {
@@ -102,10 +105,12 @@ defineEmits<{
   grid-template-columns: minmax(0, 1fr) auto;
   gap: var(--space-sm);
   align-items: center;
-  min-height: 48px;
-  padding: 0 14px;
+  width: 100%;
+  flex: 0 1 260px;
+  min-height: 64px;
+  padding: var(--space-sm) 14px;
   border: 1px solid rgb(207 198 180 / 0.62);
-  border-radius: 999px;
+  border-radius: var(--radius-md);
   background: rgb(247 243 234 / 0.88);
   text-align: left;
 }
@@ -113,6 +118,14 @@ defineEmits<{
 .profile-edit-history-group__copy {
   display: grid;
   gap: 4px;
+  min-width: 0;
+}
+
+.profile-edit-history-group__copy strong,
+.profile-edit-history-group__copy time {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .profile-edit-history-group__copy time {
@@ -144,7 +157,13 @@ defineEmits<{
 }
 
 @media (width <= 720px) {
+  .profile-edit-history-group__timeline {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
   .profile-edit-history-group__item {
+    flex-basis: auto;
     grid-template-columns: 1fr;
     justify-items: start;
     padding: var(--space-md);

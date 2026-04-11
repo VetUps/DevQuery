@@ -133,10 +133,11 @@ watch(
 .public-solution-edit-history-modal__content,
 .public-solution-edit-history-modal__copy {
   display: grid;
+  min-width: 0;
 }
 
 .public-solution-edit-history-modal {
-  grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--space-lg);
 }
 
@@ -146,15 +147,33 @@ watch(
   gap: var(--space-sm);
 }
 
+.public-solution-edit-history-modal__list {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+}
+
 .public-solution-edit-history-modal__item {
   display: grid;
   gap: 4px;
   justify-items: start;
+  width: 100%;
+  flex: 0 1 240px;
+  min-height: 92px;
+  align-content: start;
   padding: var(--space-md);
   border: 1px solid rgb(207 198 180 / 0.72);
   border-radius: var(--radius-md);
   background: rgb(255 255 255 / 0.76);
   text-align: left;
+}
+
+.public-solution-edit-history-modal__item strong,
+.public-solution-edit-history-modal__item time {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .public-solution-edit-history-modal__item time,
@@ -196,6 +215,7 @@ watch(
 .public-solution-edit-history-modal__excerpt,
 .public-solution-edit-history-modal__muted {
   margin: 0;
+  overflow-wrap: anywhere;
 }
 
 .public-solution-edit-history-modal__eyebrow {
@@ -214,6 +234,15 @@ watch(
 @media (width <= 900px) {
   .public-solution-edit-history-modal {
     grid-template-columns: 1fr;
+  }
+
+  .public-solution-edit-history-modal__list {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .public-solution-edit-history-modal__item {
+    flex-basis: auto;
   }
 }
 </style>

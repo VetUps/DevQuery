@@ -6,7 +6,7 @@ import SurfacePanel from '@/shared/ui/SurfacePanel.vue'
 
 interface Props {
   title: string
-  description: string
+  description?: string
   actionLabel: string
   to?: RouteLocationRaw | null
 }

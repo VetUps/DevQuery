@@ -46,6 +46,7 @@ function handleInput(event: Event) {
 .app-input {
   display: grid;
   gap: var(--space-xs);
+  min-width: 0;
 }
 
 .app-input__label {
@@ -54,6 +55,9 @@ function handleInput(event: Event) {
 }
 
 .app-input__control {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   min-height: 48px;
   padding: 0 var(--space-md);
   border: 1px solid var(--color-border);

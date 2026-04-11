@@ -72,6 +72,7 @@ defineEmits<{
 .solution-list-section {
   display: grid;
   gap: var(--space-lg);
+  min-width: 0;
 }
 
 .solution-list-section__header,
@@ -79,6 +80,7 @@ defineEmits<{
 .solution-list-section__list {
   display: grid;
   gap: var(--space-md);
+  min-width: 0;
 }
 
 .solution-list-section__header {

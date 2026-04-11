@@ -73,8 +73,9 @@ const props = defineProps<{
 <style scoped>
 .question-detail-hero {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(220px, 280px);
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 260px);
   gap: var(--space-xl);
+  min-width: 0;
   padding: var(--space-2xl);
   border: 1px solid rgb(207 198 180 / 0.84);
   border-radius: var(--radius-lg);
@@ -85,6 +86,13 @@ const props = defineProps<{
 .question-detail-hero__author {
   display: grid;
   gap: var(--space-lg);
+  min-width: 0;
+}
+
+.question-detail-hero__main > *,
+.question-detail-hero__author > *,
+.question-detail-hero__author-stats > * {
+  min-width: 0;
 }
 
 .question-detail-hero__meta {
@@ -125,9 +133,11 @@ const props = defineProps<{
   font-size: clamp(34px, 5vw, 46px);
   line-height: 1;
   letter-spacing: -0.05em;
+  overflow-wrap: anywhere;
 }
 
 .question-detail-hero__body {
+  min-width: 0;
   font-size: 17px;
 }
 
@@ -139,12 +149,14 @@ const props = defineProps<{
 .question-detail-hero__author-name {
   font-size: 22px;
   font-weight: 600;
+  overflow-wrap: anywhere;
 }
 
 .question-detail-hero__author-stats {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   gap: var(--space-md);
+  min-width: 0;
   margin: 0;
 }
 

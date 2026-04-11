@@ -30,6 +30,7 @@ import SurfacePanel from '@/shared/ui/SurfacePanel.vue'
 .ask-question-page {
   display: grid;
   gap: var(--space-xl);
+  min-width: 0;
 }
 
 .ask-question-page__content {
@@ -37,12 +38,18 @@ import SurfacePanel from '@/shared/ui/SurfacePanel.vue'
   grid-template-columns: minmax(0, 1.65fr) minmax(280px, 0.95fr);
   gap: var(--space-xl);
   align-items: start;
+  min-width: 0;
 }
 
 .ask-question-page__intro,
 .ask-question-page__form-panel {
   display: grid;
   gap: var(--space-md);
+  min-width: 0;
+}
+
+.ask-question-page__form-panel :deep(*) {
+  min-width: 0;
 }
 
 .ask-question-page__eyebrow,
@@ -63,6 +70,7 @@ import SurfacePanel from '@/shared/ui/SurfacePanel.vue'
   font-size: clamp(34px, 5vw, 46px);
   line-height: 1.02;
   letter-spacing: -0.05em;
+  overflow-wrap: anywhere;
 }
 
 @media (width <= 980px) {

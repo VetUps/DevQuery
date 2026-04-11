@@ -189,6 +189,7 @@ async function handleSubmit() {
 .solution-edit-proposal-modal {
   display: grid;
   gap: var(--space-lg);
+  min-width: 0;
 }
 
 .solution-edit-proposal-modal__summary,
@@ -210,11 +211,13 @@ async function handleSubmit() {
   display: grid;
   grid-template-columns: minmax(300px, 380px) minmax(0, 1fr);
   gap: var(--space-lg);
+  min-width: 0;
 }
 
 .solution-edit-proposal-modal__reference,
 .solution-edit-proposal-modal__main {
   align-content: start;
+  min-width: 0;
 }
 
 .solution-edit-proposal-modal__eyebrow {

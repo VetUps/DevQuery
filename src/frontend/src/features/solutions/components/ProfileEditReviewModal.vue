@@ -159,6 +159,7 @@ async function handleModeration(approve: boolean) {
 .profile-edit-review-modal__meta-copy,
 .profile-edit-review-modal__facts {
   display: grid;
+  min-width: 0;
 }
 
 .profile-edit-review-modal {

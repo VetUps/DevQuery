@@ -23,6 +23,7 @@ withDefaults(defineProps<Props>(), {
 .surface-panel {
   display: grid;
   gap: var(--space-lg);
+  min-width: 0;
   border: 1px solid rgb(207 198 180 / 0.82);
   border-radius: var(--radius-lg);
   box-shadow: 0 20px 45px rgb(69 58 38 / 0.06);

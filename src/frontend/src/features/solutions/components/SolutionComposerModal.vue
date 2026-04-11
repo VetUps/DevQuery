@@ -123,6 +123,11 @@ async function handleSubmit() {
 .solution-composer-modal {
   display: grid;
   gap: var(--space-lg);
+  min-width: 0;
+}
+
+.solution-composer-modal > * {
+  min-width: 0;
 }
 
 .solution-composer-modal__summary,

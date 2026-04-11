@@ -37,6 +37,7 @@ const props = defineProps<{
 .question-card {
   display: grid;
   gap: var(--space-md);
+  min-width: 0;
   padding: var(--space-xl);
   border: 1px solid rgb(207 198 180 / 0.88);
   border-radius: var(--radius-lg);
@@ -58,6 +59,7 @@ const props = defineProps<{
   flex-wrap: wrap;
   gap: var(--space-sm) var(--space-md);
   align-items: center;
+  min-width: 0;
 }
 
 .question-card__status,
@@ -91,15 +93,18 @@ const props = defineProps<{
 }
 
 .question-card__link {
-  display: inline-flex;
+  display: block;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .question-card__title {
   margin: 0;
-  max-width: 22ch;
+  max-width: 100%;
   font-size: clamp(24px, 4vw, 30px);
   line-height: 1.15;
   letter-spacing: -0.03em;
+  overflow-wrap: anywhere;
 }
 
 @media (width <= 640px) {

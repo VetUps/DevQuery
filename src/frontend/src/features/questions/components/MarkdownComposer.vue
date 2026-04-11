@@ -184,6 +184,11 @@ function insertCodeBlock() {
 .markdown-composer {
   display: grid;
   gap: var(--space-sm);
+  min-width: 0;
+}
+
+.markdown-composer > * {
+  min-width: 0;
 }
 
 .markdown-composer__header,
@@ -193,6 +198,7 @@ function insertCodeBlock() {
   align-items: center;
   justify-content: space-between;
   gap: var(--space-md);
+  min-width: 0;
 }
 
 .markdown-composer__label,
@@ -226,6 +232,7 @@ function insertCodeBlock() {
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-sm);
+  min-width: 0;
 }
 
 .markdown-composer__toolbar-button,
@@ -240,6 +247,10 @@ function insertCodeBlock() {
 
 .markdown-composer__textarea,
 .markdown-composer__preview {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  min-width: 0;
   min-height: 320px;
   padding: var(--space-lg);
   border: 1px solid var(--color-border);

@@ -23,6 +23,8 @@ import AppHeader from '@/widgets/app-header/AppHeader.vue'
 }
 
 .app-shell-layout__content {
+  width: min(1180px, 100%);
+  min-width: 0;
   max-width: 1180px;
   margin: 0 auto;
 }

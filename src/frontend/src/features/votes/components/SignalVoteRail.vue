@@ -107,6 +107,9 @@ async function handleVote(requestedVote: VoteType) {
 .signal-vote-rail {
   display: grid;
   gap: var(--space-sm);
+  width: 100%;
+  max-width: 260px;
+  min-width: 0;
   padding: var(--space-md);
   border: 1px solid rgb(207 198 180 / 0.78);
   border-radius: var(--radius-lg);
@@ -174,5 +177,12 @@ async function handleVote(requestedVote: VoteType) {
   color: var(--color-muted);
   font-size: 13px;
   line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+@media (width <= 900px) {
+  .signal-vote-rail {
+    max-width: none;
+  }
 }
 </style>

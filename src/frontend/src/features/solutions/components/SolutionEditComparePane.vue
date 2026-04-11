@@ -54,12 +54,16 @@ const diff = computed(() => buildSolutionEditDiff(props.before, props.after))
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-lg);
+  align-items: start;
+  min-width: 0;
 }
 
 .solution-edit-compare-pane__column,
 .solution-edit-compare-pane__header {
   display: grid;
   gap: var(--space-xs);
+  align-content: start;
+  min-width: 0;
 }
 
 .solution-edit-compare-pane__eyebrow,
@@ -82,6 +86,9 @@ const diff = computed(() => buildSolutionEditDiff(props.before, props.after))
 
 .solution-edit-compare-pane__surface {
   min-height: 220px;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
   margin: 0;
   padding: var(--space-lg);
   border: 1px solid rgb(207 198 180 / 0.72);
@@ -90,6 +97,7 @@ const diff = computed(() => buildSolutionEditDiff(props.before, props.after))
   color: var(--color-text);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
   word-break: break-word;
 }
 

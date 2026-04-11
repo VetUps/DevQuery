@@ -228,6 +228,7 @@ onBeforeUnmount(() => {
 .question-detail-page {
   display: grid;
   gap: var(--space-xl);
+  min-width: 0;
 }
 
 .question-detail-page__skeleton-stack {

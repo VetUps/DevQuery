@@ -164,6 +164,7 @@ function handleEditSubmitted(_createdEdit: CreateSolutionEditResponse) {
 .solution-read-card {
   display: grid;
   gap: var(--space-lg);
+  min-width: 0;
   padding: var(--space-xl);
   border: 1px solid rgb(207 198 180 / 0.76);
   border-radius: var(--radius-lg);
@@ -186,6 +187,7 @@ function handleEditSubmitted(_createdEdit: CreateSolutionEditResponse) {
 .solution-read-card__actions {
   display: grid;
   gap: var(--space-md);
+  min-width: 0;
 }
 
 .solution-read-card__header {
@@ -207,14 +209,19 @@ function handleEditSubmitted(_createdEdit: CreateSolutionEditResponse) {
 
 .solution-read-card__identity,
 .solution-read-card__meta {
-  display: grid;
   gap: var(--space-xs);
+  min-width: 0;
+}
+
+.solution-read-card__identity {
+  display: grid;
 }
 
 .solution-read-card__meta {
-  grid-template-columns: repeat(3, max-content);
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  column-gap: 8px;
+  gap: var(--space-xs) 8px;
 }
 
 .solution-read-card__eyebrow {
@@ -229,12 +236,14 @@ function handleEditSubmitted(_createdEdit: CreateSolutionEditResponse) {
   color: var(--color-text);
   font-size: 15px;
   font-weight: 600;
+  overflow-wrap: anywhere;
 }
 
 .solution-read-card__meta-separator,
 .solution-read-card__stamp {
   color: var(--color-muted);
   font-size: 14px;
+  overflow-wrap: anywhere;
 }
 
 .solution-read-card__best {
@@ -249,6 +258,7 @@ function handleEditSubmitted(_createdEdit: CreateSolutionEditResponse) {
 }
 
 .solution-read-card__body {
+  min-width: 0;
   line-height: 1.7;
 }
 

@@ -103,6 +103,11 @@ async function handleSubmit() {
 .question-create-form {
   display: grid;
   gap: var(--space-lg);
+  min-width: 0;
+}
+
+.question-create-form > * {
+  min-width: 0;
 }
 
 .question-create-form__summary,
