@@ -109,6 +109,7 @@ async function handleVote(requestedVote: VoteType) {
   gap: var(--space-sm);
   width: 100%;
   max-width: 260px;
+  max-height: 260px;
   min-width: 0;
   padding: var(--space-md);
   border: 1px solid rgb(207 198 180 / 0.78);
