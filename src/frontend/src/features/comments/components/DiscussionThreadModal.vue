@@ -200,6 +200,8 @@ watch(activeComposerKey, (nextKey) => {
 .discussion-thread-modal__list {
   display: grid;
   gap: var(--space-lg);
+  min-width: 0;
+  max-width: 100%;
 }
 
 .discussion-thread-modal__thread-header {

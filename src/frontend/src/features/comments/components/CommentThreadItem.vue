@@ -196,6 +196,8 @@ async function handleReplySubmit(body: string) {
 .comment-thread-item {
   display: grid;
   gap: var(--space-xs);
+  min-width: 0;
+  max-width: 100%;
   padding: var(--space-md);
   border: 1px solid rgb(207 198 180 / 0.62);
   border-radius: var(--radius-md);
@@ -213,6 +215,7 @@ async function handleReplySubmit(body: string) {
 .comment-thread-item__replies {
   display: grid;
   gap: var(--space-xs);
+  min-width: 0;
 }
 
 .comment-thread-item__meta {
@@ -224,9 +227,11 @@ async function handleReplySubmit(body: string) {
 }
 
 .comment-thread-item__author {
+  min-width: 0;
   color: var(--color-text);
   font-size: 14px;
   line-height: 1.5;
+  overflow-wrap: anywhere;
 }
 
 .comment-thread-item__timestamp {
@@ -235,8 +240,13 @@ async function handleReplySubmit(body: string) {
 }
 
 .comment-thread-item__body {
+  min-width: 0;
+  max-width: 100%;
   margin: 0;
   line-height: 1.6;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .comment-thread-item__body--clamped {
