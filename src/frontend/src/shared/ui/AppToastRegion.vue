@@ -47,6 +47,7 @@ const { toasts, removeToast } = useToastStore()
   grid-template-columns: minmax(0, 1fr) auto;
   gap: var(--space-md);
   align-items: start;
+  min-width: 0;
   padding: var(--space-md) var(--space-lg);
   border: 1px solid rgb(207 198 180 / 0.84);
   border-radius: var(--radius-md);
@@ -67,6 +68,7 @@ const { toasts, removeToast } = useToastStore()
 .app-toast-region__message {
   margin: 0;
   line-height: 1.55;
+  overflow-wrap: anywhere;
 }
 
 .app-toast-region__close {

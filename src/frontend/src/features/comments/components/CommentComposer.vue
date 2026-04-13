@@ -113,6 +113,7 @@ function handleInput() {
 .comment-composer {
   display: grid;
   gap: var(--space-sm);
+  min-width: 0;
   padding: var(--space-md);
   border: 1px solid rgb(207 198 180 / 0.72);
   border-radius: var(--radius-md);
@@ -122,6 +123,13 @@ function handleInput() {
 .comment-composer__header {
   display: grid;
   gap: var(--space-xs);
+  min-width: 0;
+}
+
+.comment-composer__heading,
+.comment-composer__summary,
+.comment-composer__error {
+  overflow-wrap: anywhere;
 }
 
 .comment-composer__heading,
@@ -149,9 +157,11 @@ function handleInput() {
 
 .comment-composer__meta {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
   justify-content: space-between;
   gap: var(--space-md);
+  min-width: 0;
 }
 
 .comment-composer__counter {
@@ -162,6 +172,9 @@ function handleInput() {
 }
 
 .comment-composer__textarea {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   min-height: 120px;
   padding: var(--space-md);
   border: 1px solid var(--color-border);

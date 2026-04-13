@@ -23,12 +23,21 @@ const commentQueryState = {
   refetch: vi.fn(),
 }
 
+const bestSolutionMutationState = {
+  isPending: ref(false),
+  mutateAsync: vi.fn(),
+}
+
 vi.mock('@/features/auth/queries/useCurrentUserQuery', () => ({
   useCurrentUserQuery: vi.fn(() => currentUserState),
 }))
 
 vi.mock('@/features/comments/queries/useCommentContextQuery', () => ({
   useCommentContextQuery: vi.fn(() => commentQueryState),
+}))
+
+vi.mock('@/features/solutions/mutations/useBestSolutionMutation', () => ({
+  useBestSolutionMutation: vi.fn(() => bestSolutionMutationState),
 }))
 
 async function mountHeader() {
@@ -67,6 +76,8 @@ describe('identity polish', () => {
     commentQueryState.isPending.value = false
     commentQueryState.isError.value = false
     commentQueryState.refetch.mockReset()
+    bestSolutionMutationState.isPending.value = false
+    bestSolutionMutationState.mutateAsync.mockReset()
   })
 
   it('preserves the full nickname in the account toggle title for truncate behavior', async () => {

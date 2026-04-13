@@ -16,8 +16,16 @@ const router = useRouter()
 const hasPreviousPage = computed(() => props.page > 1)
 
 async function goToPage(nextPage: number) {
+  const query = { ...route.query }
+
+  if (nextPage > 1) {
+    query.page = String(nextPage)
+  } else {
+    delete query.page
+  }
+
   await router.push({
-    query: { page: String(nextPage) },
+    query,
   })
 }
 
@@ -36,8 +44,6 @@ async function goToNextPage() {
 
   await goToPage(props.page + 1)
 }
-
-const querySummary = computed(() => route.query.page)
 </script>
 
 <template>
@@ -51,10 +57,7 @@ const querySummary = computed(() => route.query.page)
     </AppButton>
 
     <p class="question-list-pagination__label">
-      <span>page {{ page }}</span>
-      <span v-if="querySummary" class="question-list-pagination__query">
-        query: {{ querySummary }}
-      </span>
+      <span>Страница {{ page }}</span>
     </p>
 
     <AppButton
@@ -86,10 +89,6 @@ const querySummary = computed(() => route.query.page)
   margin: 0;
   color: var(--color-muted);
   text-align: center;
-}
-
-.question-list-pagination__query {
-  font-size: 13px;
 }
 
 @media (width <= 640px) {

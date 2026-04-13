@@ -1,10 +1,11 @@
-import { computed, ref } from 'vue'
+import { ref, toValue } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMemoryHistory, createRouter } from 'vue-router'
 
 import HomePage from '@/pages/HomePage.vue'
+import { useQuestionListQuery } from '@/features/questions/queries/useQuestionListQuery'
 
 const queryState = {
   data: ref<any>({ count: 0, next: null, previous: null, results: [] }),
@@ -18,7 +19,7 @@ vi.mock('@/features/questions/queries/useQuestionListQuery', () => ({
   useQuestionListQuery: vi.fn(() => queryState),
 }))
 
-async function mountHomePage() {
+async function mountHomePage(initialPath = '/') {
   const pinia = createPinia()
   setActivePinia(pinia)
 
@@ -31,7 +32,7 @@ async function mountHomePage() {
     ],
   })
 
-  await router.push('/')
+  await router.push(initialPath)
   await router.isReady()
 
   const wrapper = mount(HomePage, {
@@ -58,6 +59,7 @@ describe('question list home page', () => {
     queryState.isError.value = false
     queryState.isPlaceholderData.value = false
     queryState.refetch.mockReset()
+    vi.mocked(useQuestionListQuery).mockClear()
   })
 
   it('renders the loading skeleton while the list query is pending', async () => {
@@ -85,5 +87,17 @@ describe('question list home page', () => {
     await wrapper.get('[data-testid="question-list-state-error"] button').trigger('click')
 
     expect(queryState.refetch).toHaveBeenCalled()
+  })
+
+  it('passes discovery URL params into the question list query', async () => {
+    await mountHomePage('/?search=django&ordering=question_created_at&page=2')
+
+    const params = toValue(vi.mocked(useQuestionListQuery).mock.calls.at(-1)?.[0])
+
+    expect(params).toEqual({
+      page: 2,
+      search: 'django',
+      ordering: 'question_created_at',
+    })
   })
 })

@@ -11,13 +11,14 @@ from .models import Question, Solution, SolutionEdits, Comment
 from .serializers import (
     QuestionGetSerializer, QuestionListSerializer, QuestionUpdateCreateSerializer,
     QuestionCreateResponseSerializer, SolutionListSerializer, SolutionCreateSerializer,
-    SolutionCreateResponseSerializer,
+    SolutionCreateResponseSerializer, SolutionBestSerializer,
     SolutionEditCreateSerializer, SolutionEditCreateResponseSerializer, SolutionEditHistorySerializer,
     CommentCreateResponseSerializer, CommentListSerializer, CommentCreateSerializer, CommentDetailSerializer,
     VoteSerializer, VoteCreateSerializer, SolutionEditApprovalSerializer,
 )
 from .services.solution_edits_service import SolutionEditService
 from .services.comment_service import CommentService
+from .services.solution_service import SolutionService
 from .services.vote_service import VoteService
 
 class QuestionViewSet(mixins.ListModelMixin,
@@ -33,6 +34,7 @@ class QuestionViewSet(mixins.ListModelMixin,
     question_list_serializer = QuestionListSerializer
     question_create_serializer = QuestionUpdateCreateSerializer
     question_create_response_serializer = QuestionCreateResponseSerializer
+    question_ordering_fields = {'question_created_at', '-question_created_at'}
 
     def get_serializer_class(self):
         if self.action == 'list':
@@ -56,6 +58,18 @@ class QuestionViewSet(mixins.ListModelMixin,
     def get_queryset(self):
         queryset = Question.objects.select_related('user')
 
+        if self.action == 'list':
+            search = self.request.query_params.get('search', '').strip()
+            ordering = self.request.query_params.get('ordering', '-question_created_at')
+
+            if search:
+                queryset = queryset.filter(question_title__icontains=search)
+
+            if ordering not in self.question_ordering_fields:
+                ordering = '-question_created_at'
+
+            queryset = queryset.order_by(ordering)
+
         if self.action == 'retrieve':
             user = self.request.user
             queryset = VoteService.annotate_votes(queryset, Question, user)
@@ -75,6 +89,23 @@ class QuestionViewSet(mixins.ListModelMixin,
         serializer.save()
 
     @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                'search', OpenApiTypes.STR,
+                location='query', required=False, description='Поиск по названию вопроса'
+            ),
+            OpenApiParameter(
+                'ordering', OpenApiTypes.STR,
+                location='query', required=False,
+                description='Сортировка по дате: -question_created_at или question_created_at'
+            ),
+        ],
+        responses=QuestionListSerializer(many=True),
+    )
+    def list(self, request, *args, **kwargs):
+        return super().list(request, *args, **kwargs)
+
+    @extend_schema(
         request=QuestionUpdateCreateSerializer,
         responses={201: QuestionCreateResponseSerializer},
     )
@@ -91,11 +122,14 @@ class QuestionViewSet(mixins.ListModelMixin,
 class SolutionViewSet(mixins.ListModelMixin,
                       mixins.CreateModelMixin,
                       viewsets.GenericViewSet):
+    serializer_class = SolutionListSerializer
+    lookup_field = 'solution_id'
     pagination_class = pagination.PageNumberPagination
 
     solution_list_serializer = SolutionListSerializer
     solution_create_serializer = SolutionCreateSerializer
     solution_create_response_serializer = SolutionCreateResponseSerializer
+    solution_best_serializer = SolutionBestSerializer
 
     def get_queryset(self):
         base_queryset = Solution.objects.select_related('user', 'question')
@@ -114,10 +148,12 @@ class SolutionViewSet(mixins.ListModelMixin,
             return self.solution_list_serializer
         if self.action == 'create':
             return self.solution_create_serializer
+        if self.action == 'best':
+            return self.solution_best_serializer
         return self.serializer_class
 
     def get_permissions(self):
-        if self.action in ['create']:
+        if self.action in ['create', 'best']:
             permission_classes = [IsAuthenticated]
         else:
             permission_classes = [AllowAny]
@@ -151,6 +187,30 @@ class SolutionViewSet(mixins.ListModelMixin,
     )
     def list(self, request, *args, **kwargs):
         return super().list(request, *args, **kwargs)
+
+    @extend_schema(
+        request=SolutionBestSerializer,
+        responses={200: SolutionListSerializer},
+    )
+    @action(detail=True, methods=['patch'], url_path='best')
+    def best(self, request, *args, **kwargs):
+        solution = self.get_object()
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        updated_solution = SolutionService.set_best_solution(
+            solution=solution,
+            solution_is_best=serializer.validated_data['solution_is_best'],
+            user=request.user,
+        )
+        updated_solution = VoteService.annotate_votes(
+            Solution.objects.select_related('user', 'question').filter(solution_id=updated_solution.solution_id),
+            Solution,
+            request.user,
+        ).get()
+        response_serializer = self.solution_list_serializer(updated_solution, context={'request': request})
+
+        return Response(response_serializer.data, status=status.HTTP_200_OK)
 
 class SolutionEditsViewSet(mixins.CreateModelMixin,
                            viewsets.GenericViewSet):

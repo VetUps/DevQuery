@@ -1,14 +1,17 @@
 <script setup lang="ts">
+import { computed } from 'vue'
+
 import type { SolutionListItem } from '@/features/solutions/api/solutions'
 import AppButton from '@/shared/ui/AppButton.vue'
 
 import SolutionReadCard from './SolutionReadCard.vue'
 
-defineProps<{
+const props = defineProps<{
   solutions: SolutionListItem[]
   questionId: string
   viewerUserId?: string
   isAuthenticated?: boolean
+  canMarkBest?: boolean
   activeComposerKey?: string | null
   isPending?: boolean
   isError?: boolean
@@ -20,6 +23,19 @@ defineEmits<{
   retry: []
   requestComposer: [key: string | null]
 }>()
+
+const orderedSolutions = computed(() => {
+  const bestSolution = props.solutions.find((solution) => solution.solution_is_best)
+
+  if (!bestSolution) {
+    return props.solutions
+  }
+
+  return [
+    bestSolution,
+    ...props.solutions.filter((solution) => solution.solution_id !== bestSolution.solution_id),
+  ]
+})
 </script>
 
 <template>
@@ -53,14 +69,15 @@ defineEmits<{
 
     <div v-else class="solution-list-section__list">
       <SolutionReadCard
-        v-for="(solution, index) in solutions"
+        v-for="solution in orderedSolutions"
         :key="solution.solution_id"
         :solution="solution"
         :question-id="questionId"
         :viewer-user-id="viewerUserId"
         :is-authenticated="isAuthenticated"
+        :can-mark-best="canMarkBest"
         :active-composer-key="activeComposerKey"
-        :featured="index === 0"
+        :featured="solution.solution_is_best"
         :is-fresh="solution.solution_id === freshSolutionId"
         @request-composer="$emit('requestComposer', $event)"
       />
@@ -100,6 +117,7 @@ defineEmits<{
 .solution-list-section__muted,
 .solution-list-section__success {
   margin: 0;
+  overflow-wrap: anywhere;
 }
 
 .solution-list-section__eyebrow {

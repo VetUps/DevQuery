@@ -105,7 +105,10 @@ onBeforeUnmount(() => {
   display: grid;
   gap: var(--space-lg);
   width: min(920px, 100%);
+  max-width: 100%;
+  min-width: 0;
   max-height: min(90vh, 920px);
+  box-sizing: border-box;
   overflow: auto;
   padding: var(--space-xl);
   border: 1px solid rgb(207 198 180 / 0.82);
@@ -124,6 +127,11 @@ onBeforeUnmount(() => {
   align-items: start;
   justify-content: space-between;
   gap: var(--space-md);
+  min-width: 0;
+}
+
+.app-dialog__header > div {
+  min-width: 0;
 }
 
 .app-dialog__title,
@@ -135,15 +143,18 @@ onBeforeUnmount(() => {
   font-size: 28px;
   line-height: 1.08;
   letter-spacing: -0.03em;
+  overflow-wrap: anywhere;
 }
 
 .app-dialog__description {
   margin-top: var(--space-xs);
   color: var(--color-muted);
   line-height: 1.6;
+  overflow-wrap: anywhere;
 }
 
 .app-dialog__close {
+  flex: 0 0 auto;
   min-height: 38px;
   padding: 0 12px;
   border: 1px solid rgb(31 41 51 / 0.08);

@@ -51,6 +51,7 @@ const hasPageError = computed(
 )
 const questionCreatedNotice = computed(() => route.query.message === 'question-created')
 const currentUserId = computed(() => currentUserQuery.data.value?.user_id ?? '')
+const isQuestionAuthor = computed(() => Boolean(currentUserId.value) && currentUserId.value === questionAuthorId.value)
 const currentUserSolution = computed(() =>
   (solutionsQuery.data.value ?? []).find((solution) => solution.user === currentUserId.value) ?? null,
 )
@@ -167,6 +168,7 @@ onBeforeUnmount(() => {
           :question-id="questionId"
           :viewer-user-id="currentUserId"
           :is-authenticated="isAuthenticated"
+          :can-mark-best="isQuestionAuthor"
           :active-composer-key="activeInlineComposerKey"
           :is-pending="solutionsQuery.isPending.value"
           :is-error="solutionsQuery.isError.value"
@@ -176,8 +178,15 @@ onBeforeUnmount(() => {
           @request-composer="activeInlineComposerKey = $event"
         >
           <template #authoring>
+            <p
+              v-if="isQuestionAuthor"
+              class="question-detail-page__author-note"
+            >
+              Вы автор вопроса, поэтому не можете публиковать своё решение. Выберите лучший ответ среди решений сообщества.
+            </p>
+
             <SolutionExistingNotice
-              v-if="currentUserSolution"
+              v-else-if="currentUserSolution"
               @focus-solution="focusSolution(currentUserSolution.solution_id)"
             />
 
@@ -243,5 +252,15 @@ onBeforeUnmount(() => {
   border-radius: var(--radius-md);
   background: rgb(47 133 90 / 0.1);
   color: #2F855A;
+}
+
+.question-detail-page__author-note {
+  margin: 0;
+  padding: var(--space-md) var(--space-lg);
+  border: 1px solid rgb(14 116 144 / 0.18);
+  border-radius: var(--radius-md);
+  background: rgb(14 116 144 / 0.08);
+  color: var(--color-accent);
+  line-height: 1.6;
 }
 </style>

@@ -1,18 +1,24 @@
 import { computed, toValue, type MaybeRefOrGetter } from 'vue'
 import { keepPreviousData, useQuery } from '@tanstack/vue-query'
 
-import { fetchQuestionList } from '@/features/questions/api/questions'
+import { fetchQuestionList, type QuestionListParams } from '@/features/questions/api/questions'
 
-export function useQuestionListQuery(page: MaybeRefOrGetter<number>) {
-  const normalizedPage = computed(() => {
-    const nextPage = toValue(page)
+export function useQuestionListQuery(params: MaybeRefOrGetter<QuestionListParams>) {
+  const normalizedParams = computed(() => {
+    const nextParams = toValue(params)
+    const nextPage = nextParams.page
+    const nextSearch = nextParams.search?.trim() ?? ''
 
-    return nextPage > 0 ? nextPage : 1
+    return {
+      page: nextPage > 0 ? nextPage : 1,
+      search: nextSearch,
+      ordering: nextParams.ordering ?? '-question_created_at',
+    } satisfies QuestionListParams
   })
 
   return useQuery({
-    queryKey: computed(() => ['questions', 'list', { page: normalizedPage.value }]),
+    queryKey: computed(() => ['questions', 'list', normalizedParams.value]),
     placeholderData: keepPreviousData,
-    queryFn: () => fetchQuestionList(normalizedPage.value),
+    queryFn: () => fetchQuestionList(normalizedParams.value),
   })
 }

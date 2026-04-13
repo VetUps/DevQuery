@@ -61,13 +61,17 @@ export function createAppRouter(history: RouterHistory = createWebHistory()) {
   })
 
   router.beforeEach(async (to) => {
+    const sessionStore = useSessionStore()
+
+    if (!sessionStore.accessToken && !sessionStore.refreshToken) {
+      sessionStore.hydrateFromStorage()
+    }
+
     if (!to.meta.requiresAuth) {
       return true
     }
 
-    const sessionStore = useSessionStore()
-
-    if (sessionStore.isAuthenticated) {
+    if (sessionStore.accessToken && sessionStore.isAuthenticated) {
       return true
     }
 

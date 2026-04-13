@@ -50,6 +50,11 @@ const createSolutionMutationState = {
   mutateAsync: vi.fn(),
 }
 
+const bestSolutionMutationState = {
+  isPending: ref(false),
+  mutateAsync: vi.fn(),
+}
+
 vi.mock('@/features/questions/queries/useQuestionDetailQuery', () => ({
   useQuestionDetailQuery: vi.fn(() => questionDetailState),
 }))
@@ -72,6 +77,10 @@ vi.mock('@/features/auth/queries/useCurrentUserQuery', () => ({
 
 vi.mock('@/features/solutions/mutations/useCreateSolutionMutation', () => ({
   useCreateSolutionMutation: vi.fn(() => createSolutionMutationState),
+}))
+
+vi.mock('@/features/solutions/mutations/useBestSolutionMutation', () => ({
+  useBestSolutionMutation: vi.fn(() => bestSolutionMutationState),
 }))
 
 async function mountQuestionDetailPage(authenticated = false) {
@@ -179,6 +188,10 @@ describe('solution authoring flow', () => {
 
     createSolutionMutationState.isPending.value = false
     createSolutionMutationState.mutateAsync.mockReset()
+
+    bestSolutionMutationState.isPending.value = false
+    bestSolutionMutationState.mutateAsync.mockReset()
+    vi.restoreAllMocks()
   })
 
   it('shows the guest participation prompt with a register CTA', async () => {
@@ -200,6 +213,42 @@ describe('solution authoring flow', () => {
     const { wrapper } = await mountQuestionDetailPage(true)
 
     expect(wrapper.text()).toContain('Вы уже ответили на этот вопрос')
+  })
+
+  it('does not allow the question author to post their own solution', async () => {
+    currentUserState.data.value = {
+      user_id: 'author-1',
+      user_name: 'Question Author',
+    }
+
+    const { wrapper } = await mountQuestionDetailPage(true)
+
+    expect(wrapper.text()).toContain('Вы автор вопроса')
+    expect(wrapper.text()).not.toContain('Есть рабочее решение?')
+  })
+
+  it('lets the question author mark a community solution as best', async () => {
+    currentUserState.data.value = {
+      user_id: 'author-1',
+      user_name: 'Question Author',
+    }
+    solutionsState.data.value = [buildSolution()]
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    bestSolutionMutationState.mutateAsync.mockResolvedValue(buildSolution({ solution_is_best: true }))
+
+    const { wrapper } = await mountQuestionDetailPage(true)
+
+    const bestButton = wrapper.findAll('button').find((button) => button.text().trim() === 'Выбрать лучшим')
+    expect(bestButton).toBeDefined()
+
+    await bestButton!.trigger('click')
+    await flushPromises()
+
+    expect(bestSolutionMutationState.mutateAsync).toHaveBeenCalledWith({
+      questionId: 'question-1',
+      solutionId: 'solution-1',
+      solution_is_best: true,
+    })
   })
 
   it('normalizes the duplicate-solution backend error into user-facing copy', () => {

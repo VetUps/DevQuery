@@ -117,6 +117,7 @@ function handleModerated(approved: boolean) {
 .profile-edit-review-queue__header {
   display: grid;
   gap: var(--space-md);
+  min-width: 0;
 }
 
 .profile-edit-review-queue__header {
@@ -129,6 +130,7 @@ function handleModerated(approved: boolean) {
 .profile-edit-review-queue__success,
 .profile-edit-review-queue__muted {
   margin: 0;
+  overflow-wrap: anywhere;
 }
 
 .profile-edit-review-queue__eyebrow {
@@ -149,6 +151,7 @@ function handleModerated(approved: boolean) {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-sm);
+  min-width: 0;
 }
 
 .profile-edit-review-queue__mode {

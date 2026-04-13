@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import AskQuestionSidebar from '@/features/questions/components/AskQuestionSidebar.vue'
 import QuestionCreateForm from '@/features/questions/components/QuestionCreateForm.vue'
 import AppShellLayout from '@/layouts/AppShellLayout.vue'
 import SurfacePanel from '@/shared/ui/SurfacePanel.vue'
@@ -11,7 +10,7 @@ import SurfacePanel from '@/shared/ui/SurfacePanel.vue'
       <div class="ask-question-page__intro">
         <p class="ask-question-page__eyebrow">Авторский режим</p>
         <h1 class="ask-question-page__title">
-          Сформулируйте вопрос так, чтобы на него можно было ответить по коду и по сути
+          Сформулируйте вопрос
         </h1>
       </div>
 
@@ -19,8 +18,6 @@ import SurfacePanel from '@/shared/ui/SurfacePanel.vue'
         <SurfacePanel class="ask-question-page__form-panel" variant="accent">
           <QuestionCreateForm />
         </SurfacePanel>
-
-        <AskQuestionSidebar />
       </div>
     </section>
   </AppShellLayout>
@@ -35,7 +32,6 @@ import SurfacePanel from '@/shared/ui/SurfacePanel.vue'
 
 .ask-question-page__content {
   display: grid;
-  grid-template-columns: minmax(0, 1.65fr) minmax(280px, 0.95fr);
   gap: var(--space-xl);
   align-items: start;
   min-width: 0;
@@ -74,10 +70,6 @@ import SurfacePanel from '@/shared/ui/SurfacePanel.vue'
 }
 
 @media (width <= 980px) {
-  .ask-question-page__content {
-    grid-template-columns: 1fr;
-  }
-
   .ask-question-page__title {
     max-width: none;
   }

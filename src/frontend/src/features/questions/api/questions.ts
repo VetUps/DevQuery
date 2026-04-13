@@ -16,6 +16,14 @@ export interface QuestionListItem {
   question_updated_at: string
 }
 
+export type QuestionOrdering = '-question_created_at' | 'question_created_at'
+
+export interface QuestionListParams {
+  page: number
+  search?: string
+  ordering?: QuestionOrdering
+}
+
 export interface VoteContext {
   upvotes: number
   downvotes: number
@@ -42,10 +50,12 @@ export interface CreateQuestionResponse {
   question_updated_at: string
 }
 
-export async function fetchQuestionList(page: number) {
+export async function fetchQuestionList(params: QuestionListParams) {
   const response = await http.get<PaginatedResponse<QuestionListItem>>('/question/', {
     params: {
-      page,
+      page: params.page,
+      search: params.search || undefined,
+      ordering: params.ordering,
     },
   })
 

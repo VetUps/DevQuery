@@ -9,6 +9,15 @@ class UserRegisterSerializer(serializers.ModelSerializer):
     class Meta:
         model = CustomUser
         fields = ('user_name', 'user_email', 'password', 'password_confirm')
+        extra_kwargs = {
+            'user_name': {'validators': []},
+            'user_email': {'validators': []},
+        }
+
+    def validate_user_name(self, value):
+        if CustomUser.objects.filter(user_name=value).exists():
+            raise serializers.ValidationError('Пользователь с таким логином уже существует')
+        return value
 
     def validate_user_email(self, value):
         if CustomUser.objects.filter(user_email=value).exists():

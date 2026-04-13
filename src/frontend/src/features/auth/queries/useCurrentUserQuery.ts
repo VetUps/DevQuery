@@ -1,9 +1,15 @@
 import { computed } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useQuery } from '@tanstack/vue-query'
+import { isAxiosError } from 'axios'
 
 import { fetchProfile } from '@/features/auth/api/auth'
+import { refreshSession } from '@/features/auth/libs/refresh-session'
 import { useSessionStore } from '@/features/auth/stores/session'
+
+function isUnauthorizedError(error: unknown) {
+  return isAxiosError(error) && error.response?.status === 401
+}
 
 export function useCurrentUserQuery() {
   const sessionStore = useSessionStore()
@@ -21,7 +27,22 @@ export function useCurrentUserQuery() {
         }
       }
 
-      return fetchProfile(sessionStore.accessToken)
+      try {
+        return await fetchProfile(sessionStore.accessToken)
+      } catch (error) {
+        if (!isUnauthorizedError(error) || !sessionStore.refreshToken) {
+          throw error
+        }
+
+        try {
+          const tokens = await refreshSession(sessionStore.refreshToken)
+          sessionStore.setSession(tokens)
+          return await fetchProfile(tokens.access)
+        } catch (refreshError) {
+          sessionStore.clearSession()
+          throw refreshError
+        }
+      }
     },
   })
 }

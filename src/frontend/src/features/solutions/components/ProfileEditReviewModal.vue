@@ -170,8 +170,10 @@ async function handleModeration(approve: boolean) {
 .profile-edit-review-modal__eyebrow,
 .profile-edit-review-modal__title,
 .profile-edit-review-modal__excerpt,
-.profile-edit-review-modal__hint {
+.profile-edit-review-modal__hint,
+.profile-edit-review-modal__fact {
   margin: 0;
+  overflow-wrap: anywhere;
 }
 
 .profile-edit-review-modal__summary {
@@ -218,6 +220,7 @@ async function handleModeration(approve: boolean) {
 .profile-edit-review-modal__fact {
   display: grid;
   gap: 4px;
+  min-width: 0;
   padding: var(--space-md);
   border: 1px solid rgb(207 198 180 / 0.72);
   border-radius: var(--radius-md);

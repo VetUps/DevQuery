@@ -23,6 +23,11 @@ const moderateMutationState = {
   mutateAsync: vi.fn(),
 }
 
+const bestSolutionMutationState = {
+  isPending: ref(false),
+  mutateAsync: vi.fn(),
+}
+
 vi.mock('@/features/solutions/queries/useMyEditHistoryQuery', () => ({
   useMyEditHistoryQuery: vi.fn(() => myHistoryState),
 }))
@@ -33,6 +38,10 @@ vi.mock('@/features/solutions/queries/usePublicSolutionEditHistoryQuery', () => 
 
 vi.mock('@/features/solutions/mutations/useModerateSolutionEditMutation', () => ({
   useModerateSolutionEditMutation: vi.fn(() => moderateMutationState),
+}))
+
+vi.mock('@/features/solutions/mutations/useBestSolutionMutation', () => ({
+  useBestSolutionMutation: vi.fn(() => bestSolutionMutationState),
 }))
 
 vi.mock('@/features/comments/queries/useCommentContextQuery', () => ({
@@ -148,6 +157,8 @@ describe('edit history surfaces', () => {
     publicHistoryState.isError.value = false
     publicHistoryState.refetch.mockReset()
     moderateMutationState.mutateAsync.mockReset()
+    bestSolutionMutationState.isPending.value = false
+    bestSolutionMutationState.mutateAsync.mockReset()
   })
 
   it('groups owner history by solution and keeps private statuses visible', async () => {

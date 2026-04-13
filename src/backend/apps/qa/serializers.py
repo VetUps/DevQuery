@@ -41,7 +41,7 @@ class QuestionCreateResponseSerializer(serializers.ModelSerializer):
         ]
 
 class SolutionListSerializer(serializers.ModelSerializer):
-    question_id = serializers.UUIDField(write_only=True)
+    question_id = serializers.UUIDField(source='question.question_id', read_only=True)
     user_name = serializers.CharField(source='user.user_name', read_only=True)
     upvotes = serializers.IntegerField(source='vote_upvotes', read_only=True)
     downvotes = serializers.IntegerField(source='vote_downvotes', read_only=True)
@@ -62,9 +62,17 @@ class SolutionCreateSerializer(serializers.ModelSerializer):
         user = self.context.get('request').user
         question = data.get('question')
 
+        if question.user == user:
+            raise serializers.ValidationError('Автор вопроса не может публиковать решение к своему вопросу')
+
         if Solution.objects.filter(user=user, question=question).exists():
             raise serializers.ValidationError('Пользователь уже выложил решение на данный вопрос')
         return data
+
+
+class SolutionBestSerializer(serializers.Serializer):
+    solution_is_best = serializers.BooleanField()
+
 
 class SolutionCreateResponseSerializer(serializers.ModelSerializer):
     user_name = serializers.CharField(source='user.user_name', read_only=True)

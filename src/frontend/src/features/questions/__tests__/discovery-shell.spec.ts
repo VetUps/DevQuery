@@ -101,10 +101,10 @@ describe('discovery shell polish', () => {
     const { wrapper } = await mountHomePage()
 
     expect(wrapper.get('[data-testid="discovery-search-reserve"]').text()).toContain(
-      'Поиск по названию...',
+      'Найдите вопрос по названию',
     )
-    expect(wrapper.text()).toContain('Поиск по заголовкам')
-    expect(wrapper.text()).toContain('Сортировка по дате')
+    expect(wrapper.get('[data-testid="question-search-input"]').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="question-ordering-select"]').text()).toContain('Сначала новые')
   })
 
   it('keeps guest ask-question entry pointed at registration', async () => {

@@ -62,6 +62,7 @@ defineEmits<{
 .profile-edit-review-grouped-list__header,
 .profile-edit-review-grouped-list__items {
   display: grid;
+  min-width: 0;
 }
 
 .profile-edit-review-grouped-list {
@@ -85,6 +86,7 @@ defineEmits<{
 .profile-edit-review-grouped-list__title,
 .profile-edit-review-grouped-list__excerpt {
   margin: 0;
+  overflow-wrap: anywhere;
 }
 
 .profile-edit-review-grouped-list__eyebrow {
@@ -111,6 +113,7 @@ defineEmits<{
   grid-template-columns: minmax(0, 1fr) auto auto;
   gap: var(--space-sm);
   align-items: center;
+  min-width: 0;
   min-height: 48px;
   padding: 0 14px;
   border: 1px solid rgb(207 198 180 / 0.62);
@@ -120,7 +123,9 @@ defineEmits<{
 }
 
 .profile-edit-review-grouped-list__author {
+  min-width: 0;
   font-weight: 600;
+  overflow-wrap: anywhere;
 }
 
 .profile-edit-review-grouped-list__status {

@@ -52,6 +52,7 @@ defineEmits<{
 .profile-edit-review-list__copy,
 .profile-edit-review-list__meta {
   display: grid;
+  min-width: 0;
 }
 
 .profile-edit-review-list {
@@ -84,6 +85,7 @@ defineEmits<{
 .profile-edit-review-list__excerpt,
 .profile-edit-review-list__time {
   margin: 0;
+  overflow-wrap: anywhere;
 }
 
 .profile-edit-review-list__eyebrow {

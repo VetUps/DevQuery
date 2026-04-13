@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, shallowRef, watch } from 'vue'
 import { storeToRefs } from 'pinia'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 
 import { useQuestionListQuery } from '@/features/questions/queries/useQuestionListQuery'
 import DiscoverySearchReserve from '@/features/questions/components/DiscoverySearchReserve.vue'
@@ -9,6 +9,7 @@ import PublicDiscoveryIntro from '@/features/questions/components/PublicDiscover
 import QuestionCard from '@/features/questions/components/QuestionCard.vue'
 import QuestionListPagination from '@/features/questions/components/QuestionListPagination.vue'
 import QuestionListSkeleton from '@/features/questions/components/QuestionListSkeleton.vue'
+import type { QuestionOrdering } from '@/features/questions/api/questions'
 import { useSessionStore } from '@/features/auth/stores/session'
 import AppShellLayout from '@/layouts/AppShellLayout.vue'
 import InlineFeedbackPanel from '@/shared/ui/InlineFeedbackPanel.vue'
@@ -21,12 +22,41 @@ function normalizePage(rawPage: unknown) {
   return Number.isNaN(parsedPage) || parsedPage < 1 ? 1 : parsedPage
 }
 
+function normalizeSearch(rawSearch: unknown) {
+  const value = Array.isArray(rawSearch) ? rawSearch[0] : rawSearch
+
+  return String(value ?? '').trim()
+}
+
+function normalizeOrdering(rawOrdering: unknown): QuestionOrdering {
+  const value = Array.isArray(rawOrdering) ? rawOrdering[0] : rawOrdering
+
+  return value === 'question_created_at' ? value : '-question_created_at'
+}
+
 const route = useRoute()
+const router = useRouter()
 const sessionStore = useSessionStore()
 const { isAuthenticated } = storeToRefs(sessionStore)
 
 const currentPage = computed(() => normalizePage(route.query.page))
-const questionListQuery = useQuestionListQuery(currentPage)
+const activeSearch = computed(() => normalizeSearch(route.query.search))
+const activeOrdering = computed(() => normalizeOrdering(route.query.ordering))
+const searchDraft = shallowRef(activeSearch.value)
+const orderingModel = computed({
+  get: () => activeOrdering.value,
+  set: (value: QuestionOrdering) => {
+    void pushDiscoveryQuery({
+      ordering: value,
+      page: 1,
+    })
+  },
+})
+const questionListQuery = useQuestionListQuery(computed(() => ({
+  page: currentPage.value,
+  search: activeSearch.value,
+  ordering: activeOrdering.value,
+})))
 
 const questionList = computed(() => questionListQuery.data.value?.results ?? [])
 const totalQuestions = computed(() => questionListQuery.data.value?.count ?? 0)
@@ -38,6 +68,90 @@ const isLoadingList = computed(
 const isEmptyList = computed(
   () => !questionListQuery.isPending.value && !questionListQuery.isError.value && questionList.value.length === 0,
 )
+const isSearchEmptyList = computed(() => isEmptyList.value && Boolean(activeSearch.value))
+
+let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null
+
+function buildDiscoveryQuery(overrides: {
+  page?: number
+  search?: string
+  ordering?: QuestionOrdering
+}) {
+  const query = { ...route.query }
+  const nextPage = overrides.page ?? currentPage.value
+  const nextSearch = overrides.search ?? activeSearch.value
+  const nextOrdering = overrides.ordering ?? activeOrdering.value
+
+  if (nextPage > 1) {
+    query.page = String(nextPage)
+  } else {
+    delete query.page
+  }
+
+  if (nextSearch) {
+    query.search = nextSearch
+  } else {
+    delete query.search
+  }
+
+  if (nextOrdering === 'question_created_at') {
+    query.ordering = nextOrdering
+  } else {
+    delete query.ordering
+  }
+
+  return query
+}
+
+function clearSearchDebounceTimer() {
+  if (!searchDebounceTimer) {
+    return
+  }
+
+  clearTimeout(searchDebounceTimer)
+  searchDebounceTimer = null
+}
+
+async function replaceDiscoveryQuery(overrides: Parameters<typeof buildDiscoveryQuery>[0]) {
+  await router.replace({
+    query: buildDiscoveryQuery(overrides),
+  })
+}
+
+async function pushDiscoveryQuery(overrides: Parameters<typeof buildDiscoveryQuery>[0]) {
+  await router.push({
+    query: buildDiscoveryQuery(overrides),
+  })
+}
+
+async function resetSearch() {
+  clearSearchDebounceTimer()
+  searchDraft.value = ''
+
+  await pushDiscoveryQuery({
+    page: 1,
+    search: '',
+  })
+}
+
+watch(activeSearch, (value) => {
+  if (searchDraft.value !== value) {
+    searchDraft.value = value
+  }
+})
+
+watch(searchDraft, (value) => {
+  clearSearchDebounceTimer()
+
+  searchDebounceTimer = setTimeout(() => {
+    void replaceDiscoveryQuery({
+      page: 1,
+      search: value.trim(),
+    })
+  }, 500)
+})
+
+onBeforeUnmount(clearSearchDebounceTimer)
 </script>
 
 <template>
@@ -45,7 +159,11 @@ const isEmptyList = computed(
     <section class="home-page">
       <div class="home-page__content">
         <div class="home-page__main">
-          <DiscoverySearchReserve :total-questions="totalQuestions" />
+          <DiscoverySearchReserve
+            v-model:search="searchDraft"
+            v-model:ordering="orderingModel"
+            :total-questions="totalQuestions"
+          />
 
           <SurfacePanel class="home-page__list-section" aria-label="Лента вопросов">
             <div class="home-page__section-heading">
@@ -74,10 +192,15 @@ const isEmptyList = computed(
 
             <InlineFeedbackPanel
               v-else-if="isEmptyList"
-              eyebrow="Публичная лента"
-              title="Вопросов пока нет"
-              description="Как только в системе появятся новые обсуждения, они сразу покажутся здесь."
+              :eyebrow="isSearchEmptyList ? 'Поиск по ленте' : 'Публичная лента'"
+              :title="isSearchEmptyList ? 'Ничего не нашли' : 'Вопросов пока нет'"
+              :description="isSearchEmptyList
+                ? `По запросу «${activeSearch}» пока нет подходящих вопросов.`
+                : 'Как только в системе появятся новые обсуждения, они сразу покажутся здесь.'"
+              :show-action="isSearchEmptyList"
+              action-label="Сбросить поиск"
               data-testid="question-list-state-empty"
+              @action="resetSearch"
             />
 
             <div v-else class="home-page__question-list">

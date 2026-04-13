@@ -101,22 +101,13 @@ async function handleSubmit() {
     :open="open"
     size="wide"
     title="Предложить правку"
-    description="Сравните исходное решение с новой версией и отправьте её на проверку."
+    description="Отредактируйте новую версию решения и проверьте изменения во вкладке сравнения."
     @close="$emit('close')"
   >
     <form class="solution-edit-proposal-modal" @submit.prevent="handleSubmit">
       <p v-if="summary" class="solution-edit-proposal-modal__summary">{{ summary }}</p>
 
       <div class="solution-edit-proposal-modal__layout">
-        <SurfacePanel class="solution-edit-proposal-modal__reference" padding="lg" variant="muted">
-          <div>
-            <p class="solution-edit-proposal-modal__eyebrow">Оригинал</p>
-            <h3 class="solution-edit-proposal-modal__title">Текущее решение</h3>
-          </div>
-
-          <MarkdownContent :source="originalBody" />
-        </SurfacePanel>
-
         <section class="solution-edit-proposal-modal__main">
           <div class="solution-edit-proposal-modal__tabs">
             <button
@@ -193,9 +184,7 @@ async function handleSubmit() {
 }
 
 .solution-edit-proposal-modal__summary,
-.solution-edit-proposal-modal__hint,
-.solution-edit-proposal-modal__eyebrow,
-.solution-edit-proposal-modal__title {
+.solution-edit-proposal-modal__hint {
   margin: 0;
 }
 
@@ -209,29 +198,14 @@ async function handleSubmit() {
 
 .solution-edit-proposal-modal__layout {
   display: grid;
-  grid-template-columns: minmax(300px, 380px) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--space-lg);
   min-width: 0;
 }
 
-.solution-edit-proposal-modal__reference,
 .solution-edit-proposal-modal__main {
   align-content: start;
   min-width: 0;
-}
-
-.solution-edit-proposal-modal__eyebrow {
-  color: var(--color-accent);
-  font-size: 14px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.solution-edit-proposal-modal__title {
-  margin-top: var(--space-xs);
-  font-size: 24px;
-  line-height: 1.1;
 }
 
 .solution-edit-proposal-modal__main {

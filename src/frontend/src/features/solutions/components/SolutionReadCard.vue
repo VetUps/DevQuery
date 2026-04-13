@@ -8,6 +8,7 @@ import { useCommentContextQuery } from '@/features/comments/queries/useCommentCo
 import type { CreateSolutionEditResponse } from '@/features/solutions/api/solutionEdits'
 import PublicSolutionEditHistoryButton from '@/features/solutions/components/PublicSolutionEditHistoryButton.vue'
 import SolutionEditProposalModal from '@/features/solutions/components/SolutionEditProposalModal.vue'
+import { useBestSolutionMutation } from '@/features/solutions/mutations/useBestSolutionMutation'
 import SignalVoteRail from '@/features/votes/components/SignalVoteRail.vue'
 import { formatLongDate } from '@/shared/libs/formatting'
 import AppButton from '@/shared/ui/AppButton.vue'
@@ -18,6 +19,7 @@ const props = defineProps<{
   questionId: string
   viewerUserId?: string
   isAuthenticated?: boolean
+  canMarkBest?: boolean
   activeComposerKey?: string | null
   featured?: boolean
   isFresh?: boolean
@@ -29,6 +31,7 @@ const emit = defineEmits<{
 
 const solutionId = computed(() => props.solution.solution_id)
 const commentQuery = useCommentContextQuery('solution', solutionId)
+const bestSolutionMutation = useBestSolutionMutation()
 const isDiscussionOpen = ref(false)
 const isEditModalOpen = ref(false)
 const editSuccessMessage = ref('')
@@ -37,6 +40,14 @@ const canSuggestEdit = computed(() => (
   Boolean(props.isAuthenticated) &&
   Boolean(props.viewerUserId) &&
   props.viewerUserId !== props.solution.user
+))
+const canToggleBest = computed(() => (
+  Boolean(props.canMarkBest) &&
+  Boolean(props.viewerUserId) &&
+  props.viewerUserId !== props.solution.user
+))
+const bestActionLabel = computed(() => (
+  props.solution.solution_is_best ? 'Снять лучшее' : 'Выбрать лучшим'
 ))
 
 watch(solutionId, () => {
@@ -49,6 +60,28 @@ function handleEditSubmitted(_createdEdit: CreateSolutionEditResponse) {
   isEditModalOpen.value = false
   editSuccessMessage.value = 'Правка отправлена на проверку'
 }
+
+async function handleBestAction() {
+  const nextBestState = !props.solution.solution_is_best
+  const confirmationMessage = nextBestState
+    ? 'Выбрать это решение лучшим?'
+    : 'Снять отметку лучшего решения?'
+  const isConfirmed = typeof window === 'undefined' || window.confirm(confirmationMessage)
+
+  if (!isConfirmed) {
+    return
+  }
+
+  try {
+    await bestSolutionMutation.mutateAsync({
+      questionId: props.questionId,
+      solutionId: props.solution.solution_id,
+      solution_is_best: nextBestState,
+    })
+  } catch {
+    // Ошибка уже превращается в toast внутри мутации.
+  }
+}
 </script>
 
 <template>
@@ -57,13 +90,14 @@ function handleEditSubmitted(_createdEdit: CreateSolutionEditResponse) {
     class="solution-read-card"
     :class="{
       'solution-read-card--featured': featured,
+      'solution-read-card--best': solution.solution_is_best,
       'solution-read-card--fresh': isFresh,
     }"
   >
     <div class="solution-read-card__header">
       <div class="solution-read-card__identity">
         <p class="solution-read-card__eyebrow">
-          {{ featured ? 'Развёрнутое решение' : 'Решение' }}
+          {{ solution.solution_is_best ? 'Лучшее решение' : 'Решение' }}
         </p>
         <div class="solution-read-card__meta">
           <strong class="solution-read-card__author">
@@ -104,6 +138,15 @@ function handleEditSubmitted(_createdEdit: CreateSolutionEditResponse) {
     </div>
 
     <div class="solution-read-card__actions">
+      <AppButton
+        v-if="canToggleBest"
+        variant="secondary"
+        :disabled="bestSolutionMutation.isPending.value"
+        @click="handleBestAction"
+      >
+        {{ bestActionLabel }}
+      </AppButton>
+
       <PublicSolutionEditHistoryButton :solution-id="solution.solution_id" />
 
       <AppButton
@@ -114,7 +157,7 @@ function handleEditSubmitted(_createdEdit: CreateSolutionEditResponse) {
         Предложить правку
       </AppButton>
 
-      <p v-else class="solution-read-card__edit-success">
+      <p v-else-if="editSuccessMessage" class="solution-read-card__edit-success">
         {{ editSuccessMessage }}
       </p>
     </div>
@@ -173,6 +216,11 @@ function handleEditSubmitted(_createdEdit: CreateSolutionEditResponse) {
 
 .solution-read-card--featured {
   background: linear-gradient(180deg, rgb(255 255 255 / 0.82), rgb(247 243 234 / 0.9));
+}
+
+.solution-read-card--best {
+  border-color: rgb(47 133 90 / 0.34);
+  box-shadow: 0 14px 36px rgb(47 133 90 / 0.08);
 }
 
 .solution-read-card--fresh {
