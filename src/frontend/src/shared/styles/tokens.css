@@ -1,0 +1,23 @@
+:root {
+  --font-sans: 'IBM Plex Sans', sans-serif;
+
+  --color-surface: #F7F3EA;
+  --color-panel: #E4DED0;
+  --color-accent: #0E7490;
+  --color-danger: #C2410C;
+  --color-text: #1F2933;
+  --color-muted: #5B6470;
+  --color-border: #CFC6B4;
+
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+  --space-2xl: 48px;
+  --space-3xl: 64px;
+
+  --radius-sm: 10px;
+  --radius-md: 16px;
+  --radius-lg: 24px;
+}

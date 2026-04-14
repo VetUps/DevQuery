@@ -1,3 +1,5 @@
+import re
+
 from django.contrib.contenttypes.models import ContentType
 from django.db.models import TextChoices
 from rest_framework import serializers
@@ -25,8 +27,22 @@ class QuestionUpdateCreateSerializer(serializers.ModelSerializer):
         model = Question
         fields = ['question_title', 'question_body']
 
+class QuestionCreateResponseSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Question
+        fields = [
+            'question_id',
+            'user',
+            'question_title',
+            'question_body',
+            'question_status',
+            'question_created_at',
+            'question_updated_at',
+        ]
+
 class SolutionListSerializer(serializers.ModelSerializer):
-    question_id = serializers.UUIDField(write_only=True)
+    question_id = serializers.UUIDField(source='question.question_id', read_only=True)
+    user_name = serializers.CharField(source='user.user_name', read_only=True)
     upvotes = serializers.IntegerField(source='vote_upvotes', read_only=True)
     downvotes = serializers.IntegerField(source='vote_downvotes', read_only=True)
     score = serializers.IntegerField(source='vote_score', read_only=True)
@@ -34,7 +50,7 @@ class SolutionListSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Solution
-        fields = ['solution_id', 'user', 'question_id', 'solution_body', 'solution_is_best',
+        fields = ['solution_id', 'user', 'user_name', 'question_id', 'solution_body', 'solution_is_best',
                   'solution_created_at', 'solution_updated_at', 'upvotes', 'downvotes', 'score', 'user_vote']
 
 class SolutionCreateSerializer(serializers.ModelSerializer):
@@ -46,9 +62,33 @@ class SolutionCreateSerializer(serializers.ModelSerializer):
         user = self.context.get('request').user
         question = data.get('question')
 
+        if question.user == user:
+            raise serializers.ValidationError('Автор вопроса не может публиковать решение к своему вопросу')
+
         if Solution.objects.filter(user=user, question=question).exists():
             raise serializers.ValidationError('Пользователь уже выложил решение на данный вопрос')
         return data
+
+
+class SolutionBestSerializer(serializers.Serializer):
+    solution_is_best = serializers.BooleanField()
+
+
+class SolutionCreateResponseSerializer(serializers.ModelSerializer):
+    user_name = serializers.CharField(source='user.user_name', read_only=True)
+
+    class Meta:
+        model = Solution
+        fields = [
+            'solution_id',
+            'user',
+            'user_name',
+            'question',
+            'solution_body',
+            'solution_is_best',
+            'solution_created_at',
+            'solution_updated_at',
+        ]
 
 class SolutionEditCreateSerializer(serializers.ModelSerializer):
     solution = serializers.PrimaryKeyRelatedField(
@@ -78,10 +118,68 @@ class SolutionEditCreateSerializer(serializers.ModelSerializer):
 
         return solution_edit
 
-class SolutionEditHistorySerializer(serializers.ModelSerializer):
+
+class SolutionEditCreateResponseSerializer(serializers.ModelSerializer):
     class Meta:
         model = SolutionEdits
-        fields = '__all__'
+        fields = [
+            'solution_edit_id',
+            'solution',
+            'user',
+            'solution_edit_body_before',
+            'solution_edit_body_after',
+            'solution_edit_is_approved',
+            'solution_edit_edited_at',
+        ]
+
+
+def build_solution_excerpt(value: str, limit: int = 180) -> str:
+    normalized_value = re.sub(r'\s+', ' ', value).strip()
+
+    if len(normalized_value) <= limit:
+        return normalized_value
+
+    return f'{normalized_value[: limit - 3].rstrip()}...'
+
+
+class SolutionEditHistorySerializer(serializers.ModelSerializer):
+    solution_id = serializers.UUIDField(source='solution.solution_id', read_only=True)
+    solution_question_id = serializers.UUIDField(source='solution.question.question_id', read_only=True)
+    solution_question_title = serializers.CharField(source='solution.question.question_title', read_only=True)
+    solution_owner_id = serializers.UUIDField(source='solution.user.user_id', read_only=True, allow_null=True)
+    solution_owner_name = serializers.SerializerMethodField()
+    edit_author_id = serializers.UUIDField(source='user.user_id', read_only=True, allow_null=True)
+    edit_author_name = serializers.SerializerMethodField()
+    solution_excerpt = serializers.SerializerMethodField()
+
+    class Meta:
+        model = SolutionEdits
+        fields = [
+            'solution_edit_id',
+            'solution',
+            'solution_id',
+            'solution_question_id',
+            'solution_question_title',
+            'solution_owner_id',
+            'solution_owner_name',
+            'user',
+            'edit_author_id',
+            'edit_author_name',
+            'solution_excerpt',
+            'solution_edit_body_before',
+            'solution_edit_body_after',
+            'solution_edit_is_approved',
+            'solution_edit_edited_at',
+        ]
+
+    def get_solution_owner_name(self, obj: SolutionEdits) -> str:
+        return obj.solution.user.user_name if obj.solution.user else 'Автор решения'
+
+    def get_edit_author_name(self, obj: SolutionEdits) -> str:
+        return obj.user.user_name if obj.user else 'Пользователь удалён'
+
+    def get_solution_excerpt(self, obj: SolutionEdits) -> str:
+        return build_solution_excerpt(obj.solution_edit_body_before)
 
 
 class CommentListSerializer(serializers.ModelSerializer):
@@ -101,6 +199,8 @@ class CommentCreateSerializer(serializers.ModelSerializer):
     class TargetType(TextChoices):
         QUESTION = 'question', 'Question'
         SOLUTION = 'solution', 'Solution'
+
+    COMMENT_BODY_LIMIT = 800
     
     target_type = serializers.ChoiceField(choices=TargetType.choices)
     target_id = serializers.UUIDField(write_only=True)
@@ -109,6 +209,17 @@ class CommentCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Comment
         fields = ['target_type', 'target_id', 'parent_id', 'body']
+
+    def validate_body(self, value):
+        normalized_value = value.strip()
+
+        if not normalized_value:
+            raise serializers.ValidationError('Добавьте текст комментария.')
+
+        if len(normalized_value) > self.COMMENT_BODY_LIMIT:
+            raise serializers.ValidationError('Комментарий не должен быть длиннее 800 символов.')
+
+        return normalized_value
 
     def validate(self, data):
         target_type = data.get('target_type')
@@ -133,6 +244,8 @@ class CommentCreateSerializer(serializers.ModelSerializer):
                     raise serializers.ValidationError(
                         'Родительский комментарий должен относиться к той же цели'
                     )
+                if parent.parent_id is not None:
+                    raise serializers.ValidationError('Можно отвечать только на корневые комментарии')
             except Comment.DoesNotExist:
                 raise serializers.ValidationError('Родительский комментарий не найден')
 
@@ -167,6 +280,19 @@ class CommentCreateSerializer(serializers.ModelSerializer):
             **validated_data
         )
         return comment
+
+
+class CommentCreateResponseSerializer(serializers.ModelSerializer):
+    target_type = serializers.CharField(read_only=True)
+    user_name = serializers.CharField(source='user.user_name', read_only=True)
+    user_avatar_url = serializers.ImageField(source='user.user_avatar_url', read_only=True)
+    parent_id = serializers.UUIDField(source='parent.comment_id', read_only=True)
+    target_id = serializers.UUIDField(source='object_id', read_only=True)
+
+    class Meta:
+        model = Comment
+        fields = ['comment_id', 'user', 'user_name', 'user_avatar_url', 'target_type',
+                  'target_id', 'parent_id', 'body', 'created_at']
 
 
 class CommentDetailSerializer(serializers.ModelSerializer):

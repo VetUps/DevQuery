@@ -1,0 +1,197 @@
+<script setup lang="ts">
+import { computed, ref, useTemplateRef } from 'vue'
+
+import AppButton from '@/shared/ui/AppButton.vue'
+
+interface Props {
+  heading?: string
+  placeholder?: string
+  submitLabel?: string
+  pending?: boolean
+  summary?: string
+  fieldError?: string
+  autoFocus?: boolean
+}
+
+const props = withDefaults(defineProps<Props>(), {
+  heading: '',
+  placeholder: 'Добавьте комментарий по делу.',
+  submitLabel: 'Отправить комментарий',
+  pending: false,
+  summary: '',
+  fieldError: '',
+  autoFocus: false,
+})
+
+const emit = defineEmits<{
+  submit: [body: string]
+  cancel: []
+}>()
+
+const MAX_COMMENT_LENGTH = 800
+const textareaRef = useTemplateRef<HTMLTextAreaElement>('textarea')
+const body = ref('')
+const localFieldError = ref('')
+const normalizedLength = computed(() => body.value.trim().length)
+const counterLabel = computed(() => `${normalizedLength.value} / ${MAX_COMMENT_LENGTH}`)
+
+if (props.autoFocus && typeof window !== 'undefined') {
+  requestAnimationFrame(() => {
+    textareaRef.value?.focus()
+  })
+}
+
+function validate() {
+  const normalizedBody = body.value.trim()
+
+  if (!normalizedBody) {
+    localFieldError.value = 'Добавьте текст комментария.'
+    return false
+  }
+
+  if (normalizedBody.length > MAX_COMMENT_LENGTH) {
+    localFieldError.value = 'Комментарий не должен быть длиннее 800 символов.'
+    return false
+  }
+
+  localFieldError.value = ''
+  return true
+}
+
+function handleSubmit() {
+  if (!validate()) {
+    return
+  }
+
+  emit('submit', body.value.trim())
+}
+
+function handleInput() {
+  if (body.value.trim()) {
+    localFieldError.value = ''
+  }
+}
+</script>
+
+<template>
+  <form class="comment-composer" @submit.prevent="handleSubmit">
+    <div class="comment-composer__header">
+      <p v-if="heading" class="comment-composer__heading">{{ heading }}</p>
+      <p v-if="summary" class="comment-composer__summary">{{ summary }}</p>
+    </div>
+
+    <textarea
+      ref="textarea"
+      v-model="body"
+      class="comment-composer__textarea"
+      :class="{ 'comment-composer__textarea--error': fieldError || localFieldError }"
+      :placeholder="placeholder"
+      :disabled="pending"
+      :maxlength="MAX_COMMENT_LENGTH"
+      @input="handleInput"
+    />
+
+    <div class="comment-composer__meta">
+      <p v-if="fieldError || localFieldError" class="comment-composer__error">
+        {{ fieldError || localFieldError }}
+      </p>
+      <p class="comment-composer__counter">{{ counterLabel }}</p>
+    </div>
+
+    <div class="comment-composer__actions">
+      <AppButton type="button" variant="ghost" @click="$emit('cancel')">
+        Отменить
+      </AppButton>
+      <AppButton type="submit" :disabled="pending">
+        {{ pending ? 'Отправляем…' : submitLabel }}
+      </AppButton>
+    </div>
+  </form>
+</template>
+
+<style scoped>
+.comment-composer {
+  display: grid;
+  gap: var(--space-sm);
+  min-width: 0;
+  padding: var(--space-md);
+  border: 1px solid rgb(207 198 180 / 0.72);
+  border-radius: var(--radius-md);
+  background: rgb(255 255 255 / 0.82);
+}
+
+.comment-composer__header {
+  display: grid;
+  gap: var(--space-xs);
+  min-width: 0;
+}
+
+.comment-composer__heading,
+.comment-composer__summary,
+.comment-composer__error {
+  overflow-wrap: anywhere;
+}
+
+.comment-composer__heading,
+.comment-composer__summary,
+.comment-composer__error,
+.comment-composer__counter {
+  margin: 0;
+}
+
+.comment-composer__heading {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.comment-composer__summary,
+.comment-composer__error {
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.comment-composer__summary,
+.comment-composer__error {
+  color: #B42318;
+}
+
+.comment-composer__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-md);
+  min-width: 0;
+}
+
+.comment-composer__counter {
+  margin-left: auto;
+  color: var(--color-muted);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.comment-composer__textarea {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  min-height: 120px;
+  padding: var(--space-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: rgb(255 255 255 / 0.92);
+  line-height: 1.6;
+  resize: vertical;
+}
+
+.comment-composer__textarea--error {
+  border-color: #B42318;
+}
+
+.comment-composer__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-sm);
+}
+</style>
