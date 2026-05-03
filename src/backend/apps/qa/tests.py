@@ -6,7 +6,14 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 
 from apps.qa.models import Question, Solution, Tag
-from apps.qa.serializers import MAX_QUESTION_TAGS, QuestionUpdateCreateSerializer
+from apps.qa.serializers import (
+    MAX_QUESTION_TAGS,
+    QuestionCreateResponseSerializer,
+    QuestionGetSerializer,
+    QuestionListSerializer,
+    QuestionUpdateCreateSerializer,
+    TagSerializer,
+)
 from apps.user.models import CustomUser
 
 
@@ -115,6 +122,87 @@ class QuestionTagSerializerTests(APITestCase):
         for invalid_tag in invalid_tag_values:
             with self.subTest(invalid_tag=invalid_tag):
                 self.assert_tags_error([invalid_tag])
+
+
+class QuestionTagResponseSerializerTests(APITestCase):
+    def setUp(self):
+        self.user = CustomUser.objects.create_user(
+            user_email='response-author@example.com',
+            user_name='response-author',
+            password='password',
+        )
+        self.question = Question.objects.create(
+            user=self.user,
+            question_title='How should tags be represented?',
+            question_body='Question responses should expose public tag objects.',
+        )
+
+    def test_tag_serializer_exposes_only_public_contract_fields(self):
+        tag = Tag.objects.create(name='django', questions_count=1)
+
+        self.assertEqual(set(TagSerializer(tag).data.keys()), {'name', 'questions_count'})
+        self.assertEqual(TagSerializer(tag).data, {'name': 'django', 'questions_count': 1})
+
+    def test_untagged_question_serializers_emit_empty_tag_lists(self):
+        expected_empty_tags = []
+
+        self.assertEqual(QuestionListSerializer(self.question).data['tags'], expected_empty_tags)
+        self.assertEqual(QuestionGetSerializer(self.question).data['tags'], expected_empty_tags)
+        self.assertEqual(QuestionCreateResponseSerializer(self.question).data['tags'], expected_empty_tags)
+
+    def test_tagged_question_serializers_emit_nested_tag_objects(self):
+        tag = Tag.objects.create(name='django', questions_count=1)
+        self.question.tags.add(tag)
+        expected_tags = [{'name': 'django', 'questions_count': 1}]
+
+        self.assertEqual(QuestionListSerializer(self.question).data['tags'], expected_tags)
+        self.assertEqual(QuestionGetSerializer(self.question).data['tags'], expected_tags)
+        self.assertEqual(QuestionCreateResponseSerializer(self.question).data['tags'], expected_tags)
+
+    def test_question_detail_response_emits_nested_tags_without_raw_tag_ids(self):
+        tag = Tag.objects.create(name='django', questions_count=1)
+        self.question.tags.add(tag)
+
+        response = self.client.get(f'/question/{self.question.question_id}/')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['tags'], [{'name': 'django', 'questions_count': 1}])
+        self.assertNotEqual(response.data['tags'], [tag.pk])
+
+    def test_question_list_response_emits_nested_tags_and_empty_lists(self):
+        tag = Tag.objects.create(name='django', questions_count=1)
+        self.question.tags.add(tag)
+        untagged_question = Question.objects.create(
+            user=self.user,
+            question_title='Question without tags in list',
+            question_body='Old untagged questions should still serialize safely.',
+        )
+
+        response = self.client.get('/question/', {'ordering': 'question_created_at'})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_by_id = {item['question_id']: item for item in response.data['results']}
+        self.assertEqual(
+            response_by_id[str(self.question.question_id)]['tags'],
+            [{'name': 'django', 'questions_count': 1}],
+        )
+        self.assertEqual(response_by_id[str(untagged_question.question_id)]['tags'], [])
+
+    def test_question_create_response_emits_empty_tags_for_current_s01_create_flow(self):
+        self.client.force_authenticate(self.user)
+
+        response = self.client.post(
+            '/question/',
+            {
+                'question_title': 'How do I create a question with tags?',
+                'question_body': 'S01 validates tags but does not persist them yet.',
+                'tags': ['django'],
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data['tags'], [])
 
 
 class QuestionDiscoveryTests(APITestCase):

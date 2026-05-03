@@ -46,20 +46,30 @@ class QuestionTagNameField(serializers.CharField):
         return super().to_internal_value(data)
 
 
+class TagSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Tag
+        fields = ['name', 'questions_count']
+        read_only_fields = fields
+
+
 class QuestionGetSerializer(serializers.ModelSerializer):
     upvotes = serializers.IntegerField(source='vote_upvotes', read_only=True)
     downvotes = serializers.IntegerField(source='vote_downvotes', read_only=True)
     score = serializers.IntegerField(source='vote_score', read_only=True)
     user_vote = serializers.ChoiceField(source='user_vote_type', choices=Vote.VoteType.choices, read_only=True, allow_null=True)
+    tags = TagSerializer(many=True, read_only=True)
 
     class Meta:
         model = Question
         fields = '__all__'
 
 class QuestionListSerializer(serializers.ModelSerializer):
+    tags = TagSerializer(many=True, read_only=True)
+
     class Meta:
         model = Question
-        fields = ['question_id', 'user', 'question_title', 'question_status', 'question_created_at', 'question_updated_at']
+        fields = ['question_id', 'user', 'question_title', 'question_status', 'question_created_at', 'question_updated_at', 'tags']
 
 class QuestionUpdateCreateSerializer(serializers.ModelSerializer):
     tags = serializers.ListField(child=QuestionTagNameField(), required=False, write_only=True)
@@ -81,6 +91,8 @@ class QuestionUpdateCreateSerializer(serializers.ModelSerializer):
 
 
 class QuestionCreateResponseSerializer(serializers.ModelSerializer):
+    tags = TagSerializer(many=True, read_only=True)
+
     class Meta:
         model = Question
         fields = [
@@ -91,6 +103,7 @@ class QuestionCreateResponseSerializer(serializers.ModelSerializer):
             'question_status',
             'question_created_at',
             'question_updated_at',
+            'tags',
         ]
 
 class SolutionListSerializer(serializers.ModelSerializer):
