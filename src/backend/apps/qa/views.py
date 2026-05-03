@@ -56,7 +56,7 @@ class QuestionViewSet(mixins.ListModelMixin,
         return [permission() for permission in permission_classes]
 
     def get_queryset(self):
-        queryset = Question.objects.select_related('user')
+        queryset = Question.objects.select_related('user').prefetch_related('tags')
 
         if self.action == 'list':
             search = self.request.query_params.get('search', '').strip()
