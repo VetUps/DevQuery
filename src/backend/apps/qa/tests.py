@@ -88,7 +88,7 @@ class QuestionTagSerializerTests(APITestCase):
         self.assertTrue(serializer.is_valid(), serializer.errors)
         self.assertEqual(serializer.validated_data['tags'], ['django', 'drf', 'mysql', 'vue', 'docker'])
 
-    def test_saving_question_with_validated_tags_does_not_persist_tags_in_s01(self):
+    def test_saving_question_with_validated_tags_persists_normalized_tags_in_s02(self):
         user = CustomUser.objects.create_user(
             user_email='serializer-author@example.com',
             user_name='serializer-author',
@@ -101,8 +101,11 @@ class QuestionTagSerializerTests(APITestCase):
         self.assertTrue(serializer.is_valid(), serializer.errors)
         question = serializer.save(user=user)
 
-        self.assertEqual(question.tags.count(), 0)
-        self.assertEqual(Tag.objects.count(), 0)
+        self.assertEqual(set(question.tags.values_list('name', flat=True)), {'django', 'drf'})
+        self.assertEqual(
+            dict(Tag.objects.order_by('name').values_list('name', 'questions_count')),
+            {'django': 1, 'drf': 1},
+        )
 
     def test_rejects_more_than_five_unique_tags(self):
         self.assert_tags_error(['django', 'drf', 'mysql', 'vue', 'docker', 'python'])
@@ -188,21 +191,107 @@ class QuestionTagResponseSerializerTests(APITestCase):
         )
         self.assertEqual(response_by_id[str(untagged_question.question_id)]['tags'], [])
 
-    def test_question_create_response_emits_empty_tags_for_current_s01_create_flow(self):
+
+
+class QuestionCreateWithTagsApiTests(APITestCase):
+    def setUp(self):
+        self.user = CustomUser.objects.create_user(
+            user_email='question-create-author@example.com',
+            user_name='question-create-author',
+            password='password',
+        )
         self.client.force_authenticate(self.user)
 
-        response = self.client.post(
-            '/question/',
-            {
-                'question_title': 'How do I create a question with tags?',
-                'question_body': 'S01 validates tags but does not persist them yet.',
-                'tags': ['django'],
-            },
-            format='json',
+    def valid_payload(self, tags_marker=None):
+        payload = {
+            'question_title': 'How do I create a question with tags?',
+            'question_body': 'I need the create API to persist normalized tag associations.',
+        }
+        if tags_marker is not None:
+            payload['tags'] = tags_marker
+        return payload
+
+    def post_question(self, tags_marker=None):
+        return self.client.post('/question/', self.valid_payload(tags_marker), format='json')
+
+    def question_from_response(self, response):
+        self.assertIn('question_id', response.data)
+        return Question.objects.get(question_id=response.data['question_id'])
+
+    def assert_response_tags(self, response, expected_tags):
+        self.assertIn('tags', response.data)
+        self.assertCountEqual(response.data['tags'], expected_tags)
+
+    def assert_persisted_tags(self, question, expected_counts):
+        self.assertEqual(set(question.tags.values_list('name', flat=True)), set(expected_counts.keys()))
+        self.assertEqual(
+            dict(Tag.objects.order_by('name').values_list('name', 'questions_count')),
+            expected_counts,
         )
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+    def test_create_question_persists_normalized_nested_tags_and_counters(self):
+        response = self.post_question([' Django ', 'DRF3', ' vue-js '])
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assert_response_tags(
+            response,
+            [
+                {'name': 'django', 'questions_count': 1},
+                {'name': 'drf3', 'questions_count': 1},
+                {'name': 'vue-js', 'questions_count': 1},
+            ],
+        )
+        question = self.question_from_response(response)
+        self.assert_persisted_tags(question, {'django': 1, 'drf3': 1, 'vue-js': 1})
+
+    def test_create_question_reuses_existing_tags_and_counts_unique_submitted_names_once(self):
+        existing_tag = Tag.objects.create(name='django', questions_count=1)
+        existing_question = Question.objects.create(
+            user=self.user,
+            question_title='Existing Django question',
+            question_body='Existing tag counters should be incremented, not replaced.',
+        )
+        existing_question.tags.add(existing_tag)
+
+        response = self.post_question([' Django ', 'django', 'DRF', ' drf '])
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assert_response_tags(
+            response,
+            [
+                {'name': 'django', 'questions_count': 2},
+                {'name': 'drf', 'questions_count': 1},
+            ],
+        )
+        question = self.question_from_response(response)
+        self.assert_persisted_tags(question, {'django': 2, 'drf': 1})
+        self.assertEqual(Tag.objects.filter(name='django').count(), 1)
+
+    def test_invalid_tag_payload_returns_400_without_creating_questions_or_tags(self):
+        invalid_payloads = [
+            'django',
+            ['django', 123],
+            ['django rest'],
+            ['django', 'drf', 'mysql', 'vue', 'docker', 'python'],
+        ]
+
+        for invalid_tags in invalid_payloads:
+            with self.subTest(invalid_tags=invalid_tags):
+                response = self.post_question(invalid_tags)
+
+                self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.data)
+                self.assertIn('tags', response.data)
+                self.assertEqual(Question.objects.count(), 0)
+                self.assertEqual(Tag.objects.count(), 0)
+
+    def test_omitted_tags_still_creates_untagged_question(self):
+        response = self.post_question()
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
         self.assertEqual(response.data['tags'], [])
+        question = self.question_from_response(response)
+        self.assertEqual(question.tags.count(), 0)
+        self.assertEqual(Tag.objects.count(), 0)
 
 
 class QuestionDiscoveryTests(APITestCase):
