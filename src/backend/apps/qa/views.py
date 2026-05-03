@@ -7,19 +7,47 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from drf_spectacular.utils import extend_schema, OpenApiParameter
 
-from .models import Question, Solution, SolutionEdits, Comment
+from .models import Question, Solution, SolutionEdits, Comment, Tag
 from .serializers import (
     QuestionGetSerializer, QuestionListSerializer, QuestionUpdateCreateSerializer,
     QuestionCreateResponseSerializer, SolutionListSerializer, SolutionCreateSerializer,
     SolutionCreateResponseSerializer, SolutionBestSerializer,
     SolutionEditCreateSerializer, SolutionEditCreateResponseSerializer, SolutionEditHistorySerializer,
     CommentCreateResponseSerializer, CommentListSerializer, CommentCreateSerializer, CommentDetailSerializer,
-    VoteSerializer, VoteCreateSerializer, SolutionEditApprovalSerializer,
+    VoteSerializer, VoteCreateSerializer, SolutionEditApprovalSerializer, TagSerializer,
 )
 from .services.solution_edits_service import SolutionEditService
 from .services.comment_service import CommentService
 from .services.solution_service import SolutionService
 from .services.vote_service import VoteService
+
+class TagViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
+    serializer_class = TagSerializer
+    permission_classes = [AllowAny]
+    pagination_class = None
+    autocomplete_limit = 10
+
+    def get_queryset(self):
+        search = self.request.query_params.get('search', '').strip().lower()
+
+        if not search:
+            return Tag.objects.none()
+
+        return Tag.objects.filter(name__icontains=search).order_by('-questions_count', 'name')[:self.autocomplete_limit]
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                'search', OpenApiTypes.STR,
+                location='query', required=False,
+                description='Поиск существующих тегов по части нормализованного имени',
+            ),
+        ],
+        responses=TagSerializer(many=True),
+    )
+    def list(self, request, *args, **kwargs):
+        return super().list(request, *args, **kwargs)
+
 
 class QuestionViewSet(mixins.ListModelMixin,
                       mixins.RetrieveModelMixin,
