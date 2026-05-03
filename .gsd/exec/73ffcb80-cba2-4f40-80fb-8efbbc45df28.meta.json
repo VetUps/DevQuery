@@ -1,0 +1,18 @@
+{
+  "id": "73ffcb80-cba2-4f40-80fb-8efbbc45df28",
+  "runtime": "python",
+  "purpose": "locate generated S03 plan files",
+  "script_chars": 235,
+  "started_at": "2026-05-03T22:36:51.353Z",
+  "finished_at": "2026-05-03T22:36:51.483Z",
+  "exit_code": 0,
+  "signal": null,
+  "timed_out": false,
+  "duration_ms": 130,
+  "stdout_bytes": 212,
+  "stderr_bytes": 0,
+  "stdout_truncated": false,
+  "stderr_truncated": false,
+  "stdout_path": "F:\\projects\\Diplom\\StackOverflow2.0\\.gsd\\worktrees\\M001\\.gsd\\exec\\73ffcb80-cba2-4f40-80fb-8efbbc45df28.stdout",
+  "stderr_path": "F:\\projects\\Diplom\\StackOverflow2.0\\.gsd\\worktrees\\M001\\.gsd\\exec\\73ffcb80-cba2-4f40-80fb-8efbbc45df28.stderr"
+}

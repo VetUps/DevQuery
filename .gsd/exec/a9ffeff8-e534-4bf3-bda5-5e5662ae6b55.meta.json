@@ -1,0 +1,18 @@
+{
+  "id": "a9ffeff8-e534-4bf3-bda5-5e5662ae6b55",
+  "runtime": "python",
+  "purpose": "compatibility run for existing QA tests after tag route addition",
+  "script_chars": 467,
+  "started_at": "2026-05-03T22:40:32.267Z",
+  "finished_at": "2026-05-03T22:40:53.976Z",
+  "exit_code": 0,
+  "signal": null,
+  "timed_out": false,
+  "duration_ms": 21709,
+  "stdout_bytes": 457,
+  "stderr_bytes": 0,
+  "stdout_truncated": false,
+  "stderr_truncated": false,
+  "stdout_path": "F:\\projects\\Diplom\\StackOverflow2.0\\.gsd\\worktrees\\M001\\.gsd\\exec\\a9ffeff8-e534-4bf3-bda5-5e5662ae6b55.stdout",
+  "stderr_path": "F:\\projects\\Diplom\\StackOverflow2.0\\.gsd\\worktrees\\M001\\.gsd\\exec\\a9ffeff8-e534-4bf3-bda5-5e5662ae6b55.stderr"
+}

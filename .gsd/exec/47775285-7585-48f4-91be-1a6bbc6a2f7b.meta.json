@@ -1,0 +1,18 @@
+{
+  "id": "47775285-7585-48f4-91be-1a6bbc6a2f7b",
+  "runtime": "python",
+  "purpose": "Check for existing pytest command shim",
+  "script_chars": 136,
+  "started_at": "2026-05-03T22:55:25.149Z",
+  "finished_at": "2026-05-03T22:55:25.268Z",
+  "exit_code": 0,
+  "signal": null,
+  "timed_out": false,
+  "duration_ms": 119,
+  "stdout_bytes": 53,
+  "stderr_bytes": 0,
+  "stdout_truncated": false,
+  "stderr_truncated": false,
+  "stdout_path": "F:\\projects\\Diplom\\StackOverflow2.0\\.gsd\\worktrees\\M001\\.gsd\\exec\\47775285-7585-48f4-91be-1a6bbc6a2f7b.stdout",
+  "stderr_path": "F:\\projects\\Diplom\\StackOverflow2.0\\.gsd\\worktrees\\M001\\.gsd\\exec\\47775285-7585-48f4-91be-1a6bbc6a2f7b.stderr"
+}

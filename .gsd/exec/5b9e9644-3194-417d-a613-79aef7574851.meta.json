@@ -1,0 +1,18 @@
+{
+  "id": "5b9e9644-3194-417d-a613-79aef7574851",
+  "runtime": "python",
+  "purpose": "red run for tag autocomplete API test",
+  "script_chars": 471,
+  "started_at": "2026-05-03T22:39:13.571Z",
+  "finished_at": "2026-05-03T22:39:21.490Z",
+  "exit_code": 1,
+  "signal": null,
+  "timed_out": false,
+  "duration_ms": 7919,
+  "stdout_bytes": 1239,
+  "stderr_bytes": 0,
+  "stdout_truncated": false,
+  "stderr_truncated": false,
+  "stdout_path": "F:\\projects\\Diplom\\StackOverflow2.0\\.gsd\\worktrees\\M001\\.gsd\\exec\\5b9e9644-3194-417d-a613-79aef7574851.stdout",
+  "stderr_path": "F:\\projects\\Diplom\\StackOverflow2.0\\.gsd\\worktrees\\M001\\.gsd\\exec\\5b9e9644-3194-417d-a613-79aef7574851.stderr"
+}

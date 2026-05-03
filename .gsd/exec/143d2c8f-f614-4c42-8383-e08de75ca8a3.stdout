@@ -1,0 +1,8 @@
+command: docker-compose -f ci/docker-compose.yml up -d db
+exit_code: 0
+duration_ms: 731
+ Container stackoverflow_db  Recreate
+ Container stackoverflow_db  Recreated
+ Container stackoverflow_db  Starting
+ Container stackoverflow_db  Started
+

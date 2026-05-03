@@ -1,0 +1,20 @@
+command: C:\Users\Sergey\AppData\Local\Programs\Python\Python313\python.exe src/backend/manage.py test apps.qa.tests.QuestionTagModelTests
+exit_code: 1
+duration_ms: 64
+Traceback (most recent call last):
+  File "F:\projects\Diplom\StackOverflow2.0\.gsd\worktrees\M001\src\backend\manage.py", line 9, in main
+    from django.core.management import execute_from_command_line
+ModuleNotFoundError: No module named 'django'
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "F:\projects\Diplom\StackOverflow2.0\.gsd\worktrees\M001\src\backend\manage.py", line 20, in <module>
+    main()
+    ~~~~^^
+  File "F:\projects\Diplom\StackOverflow2.0\.gsd\worktrees\M001\src\backend\manage.py", line 11, in main
+    raise ImportError(
+    ...<3 lines>...
+    ) from exc
+ImportError: Couldn't import Django. Are you sure it's installed and available on your PYTHONPATH environment variable? Did you forget to activate a virtual environment?
+

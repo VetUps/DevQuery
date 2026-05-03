@@ -1,0 +1,18 @@
+{
+  "id": "27402cdc-3390-4c46-acaa-9d369464808d",
+  "runtime": "python",
+  "purpose": "start isolated mysql container for T01 verification",
+  "script_chars": 634,
+  "started_at": "2026-05-03T22:14:45.302Z",
+  "finished_at": "2026-05-03T22:14:45.857Z",
+  "exit_code": 0,
+  "signal": null,
+  "timed_out": false,
+  "duration_ms": 555,
+  "stdout_bytes": 241,
+  "stderr_bytes": 0,
+  "stdout_truncated": false,
+  "stderr_truncated": false,
+  "stdout_path": "F:\\projects\\Diplom\\StackOverflow2.0\\.gsd\\worktrees\\M001\\.gsd\\exec\\27402cdc-3390-4c46-acaa-9d369464808d.stdout",
+  "stderr_path": "F:\\projects\\Diplom\\StackOverflow2.0\\.gsd\\worktrees\\M001\\.gsd\\exec\\27402cdc-3390-4c46-acaa-9d369464808d.stderr"
+}

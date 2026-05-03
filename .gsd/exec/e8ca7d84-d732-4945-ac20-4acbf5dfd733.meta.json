@@ -1,0 +1,18 @@
+{
+  "id": "e8ca7d84-d732-4945-ac20-4acbf5dfd733",
+  "runtime": "python",
+  "purpose": "Inspect paginated QuestionList schema component",
+  "script_chars": 613,
+  "started_at": "2026-05-03T22:53:40.917Z",
+  "finished_at": "2026-05-03T22:53:41.780Z",
+  "exit_code": 0,
+  "signal": null,
+  "timed_out": false,
+  "duration_ms": 863,
+  "stdout_bytes": 1206,
+  "stderr_bytes": 0,
+  "stdout_truncated": false,
+  "stderr_truncated": false,
+  "stdout_path": "F:\\projects\\Diplom\\StackOverflow2.0\\.gsd\\worktrees\\M001\\.gsd\\exec\\e8ca7d84-d732-4945-ac20-4acbf5dfd733.stdout",
+  "stderr_path": "F:\\projects\\Diplom\\StackOverflow2.0\\.gsd\\worktrees\\M001\\.gsd\\exec\\e8ca7d84-d732-4945-ac20-4acbf5dfd733.stderr"
+}

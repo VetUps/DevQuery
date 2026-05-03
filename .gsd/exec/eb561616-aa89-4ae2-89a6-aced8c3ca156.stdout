@@ -1,0 +1,5 @@
+command: docker-compose -f ci/docker-compose.yml up -d db
+exit_code: 1
+duration_ms: 97
+env file F:\projects\Diplom\StackOverflow2.0\.gsd\worktrees\M001\.env not found: CreateFile F:\projects\Diplom\StackOverflow2.0\.gsd\worktrees\M001\.env: The system cannot find the file specified.
+

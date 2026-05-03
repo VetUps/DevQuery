@@ -1,0 +1,15 @@
+command: src/backend/venv/Scripts/python.exe src/backend/manage.py test apps.qa
+exit_code: 0
+duration_ms: 16236
+Creating test database for alias 'default'...
+
+........
+----------------------------------------------------------------------
+Ran 8 tests in 8.710s
+
+OK
+Destroying test database for alias 'default'...
+
+Found 8 test(s).
+System check identified no issues (0 silenced).
+

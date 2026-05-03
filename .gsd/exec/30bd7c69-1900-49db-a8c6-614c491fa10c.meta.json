@@ -1,0 +1,18 @@
+{
+  "id": "30bd7c69-1900-49db-a8c6-614c491fa10c",
+  "runtime": "python",
+  "purpose": "create backend venv and install requirements for T01 verification",
+  "script_chars": 759,
+  "started_at": "2026-05-03T22:12:39.705Z",
+  "finished_at": "2026-05-03T22:12:59.024Z",
+  "exit_code": 0,
+  "signal": null,
+  "timed_out": false,
+  "duration_ms": 19319,
+  "stdout_bytes": 3104,
+  "stderr_bytes": 0,
+  "stdout_truncated": false,
+  "stderr_truncated": false,
+  "stdout_path": "F:\\projects\\Diplom\\StackOverflow2.0\\.gsd\\worktrees\\M001\\.gsd\\exec\\30bd7c69-1900-49db-a8c6-614c491fa10c.stdout",
+  "stderr_path": "F:\\projects\\Diplom\\StackOverflow2.0\\.gsd\\worktrees\\M001\\.gsd\\exec\\30bd7c69-1900-49db-a8c6-614c491fa10c.stderr"
+}

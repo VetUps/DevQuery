@@ -1,0 +1,9 @@
+exit 0
+[{'in': 'query', 'name': 'ordering', 'schema': {'type': 'string'}, 'description': 'Сортировка по дате: -question_created_at или question_created_at'}, {'name': 'page', 'required': False, 'in': 'query', 'description': 'A page number within the paginated result set.', 'schema': {'type': 'integer'}}, {'in': 'query', 'name': 'search', 'schema': {'type': 'string'}, 'description': 'Поиск по названию вопроса'}, {'in': 'query', 'name': 'tag', 'schema': {'type': 'array', 'items': {'type': 'string'}}, 'description': 'Фильтр по существующим нормализованным тегам. Повторите параметр для AND-семантики: ?tag=django&tag=serializer'}]
+{'$ref': '#/components/schemas/PaginatedQuestionListList'}
+
+STDERR: ing.
+F:\projects\Diplom\StackOverflow2.0\.gsd\worktrees\M001\src/backend\apps\qa\views.py: Warning [QuestionViewSet]: could not derive type of path parameter "question_id" because it is untyped and obtaining queryset from the viewset failed. Consider adding a type to the path (e.g. <int:question_id>) or annotating the parameter type with @extend_schema. Defaulting to "string".
+F:\projects\Diplom\StackOverflow2.0\.gsd\worktrees\M001\src/backend\apps\qa\views.py: Warning [SolutionViewSet]: Failed to obtain model through view's queryset due to raised exception. Prevent this either by setting "queryset = Model.objects.none()" on the view, checking for "getattr(self, "swagger_fake_view", False)" in get_queryset() or by simply using @extend_schema. (Exception: (1146, "Table 'stackoverflow_db.django_content_type' doesn't exist"))
+F:\projects\Diplom\StackOverflow2.0\.gsd\worktrees\M001\src/backend\apps\user\views.py: Warning [UserViewSet]: could not derive type of path parameter "user_id" because it is untyped and obtaining queryset from the viewset failed. Consider adding a type to the path (e.g. <int:user_id>) or annotating the parameter type with @extend_schema. Defaulting to "string".
+

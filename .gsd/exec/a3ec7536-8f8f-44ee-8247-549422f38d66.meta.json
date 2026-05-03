@@ -1,0 +1,18 @@
+{
+  "id": "a3ec7536-8f8f-44ee-8247-549422f38d66",
+  "runtime": "python",
+  "purpose": "Final T02 S01 migration drift verification",
+  "script_chars": 550,
+  "started_at": "2026-05-03T22:20:18.395Z",
+  "finished_at": "2026-05-03T22:20:19.280Z",
+  "exit_code": 0,
+  "signal": null,
+  "timed_out": false,
+  "duration_ms": 885,
+  "stdout_bytes": 215,
+  "stderr_bytes": 0,
+  "stdout_truncated": false,
+  "stderr_truncated": false,
+  "stdout_path": "F:\\projects\\Diplom\\StackOverflow2.0\\.gsd\\worktrees\\M001\\.gsd\\exec\\a3ec7536-8f8f-44ee-8247-549422f38d66.stdout",
+  "stderr_path": "F:\\projects\\Diplom\\StackOverflow2.0\\.gsd\\worktrees\\M001\\.gsd\\exec\\a3ec7536-8f8f-44ee-8247-549422f38d66.stderr"
+}

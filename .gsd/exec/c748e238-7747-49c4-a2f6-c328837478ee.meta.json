@@ -1,0 +1,18 @@
+{
+  "id": "c748e238-7747-49c4-a2f6-c328837478ee",
+  "runtime": "python",
+  "purpose": "green QuestionDiscoveryTests via Windows Python",
+  "script_chars": 509,
+  "started_at": "2026-05-03T22:51:14.412Z",
+  "finished_at": "2026-05-03T22:51:26.129Z",
+  "exit_code": 0,
+  "signal": null,
+  "timed_out": false,
+  "duration_ms": 11717,
+  "stdout_bytes": 1086,
+  "stderr_bytes": 0,
+  "stdout_truncated": false,
+  "stderr_truncated": false,
+  "stdout_path": "F:\\projects\\Diplom\\StackOverflow2.0\\.gsd\\worktrees\\M001\\.gsd\\exec\\c748e238-7747-49c4-a2f6-c328837478ee.stdout",
+  "stderr_path": "F:\\projects\\Diplom\\StackOverflow2.0\\.gsd\\worktrees\\M001\\.gsd\\exec\\c748e238-7747-49c4-a2f6-c328837478ee.stderr"
+}

@@ -1,0 +1,18 @@
+{
+  "id": "6a7874fc-21ac-48ab-8b6c-ecc5da6f5ef6",
+  "runtime": "python",
+  "purpose": "T01 verification makemigrations drift check after db available",
+  "script_chars": 423,
+  "started_at": "2026-05-03T22:14:17.441Z",
+  "finished_at": "2026-05-03T22:14:18.347Z",
+  "exit_code": 0,
+  "signal": null,
+  "timed_out": false,
+  "duration_ms": 906,
+  "stdout_bytes": 539,
+  "stderr_bytes": 0,
+  "stdout_truncated": false,
+  "stderr_truncated": false,
+  "stdout_path": "F:\\projects\\Diplom\\StackOverflow2.0\\.gsd\\worktrees\\M001\\.gsd\\exec\\6a7874fc-21ac-48ab-8b6c-ecc5da6f5ef6.stdout",
+  "stderr_path": "F:\\projects\\Diplom\\StackOverflow2.0\\.gsd\\worktrees\\M001\\.gsd\\exec\\6a7874fc-21ac-48ab-8b6c-ecc5da6f5ef6.stderr"
+}

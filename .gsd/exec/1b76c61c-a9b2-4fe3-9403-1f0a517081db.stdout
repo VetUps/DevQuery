@@ -1,0 +1,9 @@
+command: docker rm -f gsd_m001_mysql
+exit_code: 0
+gsd_m001_mysql
+
+command: docker-compose -f ci/docker-compose.yml stop db
+exit_code: 0
+ Container stackoverflow_db  Stopping
+ Container stackoverflow_db  Stopped
+

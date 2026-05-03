@@ -1,0 +1,18 @@
+{
+  "id": "324fc010-3a04-45d7-a7a2-49acbf8c1aa4",
+  "runtime": "python",
+  "purpose": "red run for T01 tag model tests",
+  "script_chars": 390,
+  "started_at": "2026-05-03T22:10:59.884Z",
+  "finished_at": "2026-05-03T22:11:00.035Z",
+  "exit_code": 1,
+  "signal": null,
+  "timed_out": false,
+  "duration_ms": 151,
+  "stdout_bytes": 0,
+  "stderr_bytes": 1537,
+  "stdout_truncated": false,
+  "stderr_truncated": false,
+  "stdout_path": "F:\\projects\\Diplom\\StackOverflow2.0\\.gsd\\worktrees\\M001\\.gsd\\exec\\324fc010-3a04-45d7-a7a2-49acbf8c1aa4.stdout",
+  "stderr_path": "F:\\projects\\Diplom\\StackOverflow2.0\\.gsd\\worktrees\\M001\\.gsd\\exec\\324fc010-3a04-45d7-a7a2-49acbf8c1aa4.stderr"
+}

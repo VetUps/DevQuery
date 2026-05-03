@@ -1,0 +1,18 @@
+command: src/backend/venv/Scripts/python.exe src/backend/manage.py test apps.qa.tests.TagAutocompleteApiTests
+exit_code: 0
+duration_ms: 7576
+--- stdout ---
+Found 1 test(s).
+System check identified no issues (0 silenced).
+
+--- stderr ---
+Creating test database for alias 'default'...
+
+.
+----------------------------------------------------------------------
+Ran 1 test in 0.017s
+
+OK
+Destroying test database for alias 'default'...
+
+

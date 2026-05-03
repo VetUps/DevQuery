@@ -1,0 +1,18 @@
+{
+  "id": "a412cae3-ef6f-4872-8228-6e26211a25d2",
+  "runtime": "python",
+  "purpose": "Start disposable MySQL container for Django test verification",
+  "script_chars": 1026,
+  "started_at": "2026-05-03T22:18:11.492Z",
+  "finished_at": "2026-05-03T22:18:25.883Z",
+  "exit_code": 0,
+  "signal": null,
+  "timed_out": false,
+  "duration_ms": 14391,
+  "stdout_bytes": 124,
+  "stderr_bytes": 0,
+  "stdout_truncated": false,
+  "stderr_truncated": false,
+  "stdout_path": "F:\\projects\\Diplom\\StackOverflow2.0\\.gsd\\worktrees\\M001\\.gsd\\exec\\a412cae3-ef6f-4872-8228-6e26211a25d2.stdout",
+  "stderr_path": "F:\\projects\\Diplom\\StackOverflow2.0\\.gsd\\worktrees\\M001\\.gsd\\exec\\a412cae3-ef6f-4872-8228-6e26211a25d2.stderr"
+}
