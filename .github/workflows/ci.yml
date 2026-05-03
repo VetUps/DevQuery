@@ -288,3 +288,30 @@ jobs:
           compose_file=$(printf '%q' "$COMPOSE_FILE")
           compose_project_name=$(printf '%q' "$COMPOSE_PROJECT_NAME")
           ssh -i ~/.ssh/deploy_key -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" "cd \"$VPS_DEPLOY_PATH\" && BACKEND_IMAGE=$backend_image FRONTEND_IMAGE=$frontend_image PUBLIC_FRONTEND_URL=$public_frontend_url PUBLIC_BACKEND_URL=$public_backend_url COMPOSE_FILE=$compose_file COMPOSE_PROJECT_NAME=$compose_project_name bash ./.deploy-vps.sh"
+
+      - name: Verify public deployment from runner
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          retry_http() {
+            local url="$1"
+
+            for attempt in {1..30}; do
+              if curl -fsS "$url" >/dev/null; then
+                return 0
+              fi
+
+              if [[ "$attempt" -lt 30 ]]; then
+                sleep 2
+              fi
+            done
+
+            echo "HTTP check failed for $url" >&2
+            return 1
+          }
+
+          retry_http "$PUBLIC_FRONTEND_URL"
+          retry_http "$PUBLIC_BACKEND_URL/question/"
+          curl -fsS -H "Origin: $PUBLIC_FRONTEND_URL" -D - "$PUBLIC_BACKEND_URL/question/" -o /dev/null | grep -i "access-control-allow-origin"
+          echo "Public deployment verification passed"
