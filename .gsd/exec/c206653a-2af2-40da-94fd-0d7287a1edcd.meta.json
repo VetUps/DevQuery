@@ -1,0 +1,18 @@
+{
+  "id": "c206653a-2af2-40da-94fd-0d7287a1edcd",
+  "runtime": "python",
+  "purpose": "focused tag autocomplete tests after T02 boundary/schema additions",
+  "script_chars": 507,
+  "started_at": "2026-05-03T22:42:06.168Z",
+  "finished_at": "2026-05-03T22:42:14.548Z",
+  "exit_code": 1,
+  "signal": null,
+  "timed_out": false,
+  "duration_ms": 8380,
+  "stdout_bytes": 1781,
+  "stderr_bytes": 0,
+  "stdout_truncated": false,
+  "stderr_truncated": false,
+  "stdout_path": "F:\\projects\\Diplom\\StackOverflow2.0\\.gsd\\worktrees\\M001\\.gsd\\exec\\c206653a-2af2-40da-94fd-0d7287a1edcd.stdout",
+  "stderr_path": "F:\\projects\\Diplom\\StackOverflow2.0\\.gsd\\worktrees\\M001\\.gsd\\exec\\c206653a-2af2-40da-94fd-0d7287a1edcd.stderr"
+}

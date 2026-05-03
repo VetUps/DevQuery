@@ -1,0 +1,18 @@
+{
+  "id": "ce572c49-2529-497a-b4ee-0cd5b356aefc",
+  "runtime": "python",
+  "purpose": "inspect available python environment",
+  "script_chars": 227,
+  "started_at": "2026-05-03T22:12:31.207Z",
+  "finished_at": "2026-05-03T22:12:31.735Z",
+  "exit_code": 0,
+  "signal": null,
+  "timed_out": false,
+  "duration_ms": 528,
+  "stdout_bytes": 266,
+  "stderr_bytes": 0,
+  "stdout_truncated": false,
+  "stderr_truncated": false,
+  "stdout_path": "F:\\projects\\Diplom\\StackOverflow2.0\\.gsd\\worktrees\\M001\\.gsd\\exec\\ce572c49-2529-497a-b4ee-0cd5b356aefc.stdout",
+  "stderr_path": "F:\\projects\\Diplom\\StackOverflow2.0\\.gsd\\worktrees\\M001\\.gsd\\exec\\ce572c49-2529-497a-b4ee-0cd5b356aefc.stderr"
+}

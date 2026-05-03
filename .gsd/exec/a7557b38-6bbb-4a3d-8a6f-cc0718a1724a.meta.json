@@ -1,0 +1,18 @@
+{
+  "id": "a7557b38-6bbb-4a3d-8a6f-cc0718a1724a",
+  "runtime": "python",
+  "purpose": "list S03 gsd files",
+  "script_chars": 149,
+  "started_at": "2026-05-03T22:36:58.980Z",
+  "finished_at": "2026-05-03T22:36:59.076Z",
+  "exit_code": 0,
+  "signal": null,
+  "timed_out": false,
+  "duration_ms": 96,
+  "stdout_bytes": 66,
+  "stderr_bytes": 0,
+  "stdout_truncated": false,
+  "stderr_truncated": false,
+  "stdout_path": "F:\\projects\\Diplom\\StackOverflow2.0\\.gsd\\worktrees\\M001\\.gsd\\exec\\a7557b38-6bbb-4a3d-8a6f-cc0718a1724a.stdout",
+  "stderr_path": "F:\\projects\\Diplom\\StackOverflow2.0\\.gsd\\worktrees\\M001\\.gsd\\exec\\a7557b38-6bbb-4a3d-8a6f-cc0718a1724a.stderr"
+}

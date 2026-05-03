@@ -1,0 +1,32 @@
+command: src/backend/venv/Scripts/python.exe src/backend/manage.py test apps.qa
+exit_code: 1
+duration_ms: 2708
+--- stdout tail ---
+Found 18 test(s).
+
+--- stderr tail ---
+ func(*args, **kwargs)
+  File "F:\projects\Diplom\StackOverflow2.0\.gsd\worktrees\M001\src\backend\venv\Lib\site-packages\django\db\backends\base\base.py", line 278, in ensure_connection
+    with self.wrap_database_errors:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "F:\projects\Diplom\StackOverflow2.0\.gsd\worktrees\M001\src\backend\venv\Lib\site-packages\django\db\utils.py", line 94, in __exit__
+    raise dj_exc_value.with_traceback(traceback) from exc_value
+  File "F:\projects\Diplom\StackOverflow2.0\.gsd\worktrees\M001\src\backend\venv\Lib\site-packages\django\db\backends\base\base.py", line 279, in ensure_connection
+    self.connect()
+    ~~~~~~~~~~~~^^
+  File "F:\projects\Diplom\StackOverflow2.0\.gsd\worktrees\M001\src\backend\venv\Lib\site-packages\django\utils\asyncio.py", line 26, in inner
+    return func(*args, **kwargs)
+  File "F:\projects\Diplom\StackOverflow2.0\.gsd\worktrees\M001\src\backend\venv\Lib\site-packages\django\db\backends\base\base.py", line 256, in connect
+    self.connection = self.get_new_connection(conn_params)
+                      ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "F:\projects\Diplom\StackOverflow2.0\.gsd\worktrees\M001\src\backend\venv\Lib\site-packages\django\utils\asyncio.py", line 26, in inner
+    return func(*args, **kwargs)
+  File "F:\projects\Diplom\StackOverflow2.0\.gsd\worktrees\M001\src\backend\venv\Lib\site-packages\django\db\backends\mysql\base.py", line 258, in get_new_connection
+    connection = Database.connect(**conn_params)
+  File "F:\projects\Diplom\StackOverflow2.0\.gsd\worktrees\M001\src\backend\venv\Lib\site-packages\MySQLdb\__init__.py", line 121, in Connect
+    return Connection(*args, **kwargs)
+  File "F:\projects\Diplom\StackOverflow2.0\.gsd\worktrees\M001\src\backend\venv\Lib\site-packages\MySQLdb\connections.py", line 206, in __init__
+    super().__init__(*args, **kwargs2)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+django.db.utils.OperationalError: (2002, "Can't connect to server on '127.0.0.1' (10061)")
+

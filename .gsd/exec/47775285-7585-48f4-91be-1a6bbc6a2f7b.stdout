@@ -1,0 +1,3 @@
+pytest.cmd: False
+pytest.bat: False
+pytest: False

@@ -1,0 +1,18 @@
+{
+  "id": "6104faf5-9afb-4fe0-b52e-f46959e7e3d7",
+  "runtime": "python",
+  "purpose": "wait for isolated mysql health",
+  "script_chars": 536,
+  "started_at": "2026-05-03T22:14:49.931Z",
+  "finished_at": "2026-05-03T22:15:00.793Z",
+  "exit_code": 0,
+  "signal": null,
+  "timed_out": false,
+  "duration_ms": 10862,
+  "stdout_bytes": 847,
+  "stderr_bytes": 0,
+  "stdout_truncated": false,
+  "stderr_truncated": false,
+  "stdout_path": "F:\\projects\\Diplom\\StackOverflow2.0\\.gsd\\worktrees\\M001\\.gsd\\exec\\6104faf5-9afb-4fe0-b52e-f46959e7e3d7.stdout",
+  "stderr_path": "F:\\projects\\Diplom\\StackOverflow2.0\\.gsd\\worktrees\\M001\\.gsd\\exec\\6104faf5-9afb-4fe0-b52e-f46959e7e3d7.stderr"
+}

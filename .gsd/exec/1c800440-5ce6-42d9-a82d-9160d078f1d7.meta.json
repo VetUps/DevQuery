@@ -1,0 +1,18 @@
+{
+  "id": "1c800440-5ce6-42d9-a82d-9160d078f1d7",
+  "runtime": "bash",
+  "purpose": "slice S03 verification with Django manage.py commands",
+  "script_chars": 341,
+  "started_at": "2026-05-03T22:43:39.494Z",
+  "finished_at": "2026-05-03T22:43:39.593Z",
+  "exit_code": 1,
+  "signal": null,
+  "timed_out": false,
+  "duration_ms": 99,
+  "stdout_bytes": 0,
+  "stderr_bytes": 107,
+  "stdout_truncated": false,
+  "stderr_truncated": false,
+  "stdout_path": "F:\\projects\\Diplom\\StackOverflow2.0\\.gsd\\worktrees\\M001\\.gsd\\exec\\1c800440-5ce6-42d9-a82d-9160d078f1d7.stdout",
+  "stderr_path": "F:\\projects\\Diplom\\StackOverflow2.0\\.gsd\\worktrees\\M001\\.gsd\\exec\\1c800440-5ce6-42d9-a82d-9160d078f1d7.stderr"
+}

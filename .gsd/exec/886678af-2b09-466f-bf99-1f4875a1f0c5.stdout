@@ -1,0 +1,65 @@
+COMMAND: src/backend/venv/Scripts/python.exe src/backend/manage.py test apps.qa.tests.QuestionDiscoveryTests
+EXIT_CODE: 1
+DURATION_MS: 12088
+--- OUTPUT TAIL ---
+er
+    tag_parameter = next(
+        parameter for parameter in question_list_operation['parameters']
+        if parameter['name'] == 'tag' and parameter['in'] == 'query'
+    )
+StopIteration
+
+======================================================================
+FAIL: test_question_list_filters_by_one_repeated_tag_parameter (apps.qa.tests.QuestionDiscoveryTests.test_question_list_filters_by_one_repeated_tag_parameter)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "F:\projects\Diplom\StackOverflow2.0\.gsd\worktrees\M001\src\backend\apps\qa\tests.py", line 459, in test_question_list_filters_by_one_repeated_tag_parameter
+    self.assert_question_ids(response, [self.django_question, self.django_only_question])
+    ~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "F:\projects\Diplom\StackOverflow2.0\.gsd\worktrees\M001\src\backend\apps\qa\tests.py", line 426, in assert_question_ids
+    self.assertEqual(response.data['count'], len(expected_questions))
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 5 != 2
+
+======================================================================
+FAIL: test_question_list_filters_repeated_tags_with_and_semantics (apps.qa.tests.QuestionDiscoveryTests.test_question_list_filters_repeated_tags_with_and_semantics)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "F:\projects\Diplom\StackOverflow2.0\.gsd\worktrees\M001\src\backend\apps\qa\tests.py", line 467, in test_question_list_filters_repeated_tags_with_and_semantics
+    self.assert_question_ids(response, [self.django_question])
+    ~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "F:\projects\Diplom\StackOverflow2.0\.gsd\worktrees\M001\src\backend\apps\qa\tests.py", line 426, in assert_question_ids
+    self.assertEqual(response.data['count'], len(expected_questions))
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 5 != 1
+
+======================================================================
+FAIL: test_question_list_normalizes_duplicate_case_and_whitespace_tag_params (apps.qa.tests.QuestionDiscoveryTests.test_question_list_normalizes_duplicate_case_and_whitespace_tag_params)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "F:\projects\Diplom\StackOverflow2.0\.gsd\worktrees\M001\src\backend\apps\qa\tests.py", line 479, in test_question_list_normalizes_duplicate_case_and_whitespace_tag_params
+    self.assert_question_ids(response, [self.django_question, self.django_only_question])
+    ~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "F:\projects\Diplom\StackOverflow2.0\.gsd\worktrees\M001\src\backend\apps\qa\tests.py", line 426, in assert_question_ids
+    self.assertEqual(response.data['count'], len(expected_questions))
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 5 != 2
+
+======================================================================
+FAIL: test_question_list_unknown_tag_returns_no_rows_without_creating_tag (apps.qa.tests.QuestionDiscoveryTests.test_question_list_unknown_tag_returns_no_rows_without_creating_tag)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "F:\projects\Diplom\StackOverflow2.0\.gsd\worktrees\M001\src\backend\apps\qa\tests.py", line 485, in test_question_list_unknown_tag_returns_no_rows_without_creating_tag
+    self.assertEqual(response.data['count'], 0)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 5 != 0
+
+----------------------------------------------------------------------
+Ran 8 tests in 4.407s
+
+FAILED (failures=4, errors=1)
+Destroying test database for alias 'default'...
+
+Found 8 test(s).
+System check identified no issues (0 silenced).
+

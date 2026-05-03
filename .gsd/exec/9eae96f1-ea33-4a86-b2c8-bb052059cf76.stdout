@@ -1,0 +1,144 @@
+
+## src/backend/apps/qa/models.py
+9: class Question(models.Model):
+10: class Status(models.TextChoices):
+15: question_id =         models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False, blank=False,
+19: question_title =      models.CharField(max_length=300, blank=False,
+21: question_body =       models.TextField(blank=False,
+23: question_status =     models.CharField(choices=Status.choices, default=Status.OPEN_STATUS, blank=False, max_length=20,
+25: question_created_at = models.DateTimeField(auto_now_add=True, blank=False,
+27: question_updated_at = models.DateTimeField(auto_now=True, blank=False,
+30: class Meta:
+33: def __str__(self):
+36: class Solution(models.Model):
+52: class Meta:
+58: def __str__(self):
+61: class SolutionEdits(models.Model):
+77: class Meta:
+80: def __str__(self):
+84: class Comment(models.Model):
+102: class Meta:
+109: def __str__(self):
+113: def target_type(self):
+117: class Vote(models.Model):
+118: class VoteType(models.TextChoices):
+137: class Meta:
+147: def __str__(self):
+
+## src/backend/apps/qa/serializers.py
+10: class QuestionGetSerializer(serializers.ModelSerializer):
+16: class Meta:
+20: class QuestionListSerializer(serializers.ModelSerializer):
+21: class Meta:
+25: class QuestionUpdateCreateSerializer(serializers.ModelSerializer):
+26: class Meta:
+30: class QuestionCreateResponseSerializer(serializers.ModelSerializer):
+31: class Meta:
+43: class SolutionListSerializer(serializers.ModelSerializer):
+44: question_id = serializers.UUIDField(source='question.question_id', read_only=True)
+51: class Meta:
+56: class SolutionCreateSerializer(serializers.ModelSerializer):
+57: class Meta:
+61: def validate(self, data):
+73: class SolutionBestSerializer(serializers.Serializer):
+77: class SolutionCreateResponseSerializer(serializers.ModelSerializer):
+80: class Meta:
+93: class SolutionEditCreateSerializer(serializers.ModelSerializer):
+98: class Meta:
+102: def validate(self, data):
+111: def create(self, validated_data):
+122: class SolutionEditCreateResponseSerializer(serializers.ModelSerializer):
+123: class Meta:
+136: def build_solution_excerpt(value: str, limit: int = 180) -> str:
+145: class SolutionEditHistorySerializer(serializers.ModelSerializer):
+155: class Meta:
+175: def get_solution_owner_name(self, obj: SolutionEdits) -> str:
+178: def get_edit_author_name(self, obj: SolutionEdits) -> str:
+181: def get_solution_excerpt(self, obj: SolutionEdits) -> str:
+185: class CommentListSerializer(serializers.ModelSerializer):
+192: class Meta:
+198: class CommentCreateSerializer(serializers.ModelSerializer):
+199: class TargetType(TextChoices):
+209: class Meta:
+213: def validate_body(self, value):
+224: def validate(self, data):
+254: def create(self, validated_data):
+285: class CommentCreateResponseSerializer(serializers.ModelSerializer):
+292: class Meta:
+298: class CommentDetailSerializer(serializers.ModelSerializer):
+306: class Meta:
+311: def get_replies(self, obj):
+319: class VoteSerializer(serializers.ModelSerializer):
+323: class Meta:
+328: class SolutionEditApprovalSerializer(serializers.Serializer):
+332: class VoteCreateSerializer(serializers.Serializer):
+337: def validate(self, data):
+
+## src/backend/apps/qa/views.py
+24: class QuestionViewSet(mixins.ListModelMixin,
+33: question_get_serializer = QuestionGetSerializer
+34: question_list_serializer = QuestionListSerializer
+35: question_create_serializer = QuestionUpdateCreateSerializer
+36: question_create_response_serializer = QuestionCreateResponseSerializer
+37: question_ordering_fields = {'question_created_at', '-question_created_at'}
+39: def get_serializer_class(self):
+48: def get_permissions(self):
+58: def get_queryset(self):
+79: def get_object(self):
+85: def perform_create(self, serializer):
+88: def perform_update(self, serializer):
+105: def list(self, request, *args, **kwargs):
+112: def create(self, request, *args, **kwargs):
+122: class SolutionViewSet(mixins.ListModelMixin,
+134: def get_queryset(self):
+146: def get_serializer_class(self):
+155: def get_permissions(self):
+163: def perform_create(self, serializer):
+170: def create(self, request, *args, **kwargs):
+188: def list(self, request, *args, **kwargs):
+196: def best(self, request, *args, **kwargs):
+215: class SolutionEditsViewSet(mixins.CreateModelMixin,
+222: def get_queryset(self):
+225: def get_serializer_class(self):
+230: def get_permissions(self):
+238: def perform_create(self, serializer):
+256: def create(self, request, *args, **kwargs):
+268: def history(self, request, solution_id):
+279: def not_approved(self, request, solution_id):
+291: def review_queue(self, request):
+302: def my_history(self, request):
+313: def approve(self, request, solution_edit_id):
+324: def disapprove(self, request, solution_edit_id):
+334: class CommentViewSet(mixins.ListModelMixin,
+380: def list(self, request, *args, **kwargs):
+387: def create(self, request, *args, **kwargs):
+397: def get_queryset(self):
+416: def get_object(self):
+430: def get_serializer_class(self):
+439: def get_permissions(self):
+446: def perform_create(self, serializer):
+449: def perform_destroy(self, instance):
+456: class VoteViewSet(viewsets.ViewSet):
+469: def get_permissions(self):
+481: def cast_vote(self, request):
+505: def remove_vote(self, request):
+533: def get_stats(self, request, target_type, target_id):
+548: def get_my_vote(self, request, target_type, target_id):
+
+## src/backend/apps/qa/tests.py
+11: class QuestionDiscoveryTests(APITestCase):
+12: def setUp(self):
+20: question_title='Django serializer validation',
+21: question_body='Как валидировать вложенный serializer?',
+25: question_title='Vue query cache invalidation',
+26: question_body='Как обновить TanStack Query cache?',
+29: def test_question_list_searches_by_title(self):
+36: def test_question_list_orders_by_creation_date(self):
+51: class BestSolutionTests(APITestCase):
+52: def setUp(self):
+70: question_title='Как выбрать лучшее решение?',
+71: question_body='Нужно пометить один ответ как принятый.',
+84: def test_question_author_can_mark_exactly_one_best_solution(self):
+108: def test_question_author_can_remove_best_solution(self):
+128: def test_non_author_cannot_mark_best_solution(self):
+142: def test_question_author_cannot_create_solution_for_own_question(self):

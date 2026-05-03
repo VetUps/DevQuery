@@ -1,0 +1,27 @@
+command: src/backend/venv/Scripts/python.exe src/backend/manage.py test apps.qa.tests.TagAutocompleteApiTests
+exit_code: 1
+duration_ms: 7793
+--- stdout ---
+Found 1 test(s).
+System check identified no issues (0 silenced).
+
+--- stderr ---
+Creating test database for alias 'default'...
+
+E
+======================================================================
+ERROR: test_tag_autocomplete_is_public_and_returns_matching_tag_suggestions (apps.qa.tests.TagAutocompleteApiTests.test_tag_autocomplete_is_public_and_returns_matching_tag_suggestions)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "F:\projects\Diplom\StackOverflow2.0\.gsd\worktrees\M001\src\backend\apps\qa\tests.py", line 204, in test_tag_autocomplete_is_public_and_returns_matching_tag_suggestions
+    self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+                                                               ^^^^^^^^^^^^^
+AttributeError: 'HttpResponseNotFound' object has no attribute 'data'
+
+----------------------------------------------------------------------
+Ran 1 test in 0.027s
+
+FAILED (errors=1)
+Destroying test database for alias 'default'...
+
+

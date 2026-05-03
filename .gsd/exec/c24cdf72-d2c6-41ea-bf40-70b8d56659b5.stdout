@@ -1,0 +1,18 @@
+COMMAND: src/backend/venv/Scripts/python.exe src/backend/manage.py test apps.qa
+EXIT_CODE: 0
+DURATION_MS: 21323
+--- STDOUT ---
+Found 27 test(s).
+System check identified no issues (0 silenced).
+
+--- STDERR ---
+Creating test database for alias 'default'...
+
+...........................
+----------------------------------------------------------------------
+Ran 27 tests in 13.709s
+
+OK
+Destroying test database for alias 'default'...
+
+
