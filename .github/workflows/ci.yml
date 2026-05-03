@@ -8,6 +8,18 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      backend_tag:
+        description: Backend image tag to deploy
+        required: false
+        type: string
+      frontend_tag:
+        description: Frontend image tag to deploy
+        required: false
+        type: string
+
+permissions:
+  contents: read
 
 jobs:
   backend:
@@ -185,28 +197,43 @@ jobs:
     name: VPS Deploy
     runs-on: ubuntu-latest
     needs: publish-images
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    environment: production
+    concurrency:
+      group: production-vps
+      cancel-in-progress: false
+    permissions:
+      contents: read
     env:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
       VPS_HOST: ${{ secrets.VPS_HOST }}
       VPS_USER: ${{ secrets.VPS_USER }}
       VPS_PORT: ${{ secrets.VPS_PORT || '22' }}
       VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+      VPS_SSH_KNOWN_HOSTS: ${{ secrets.VPS_SSH_KNOWN_HOSTS }}
       VPS_DEPLOY_PATH: ${{ secrets.VPS_DEPLOY_PATH }}
+      PUBLIC_FRONTEND_URL: ${{ vars.PUBLIC_FRONTEND_URL }}
+      PUBLIC_BACKEND_URL: ${{ vars.PUBLIC_BACKEND_URL }}
     steps:
       - name: Validate VPS deploy configuration
         run: |
+          test -n "$DOCKERHUB_USERNAME"
           test -n "$VPS_HOST"
           test -n "$VPS_USER"
           test -n "$VPS_PORT"
           test -n "$VPS_SSH_KEY"
+          test -n "$VPS_SSH_KNOWN_HOSTS"
           test -n "$VPS_DEPLOY_PATH"
+          test -n "$PUBLIC_FRONTEND_URL"
+          test -n "$PUBLIC_BACKEND_URL"
 
       - name: Configure SSH
         run: |
           mkdir -p ~/.ssh
           printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -p "$VPS_PORT" "$VPS_HOST" >> ~/.ssh/known_hosts
+          printf '%s\n' "$VPS_SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
 
       - name: Deploy Docker Compose stack
         run: |
