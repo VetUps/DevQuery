@@ -6,6 +6,17 @@ from django.db import models
 from ..user.models import CustomUser
 
 
+class Tag(models.Model):
+    name = models.CharField(max_length=50, unique=True, db_index=True)
+    questions_count = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        db_table = 'tags'
+
+    def __str__(self):
+        return self.name
+
+
 class Question(models.Model):
     class Status(models.TextChoices):
         OPEN_STATUS = 'open', 'Open'
@@ -16,6 +27,8 @@ class Question(models.Model):
                                            help_text='Уникальный идентификатор вопроса')
     user =                models.ForeignKey(CustomUser, blank=False, null=True, on_delete=models.SET_NULL,
                                             help_text='Автор вопроса')
+    tags =                models.ManyToManyField(Tag, related_name='questions', blank=True,
+                                            help_text='Теги вопроса')
     question_title =      models.CharField(max_length=300, blank=False,
                                            help_text='Краткое описание вопроса')
     question_body =       models.TextField(blank=False,
