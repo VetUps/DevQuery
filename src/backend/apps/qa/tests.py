@@ -2,6 +2,7 @@ from datetime import timedelta
 
 from django.db import IntegrityError, transaction
 from django.utils import timezone
+from drf_spectacular.generators import SchemaGenerator
 from rest_framework import status
 from rest_framework.test import APITestCase
 
@@ -229,11 +230,19 @@ class TagAutocompleteApiTests(APITestCase):
         self.assertFalse(Tag.objects.filter(name='missing-tag').exists())
         self.assertEqual(Tag.objects.count(), 3)
 
-    def test_tag_autocomplete_empty_search_returns_no_tags(self):
-        response = self.client.get('/tag/', {'search': '   '})
+    def test_tag_autocomplete_missing_search_returns_no_tags(self):
+        response = self.client.get('/tag/')
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
         self.assertEqual(response.data, [])
+
+    def test_tag_autocomplete_empty_search_returns_no_tags(self):
+        for search in ['', '   ']:
+            with self.subTest(search=repr(search)):
+                response = self.client.get('/tag/', {'search': search})
+
+                self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+                self.assertEqual(response.data, [])
 
     def test_tag_autocomplete_malformed_search_text_is_safe_and_returns_no_matches(self):
         response = self.client.get('/tag/', {'search': "django'; DROP TABLE tags; --"})
@@ -252,6 +261,22 @@ class TagAutocompleteApiTests(APITestCase):
         self.assertEqual(len(response.data), 10)
         self.assertEqual(response.data[0], {'name': 'django', 'questions_count': 5})
         self.assertEqual(response.data[1], {'name': 'django-rest', 'questions_count': 2})
+
+    def test_tag_autocomplete_schema_documents_search_parameter_and_response(self):
+        schema = SchemaGenerator().get_schema(request=None, public=True)
+        tag_list_operation = schema['paths']['/tag/']['get']
+
+        search_parameter = next(
+            parameter for parameter in tag_list_operation['parameters']
+            if parameter['name'] == 'search' and parameter['in'] == 'query'
+        )
+
+        self.assertFalse(search_parameter.get('required', False))
+        self.assertEqual(search_parameter['schema']['type'], 'string')
+        self.assertEqual(
+            tag_list_operation['responses']['200']['content']['application/json']['schema']['items']['$ref'],
+            '#/components/schemas/Tag',
+        )
 
 
 class QuestionCreateWithTagsApiTests(APITestCase):
