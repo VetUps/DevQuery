@@ -387,23 +387,57 @@ class QuestionDiscoveryTests(APITestCase):
             user_name='author',
             password='password',
         )
+        self.django_tag = Tag.objects.create(name='django', questions_count=2)
+        self.serializer_tag = Tag.objects.create(name='serializer', questions_count=2)
+        self.vue_tag = Tag.objects.create(name='vue', questions_count=1)
+        self.mysql_tag = Tag.objects.create(name='mysql', questions_count=1)
         self.django_question = Question.objects.create(
             user=self.user,
             question_title='Django serializer validation',
             question_body='Как валидировать вложенный serializer?',
         )
+        self.django_question.tags.add(self.django_tag, self.serializer_tag)
+        self.django_only_question = Question.objects.create(
+            user=self.user,
+            question_title='Django model pagination',
+            question_body='Как настроить page size для списка вопросов?',
+        )
+        self.django_only_question.tags.add(self.django_tag)
+        self.serializer_only_question = Question.objects.create(
+            user=self.user,
+            question_title='Serializer field ordering',
+            question_body='Как упорядочить поля serializer?',
+        )
+        self.serializer_only_question.tags.add(self.serializer_tag, self.mysql_tag)
         self.vue_question = Question.objects.create(
             user=self.user,
             question_title='Vue query cache invalidation',
             question_body='Как обновить TanStack Query cache?',
+        )
+        self.vue_question.tags.add(self.vue_tag)
+        self.untagged_question = Question.objects.create(
+            user=self.user,
+            question_title='Question without tags',
+            question_body='Untagged questions should remain discoverable without tag filters.',
+        )
+
+    def assert_question_ids(self, response, expected_questions):
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual(response.data['count'], len(expected_questions))
+        self.assertEqual(
+            {item['question_id'] for item in response.data['results']},
+            {str(question.question_id) for question in expected_questions},
         )
 
     def test_question_list_searches_by_title(self):
         response = self.client.get('/question/', {'search': 'django'})
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data['count'], 1)
-        self.assertEqual(response.data['results'][0]['question_title'], self.django_question.question_title)
+        self.assertEqual(response.data['count'], 2)
+        self.assertEqual(
+            {item['question_title'] for item in response.data['results']},
+            {self.django_question.question_title, self.django_only_question.question_title},
+        )
 
     def test_question_list_orders_by_creation_date(self):
         older_date = timezone.now() - timedelta(days=2)
@@ -416,8 +450,70 @@ class QuestionDiscoveryTests(APITestCase):
 
         self.assertEqual(newest_response.status_code, status.HTTP_200_OK)
         self.assertEqual(oldest_response.status_code, status.HTTP_200_OK)
-        self.assertEqual(newest_response.data['results'][0]['question_id'], str(self.vue_question.question_id))
+        self.assertEqual(newest_response.data['results'][0]['question_id'], str(self.untagged_question.question_id))
         self.assertEqual(oldest_response.data['results'][0]['question_id'], str(self.django_question.question_id))
+
+    def test_question_list_filters_by_one_repeated_tag_parameter(self):
+        response = self.client.get('/question/?tag=django')
+
+        self.assert_question_ids(response, [self.django_question, self.django_only_question])
+        for item in response.data['results']:
+            self.assertIn({'name': 'django', 'questions_count': 2}, item['tags'])
+            self.assertNotIn('question_body', item)
+
+    def test_question_list_filters_repeated_tags_with_and_semantics(self):
+        response = self.client.get('/question/?tag=django&tag=serializer')
+
+        self.assert_question_ids(response, [self.django_question])
+        self.assertCountEqual(
+            response.data['results'][0]['tags'],
+            [
+                {'name': 'django', 'questions_count': 2},
+                {'name': 'serializer', 'questions_count': 2},
+            ],
+        )
+
+    def test_question_list_normalizes_duplicate_case_and_whitespace_tag_params(self):
+        response = self.client.get('/question/?tag=django&tag=DJANGO&tag=%20django%20&tag=')
+
+        self.assert_question_ids(response, [self.django_question, self.django_only_question])
+
+    def test_question_list_unknown_tag_returns_no_rows_without_creating_tag(self):
+        response = self.client.get('/question/?tag=django%27%3B%20DROP%20TABLE%20tags%3B%20--')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual(response.data['count'], 0)
+        self.assertEqual(response.data['results'], [])
+        self.assertFalse(Tag.objects.filter(name="django'; drop table tags; --").exists())
+        self.assertEqual(Tag.objects.count(), 4)
+
+    def test_question_list_combines_tag_filter_with_search_ordering_and_pagination_shape(self):
+        older_date = timezone.now() - timedelta(days=3)
+        newer_date = timezone.now() - timedelta(days=1)
+        Question.objects.filter(question_id=self.django_question.question_id).update(question_created_at=older_date)
+        Question.objects.filter(question_id=self.django_only_question.question_id).update(question_created_at=newer_date)
+
+        response = self.client.get('/question/?tag=django&search=django&ordering=question_created_at&page=1')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual(set(response.data.keys()), {'count', 'next', 'previous', 'results'})
+        self.assertEqual(response.data['count'], 2)
+        self.assertEqual(response.data['results'][0]['question_id'], str(self.django_question.question_id))
+        self.assertEqual(response.data['results'][1]['question_id'], str(self.django_only_question.question_id))
+
+    def test_question_list_schema_documents_repeated_tag_parameter(self):
+        schema = SchemaGenerator().get_schema(request=None, public=True)
+        question_list_operation = schema['paths']['/question/']['get']
+
+        tag_parameter = next(
+            parameter for parameter in question_list_operation['parameters']
+            if parameter['name'] == 'tag' and parameter['in'] == 'query'
+        )
+
+        self.assertFalse(tag_parameter.get('required', False))
+        self.assertEqual(tag_parameter['schema']['type'], 'array')
+        self.assertEqual(tag_parameter['schema']['items']['type'], 'string')
+        self.assertTrue(tag_parameter.get('explode', True))
 
 
 class BestSolutionTests(APITestCase):

@@ -89,9 +89,25 @@ class QuestionViewSet(mixins.ListModelMixin,
         if self.action == 'list':
             search = self.request.query_params.get('search', '').strip()
             ordering = self.request.query_params.get('ordering', '-question_created_at')
+            raw_tag_filters = self.request.query_params.getlist('tag')
+            tag_filters = []
+            seen_tag_filters = set()
+
+            for raw_tag_filter in raw_tag_filters:
+                tag_filter = raw_tag_filter.strip().lower()
+
+                if tag_filter and tag_filter not in seen_tag_filters:
+                    seen_tag_filters.add(tag_filter)
+                    tag_filters.append(tag_filter)
 
             if search:
                 queryset = queryset.filter(question_title__icontains=search)
+
+            for tag_filter in tag_filters:
+                queryset = queryset.filter(tags__name=tag_filter)
+
+            if tag_filters:
+                queryset = queryset.distinct()
 
             if ordering not in self.question_ordering_fields:
                 ordering = '-question_created_at'
@@ -126,6 +142,11 @@ class QuestionViewSet(mixins.ListModelMixin,
                 'ordering', OpenApiTypes.STR,
                 location='query', required=False,
                 description='Сортировка по дате: -question_created_at или question_created_at'
+            ),
+            OpenApiParameter(
+                'tag', OpenApiTypes.STR,
+                location='query', required=False, many=True,
+                description='Фильтр по существующим нормализованным тегам. Повторите параметр для AND-семантики: ?tag=django&tag=serializer'
             ),
         ],
         responses=QuestionListSerializer(many=True),
