@@ -46,7 +46,7 @@ async function handleLogout() {
   <header class="app-header" data-testid="app-header">
     <div class="app-header__inner">
       <RouterLink class="app-header__wordmark" to="/">
-        StackOverflow 2.0
+        DevQuery
       </RouterLink>
 
       <nav class="app-header__nav" aria-label="Основная навигация">
