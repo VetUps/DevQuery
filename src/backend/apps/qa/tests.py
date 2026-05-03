@@ -6,6 +6,7 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 
 from apps.qa.models import Question, Solution, Tag
+from apps.qa.serializers import MAX_QUESTION_TAGS, QuestionUpdateCreateSerializer
 from apps.user.models import CustomUser
 
 
@@ -32,6 +33,88 @@ class QuestionTagModelTests(APITestCase):
         with self.assertRaises(IntegrityError):
             with transaction.atomic():
                 Tag.objects.create(name='django')
+
+
+class QuestionTagSerializerTests(APITestCase):
+    def valid_payload(self, tags_marker=None):
+        payload = {
+            'question_title': 'How to validate tags?',
+            'question_body': 'I need a normalized tag contract.',
+        }
+        if tags_marker is not None:
+            payload['tags'] = tags_marker
+        return payload
+
+    def assert_tags_error(self, tags):
+        serializer = QuestionUpdateCreateSerializer(data=self.valid_payload(tags))
+
+        self.assertFalse(serializer.is_valid())
+        self.assertIn('tags', serializer.errors)
+
+    def test_tags_are_normalized_and_deduplicated_in_first_seen_order(self):
+        serializer = QuestionUpdateCreateSerializer(
+            data=self.valid_payload([' Django ', 'django', 'DRF3', 'vue-js'])
+        )
+
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertEqual(serializer.validated_data['tags'], ['django', 'drf3', 'vue-js'])
+
+    def test_tags_can_be_omitted_for_backwards_compatibility(self):
+        serializer = QuestionUpdateCreateSerializer(data=self.valid_payload())
+
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertNotIn('tags', serializer.validated_data)
+
+    def test_exactly_five_unique_tags_are_valid(self):
+        serializer = QuestionUpdateCreateSerializer(
+            data=self.valid_payload(['django', 'drf', 'mysql', 'vue', 'docker'])
+        )
+
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertEqual(len(serializer.validated_data['tags']), MAX_QUESTION_TAGS)
+
+    def test_duplicate_tags_after_normalization_do_not_count_toward_limit(self):
+        serializer = QuestionUpdateCreateSerializer(
+            data=self.valid_payload(['Django', 'django', ' DRF ', 'drf', 'mysql', 'vue', 'docker'])
+        )
+
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertEqual(serializer.validated_data['tags'], ['django', 'drf', 'mysql', 'vue', 'docker'])
+
+    def test_saving_question_with_validated_tags_does_not_persist_tags_in_s01(self):
+        user = CustomUser.objects.create_user(
+            user_email='serializer-author@example.com',
+            user_name='serializer-author',
+            password='password',
+        )
+        serializer = QuestionUpdateCreateSerializer(
+            data=self.valid_payload(['Django', 'DRF'])
+        )
+
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        question = serializer.save(user=user)
+
+        self.assertEqual(question.tags.count(), 0)
+        self.assertEqual(Tag.objects.count(), 0)
+
+    def test_rejects_more_than_five_unique_tags(self):
+        self.assert_tags_error(['django', 'drf', 'mysql', 'vue', 'docker', 'python'])
+
+    def test_rejects_non_list_tags_payload(self):
+        self.assert_tags_error('django')
+
+    def test_rejects_non_string_tag_values(self):
+        self.assert_tags_error([123])
+
+    def test_rejects_empty_or_whitespace_only_tags(self):
+        self.assert_tags_error(['   '])
+
+    def test_rejects_invalid_tag_characters(self):
+        invalid_tag_values = ['python_api', 'c++', 'django rest', 'джанго']
+
+        for invalid_tag in invalid_tag_values:
+            with self.subTest(invalid_tag=invalid_tag):
+                self.assert_tags_error([invalid_tag])
 
 
 class QuestionDiscoveryTests(APITestCase):
