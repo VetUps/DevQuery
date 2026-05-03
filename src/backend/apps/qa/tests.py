@@ -171,7 +171,17 @@ class QuestionTagResponseSerializerTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data['tags'], [{'name': 'django', 'questions_count': 1}])
+        self.assertEqual(set(response.data['tags'][0].keys()), {'name', 'questions_count'})
         self.assertNotEqual(response.data['tags'], [tag.pk])
+        self.assertNotIn('id', response.data['tags'][0])
+        self.assertNotIn('tag_id', response.data['tags'][0])
+
+    def test_untagged_question_detail_response_emits_empty_tags(self):
+        response = self.client.get(f'/question/{self.question.question_id}/')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn('tags', response.data)
+        self.assertEqual(response.data['tags'], [])
 
     def test_question_list_response_emits_nested_tags_and_empty_lists(self):
         tag = Tag.objects.create(name='django', questions_count=1)
@@ -460,6 +470,10 @@ class QuestionDiscoveryTests(APITestCase):
         for item in response.data['results']:
             self.assertIn({'name': 'django', 'questions_count': 2}, item['tags'])
             self.assertNotIn('question_body', item)
+            for tag in item['tags']:
+                self.assertEqual(set(tag.keys()), {'name', 'questions_count'})
+                self.assertNotIn('id', tag)
+                self.assertNotIn('tag_id', tag)
 
     def test_question_list_filters_repeated_tags_with_and_semantics(self):
         response = self.client.get('/question/?tag=django&tag=serializer')
@@ -504,16 +518,34 @@ class QuestionDiscoveryTests(APITestCase):
     def test_question_list_schema_documents_repeated_tag_parameter(self):
         schema = SchemaGenerator().get_schema(request=None, public=True)
         question_list_operation = schema['paths']['/question/']['get']
+        parameters_by_name = {
+            parameter['name']: parameter
+            for parameter in question_list_operation['parameters']
+            if parameter['in'] == 'query'
+        }
 
-        tag_parameter = next(
-            parameter for parameter in question_list_operation['parameters']
-            if parameter['name'] == 'tag' and parameter['in'] == 'query'
-        )
+        self.assertIn('tag', parameters_by_name)
+        self.assertIn('search', parameters_by_name)
+        self.assertIn('ordering', parameters_by_name)
 
+        tag_parameter = parameters_by_name['tag']
         self.assertFalse(tag_parameter.get('required', False))
         self.assertEqual(tag_parameter['schema']['type'], 'array')
         self.assertEqual(tag_parameter['schema']['items']['type'], 'string')
         self.assertTrue(tag_parameter.get('explode', True))
+
+        self.assertFalse(parameters_by_name['search'].get('required', False))
+        self.assertEqual(parameters_by_name['search']['schema']['type'], 'string')
+        self.assertFalse(parameters_by_name['ordering'].get('required', False))
+        self.assertEqual(parameters_by_name['ordering']['schema']['type'], 'string')
+
+        response_schema = question_list_operation['responses']['200']['content']['application/json']['schema']
+        self.assertEqual(response_schema['$ref'], '#/components/schemas/PaginatedQuestionListList')
+        paginated_schema = schema['components']['schemas']['PaginatedQuestionListList']
+        self.assertEqual(
+            paginated_schema['properties']['results']['items']['$ref'],
+            '#/components/schemas/QuestionList',
+        )
 
 
 class BestSolutionTests(APITestCase):
