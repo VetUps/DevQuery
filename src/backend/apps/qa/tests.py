@@ -192,6 +192,67 @@ class QuestionTagResponseSerializerTests(APITestCase):
         self.assertEqual(response_by_id[str(untagged_question.question_id)]['tags'], [])
 
 
+class TagAutocompleteApiTests(APITestCase):
+    def setUp(self):
+        self.django_tag = Tag.objects.create(name='django', questions_count=5)
+        self.django_rest_tag = Tag.objects.create(name='django-rest', questions_count=2)
+        self.vue_tag = Tag.objects.create(name='vue', questions_count=7)
+
+    def test_tag_autocomplete_is_public_and_returns_matching_tag_suggestions(self):
+        response = self.client.get('/tag/', {'search': 'Dj'})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual(
+            response.data,
+            [
+                {'name': 'django', 'questions_count': 5},
+                {'name': 'django-rest', 'questions_count': 2},
+            ],
+        )
+
+    def test_tag_autocomplete_response_shape_exposes_only_public_tag_fields(self):
+        response = self.client.get('/tag/', {'search': 'django'})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        for tag in response.data:
+            self.assertEqual(set(tag.keys()), {'name', 'questions_count'})
+            self.assertNotIn('id', tag)
+            self.assertNotIn('question_id', tag)
+            self.assertNotIn('question_body', tag)
+            self.assertNotIn('user', tag)
+
+    def test_tag_autocomplete_non_matching_input_returns_empty_list_without_creating_tags(self):
+        response = self.client.get('/tag/', {'search': 'missing-tag'})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual(response.data, [])
+        self.assertFalse(Tag.objects.filter(name='missing-tag').exists())
+        self.assertEqual(Tag.objects.count(), 3)
+
+    def test_tag_autocomplete_empty_search_returns_no_tags(self):
+        response = self.client.get('/tag/', {'search': '   '})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual(response.data, [])
+
+    def test_tag_autocomplete_malformed_search_text_is_safe_and_returns_no_matches(self):
+        response = self.client.get('/tag/', {'search': "django'; DROP TABLE tags; --"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual(response.data, [])
+        self.assertEqual(Tag.objects.count(), 3)
+
+    def test_tag_autocomplete_limits_results_to_ten_existing_tags(self):
+        for index in range(12):
+            Tag.objects.create(name=f'dj-extra-{index:02d}', questions_count=1)
+
+        response = self.client.get('/tag/', {'search': 'dj'})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual(len(response.data), 10)
+        self.assertEqual(response.data[0], {'name': 'django', 'questions_count': 5})
+        self.assertEqual(response.data[1], {'name': 'django-rest', 'questions_count': 2})
+
 
 class QuestionCreateWithTagsApiTests(APITestCase):
     def setUp(self):
