@@ -1,9 +1,11 @@
 import re
 
 from django.contrib.contenttypes.models import ContentType
+from django.db import transaction
 from django.db.models import TextChoices
 from rest_framework import serializers
 from .models import Question, Solution, SolutionEdits, Comment, Vote, Tag
+from .services.question_tag_service import QuestionTagService
 
 
 MAX_QUESTION_TAGS = 5
@@ -82,8 +84,13 @@ class QuestionUpdateCreateSerializer(serializers.ModelSerializer):
         return normalize_question_tags(value)
 
     def create(self, validated_data):
-        validated_data.pop('tags', None)
-        return super().create(validated_data)
+        tag_names = validated_data.pop('tags', [])
+
+        with transaction.atomic():
+            question = super().create(validated_data)
+            QuestionTagService.attach_tags_to_question(question, tag_names)
+
+        return question
 
     def update(self, instance, validated_data):
         validated_data.pop('tags', None)
