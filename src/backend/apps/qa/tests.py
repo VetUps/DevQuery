@@ -1,11 +1,37 @@
 from datetime import timedelta
 
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from apps.qa.models import Question, Solution
+from apps.qa.models import Question, Solution, Tag
 from apps.user.models import CustomUser
+
+
+class QuestionTagModelTests(APITestCase):
+    def setUp(self):
+        self.user = CustomUser.objects.create_user(
+            user_email='tag-author@example.com',
+            user_name='tag-author',
+            password='password',
+        )
+
+    def test_question_can_be_created_without_tags(self):
+        question = Question.objects.create(
+            user=self.user,
+            question_title='Question without tags',
+            question_body='Existing create flows should not require tags.',
+        )
+
+        self.assertEqual(question.tags.count(), 0)
+
+    def test_duplicate_tag_name_raises_integrity_error(self):
+        Tag.objects.create(name='django')
+
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                Tag.objects.create(name='django')
 
 
 class QuestionDiscoveryTests(APITestCase):
