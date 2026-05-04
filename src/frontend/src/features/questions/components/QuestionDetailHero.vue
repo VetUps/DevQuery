@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { QuestionDetail } from '@/features/questions/api/questions'
 import type { PublicUserProfile } from '@/features/users/api/publicProfiles'
+import QuestionTagChips from '@/features/questions/components/QuestionTagChips.vue'
 import SignalVoteRail from '@/features/votes/components/SignalVoteRail.vue'
 import { formatLongDate, formatQuestionStatus } from '@/shared/libs/formatting'
 import MarkdownContent from '@/shared/ui/MarkdownContent.vue'
@@ -27,6 +28,7 @@ const props = defineProps<{
       </div>
 
       <h1 class="question-detail-hero__title">{{ question.question_title }}</h1>
+      <QuestionTagChips :tags="question.tags" variant="large" />
       <div class="question-detail-hero__body">
         <MarkdownContent :source="question.question_body" />
       </div>
