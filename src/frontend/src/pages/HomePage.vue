@@ -37,7 +37,8 @@ function normalizeOrdering(rawOrdering: unknown): QuestionOrdering {
 function normalizeTags(rawTags: unknown) {
   const values = Array.isArray(rawTags) ? rawTags : [rawTags]
   const normalizedTags = values
-    .map((tag) => String(tag ?? '').trim().toLowerCase())
+    .filter((tag): tag is string => typeof tag === 'string')
+    .map((tag) => tag.trim().toLowerCase())
     .filter((tag) => tag.length > 0)
 
   return [...new Set(normalizedTags)]

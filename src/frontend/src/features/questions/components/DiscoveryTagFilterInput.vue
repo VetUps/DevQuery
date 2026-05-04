@@ -60,11 +60,11 @@ const describedBy = computed(() =>
     .join(' '),
 )
 
-function normalizeTagName(value: string) {
-  return value.trim().toLowerCase()
+function normalizeTagName(value: unknown) {
+  return typeof value === 'string' ? value.trim().toLowerCase() : ''
 }
 
-function normalizeTagList(values: string[] | undefined) {
+function normalizeTagList(values: unknown[] | undefined) {
   const normalizedTags: string[] = []
   const seenTags = new Set<string>()
 
