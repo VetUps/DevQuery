@@ -25,10 +25,10 @@
 - [x] **S04: S04** `risk:high` `depends:[]`
   > After this: Question list can be filtered with `/question/?tag=django&tag=serializer`; list/detail responses include tag chips data.
 
-- [ ] **S05: S05** `risk:medium` `depends:[]`
+- [x] **S05: S05** `risk:medium` `depends:[]`
   > After this: The ask-question form has a tag input with suggestions, chips, removal, max 5 and manual fallback if suggestions fail.
 
-- [ ] **S06: Discovery tag filters and integrated regression proof** `risk:medium` `depends:[S04,S05]`
+- [x] **S06: S06** `risk:medium` `depends:[]`
   > After this: Users see tags in discovery/detail and filter the question list by multiple tags through URL state; regression tests prove the full flow.
 
 ## Boundary Map
