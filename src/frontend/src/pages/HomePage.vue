@@ -62,6 +62,15 @@ const orderingModel = computed({
     })
   },
 })
+const tagsModel = computed({
+  get: () => activeTags.value,
+  set: (value: string[]) => {
+    void pushDiscoveryQuery({
+      page: 1,
+      tags: value,
+    })
+  },
+})
 const questionListQuery = useQuestionListQuery(computed(() => ({
   page: currentPage.value,
   search: activeSearch.value,
@@ -172,20 +181,6 @@ async function pushDiscoveryQuery(overrides: Parameters<typeof buildDiscoveryQue
   })
 }
 
-async function removeTagFilter(tagToRemove: string) {
-  await pushDiscoveryQuery({
-    page: 1,
-    tags: activeTags.value.filter((tag) => tag !== tagToRemove),
-  })
-}
-
-async function clearTagFilters() {
-  await pushDiscoveryQuery({
-    page: 1,
-    tags: [],
-  })
-}
-
 async function resetEmptyStateFilters() {
   clearSearchDebounceTimer()
   searchDraft.value = ''
@@ -225,10 +220,8 @@ onBeforeUnmount(clearSearchDebounceTimer)
           <DiscoverySearchReserve
             v-model:search="searchDraft"
             v-model:ordering="orderingModel"
+            v-model:tags="tagsModel"
             :total-questions="totalQuestions"
-            :active-tags="activeTags"
-            @remove-tag="removeTagFilter"
-            @clear-tags="clearTagFilters"
           />
 
           <SurfacePanel class="home-page__list-section" aria-label="Лента вопросов">
