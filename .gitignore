@@ -189,6 +189,8 @@ fabric.properties
 # ── GSD baseline (auto-generated) ──
 .gsd/
 .gsd
+.gsd.migrating/
+CLAUDE.md
 .gsd-id
 .mcp.json
 .bg-shell/
