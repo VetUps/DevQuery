@@ -19,6 +19,14 @@ vi.mock('@/features/questions/queries/useQuestionListQuery', () => ({
   useQuestionListQuery: vi.fn(() => queryState),
 }))
 
+vi.mock('@/features/questions/queries/useTagAutocompleteQuery', () => ({
+  useTagAutocompleteQuery: vi.fn(() => ({
+    data: ref([]),
+    isError: ref(false),
+    isFetching: ref(false),
+  })),
+}))
+
 async function mountHomePage(initialPath = '/') {
   const pinia = createPinia()
   setActivePinia(pinia)

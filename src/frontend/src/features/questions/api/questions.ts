@@ -64,8 +64,9 @@ export interface CreateQuestionResponse {
   tags: QuestionTag[]
 }
 
-export function normalizeQuestionTags(tags: string[] = []) {
+export function normalizeQuestionTags(tags: readonly unknown[] = []) {
   const normalizedTags = tags
+    .filter((tag): tag is string => typeof tag === 'string')
     .map((tag) => tag.trim().toLowerCase())
     .filter((tag) => tag.length > 0)
 
@@ -80,6 +81,9 @@ export async function fetchQuestionList(params: QuestionListParams) {
       search: params.search || undefined,
       ordering: params.ordering,
       tag: normalizedTags.length > 0 ? normalizedTags : undefined,
+    },
+    paramsSerializer: {
+      indexes: null,
     },
   })
 

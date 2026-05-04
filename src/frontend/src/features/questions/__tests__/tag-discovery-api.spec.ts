@@ -41,6 +41,9 @@ describe('tag-aware question discovery API boundary', () => {
         ordering: 'question_created_at',
         tag: undefined,
       },
+      paramsSerializer: {
+        indexes: null,
+      },
     })
   })
 
@@ -57,6 +60,9 @@ describe('tag-aware question discovery API boundary', () => {
         search: undefined,
         ordering: undefined,
         tag: ['django', 'vue'],
+      },
+      paramsSerializer: {
+        indexes: null,
       },
     })
   })
@@ -122,6 +128,9 @@ describe('tag-aware question discovery API boundary', () => {
         search: 'composables',
         ordering: 'question_created_at',
         tag: ['vue', 'django'],
+      },
+      paramsSerializer: {
+        indexes: null,
       },
     })
   })

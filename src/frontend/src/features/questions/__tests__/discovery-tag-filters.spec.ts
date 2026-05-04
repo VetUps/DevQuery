@@ -19,6 +19,14 @@ vi.mock('@/features/questions/queries/useQuestionListQuery', () => ({
   useQuestionListQuery: vi.fn(() => queryState),
 }))
 
+vi.mock('@/features/questions/queries/useTagAutocompleteQuery', () => ({
+  useTagAutocompleteQuery: vi.fn(() => ({
+    data: ref([]),
+    isError: ref(false),
+    isFetching: ref(false),
+  })),
+}))
+
 vi.mock('@/features/auth/queries/useCurrentUserQuery', () => ({
   useCurrentUserQuery: vi.fn(() => ({
     data: ref(null),
@@ -92,7 +100,7 @@ describe('discovery tag filters', () => {
       tags: ['vue', 'django'],
     })
 
-    const activeFilters = wrapper.get('[data-testid="active-tag-filters"]')
+    const activeFilters = wrapper.get('[data-testid="discovery-tag-chips"]')
     expect(activeFilters.text()).toContain('#vue')
     expect(activeFilters.text()).toContain('#django')
     expect(activeFilters.text()).not.toContain('#Vue')
@@ -115,7 +123,7 @@ describe('discovery tag filters', () => {
   it('clears all tag filters while preserving search and removes tag from the URL', async () => {
     const { wrapper, router } = await mountHomePage('/?tag=vue&search=serializer&page=2')
 
-    await wrapper.get('[data-testid="active-tag-filters"] button:last-child').trigger('click')
+    await wrapper.get('[data-testid="discovery-tag-clear-all"]').trigger('click')
     await flushPromises()
 
     expect(router.currentRoute.value.query).toEqual({ search: 'serializer' })
@@ -177,7 +185,7 @@ describe('discovery tag filters', () => {
 
     const { wrapper } = await mountHomePage('/?tag=vue&tag=django')
 
-    expect(wrapper.get('[data-testid="active-tag-filters"]').text()).toContain('#vue')
+    expect(wrapper.get('[data-testid="discovery-tag-chips"]').text()).toContain('#vue')
     expect(wrapper.get('[data-testid="question-list-state-error"]').text()).toContain('Активные фильтры сохранены')
 
     await wrapper.get('[data-testid="question-list-state-error"] button').trigger('click')
