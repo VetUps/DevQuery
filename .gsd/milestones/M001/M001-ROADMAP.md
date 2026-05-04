@@ -13,19 +13,19 @@
 
 ## Slices
 
-- [ ] **S01: Backend tag model and serializer contract** `risk:high` `depends:[]`
+- [x] **S01: S01** `risk:high` `depends:[]`
   > After this: Backend has tag persistence and validation contract; old questions without tags still work in tests.
 
-- [ ] **S02: Question creation with tags and counters** `risk:high` `depends:[S01]`
+- [x] **S02: S02** `risk:high` `depends:[]`
   > After this: An authenticated API caller can create a question with tags; missing tags are created and counters update.
 
-- [ ] **S03: Tag autocomplete API** `risk:medium` `depends:[S01]`
+- [x] **S03: S03** `risk:medium` `depends:[]`
   > After this: API clients can search existing tags by partial input and see normalized names with question counts.
 
-- [ ] **S04: Question list filtering and tag display contract** `risk:high` `depends:[S01,S02]`
+- [x] **S04: S04** `risk:high` `depends:[]`
   > After this: Question list can be filtered with `/question/?tag=django&tag=serializer`; list/detail responses include tag chips data.
 
-- [ ] **S05: Frontend tag input and question authoring integration** `risk:medium` `depends:[S02,S03]`
+- [ ] **S05: S05** `risk:medium` `depends:[]`
   > After this: The ask-question form has a tag input with suggestions, chips, removal, max 5 and manual fallback if suggestions fail.
 
 - [ ] **S06: Discovery tag filters and integrated regression proof** `risk:medium` `depends:[S04,S05]`

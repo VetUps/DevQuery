@@ -35,9 +35,15 @@ export interface QuestionDetail extends QuestionListItem, VoteContext {
   question_body: string
 }
 
+export interface TagSuggestion {
+  name: string
+  questions_count: number
+}
+
 export interface CreateQuestionPayload {
   question_title: string
   question_body: string
+  tags?: string[]
 }
 
 export interface CreateQuestionResponse {
@@ -64,6 +70,24 @@ export async function fetchQuestionList(params: QuestionListParams) {
 
 export async function fetchQuestionDetail(questionId: string) {
   const response = await http.get<QuestionDetail>(`/question/${questionId}/`)
+
+  return response.data
+}
+
+export function normalizeTagSearch(search: string) {
+  return search.trim().toLowerCase()
+}
+
+export async function fetchTagAutocomplete(search: string) {
+  const normalizedSearch = normalizeTagSearch(search)
+
+  if (!normalizedSearch) {
+    return []
+  }
+
+  const response = await http.get<TagSuggestion[]>('/tag/', {
+    params: { search: normalizedSearch },
+  })
 
   return response.data
 }
