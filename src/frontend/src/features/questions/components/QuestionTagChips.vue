@@ -4,10 +4,11 @@ import { computed } from 'vue'
 import type { QuestionTag } from '@/features/questions/api/questions'
 
 const props = withDefaults(defineProps<{
-  tags: QuestionTag[]
+  tags?: QuestionTag[]
   variant?: 'compact' | 'large'
   linkToDiscovery?: boolean
 }>(), {
+  tags: () => [],
   variant: 'compact',
   linkToDiscovery: true,
 })
