@@ -80,7 +80,10 @@ async function mountQuestionDetailPage() {
 
   const router = createRouter({
     history: createMemoryHistory(),
-    routes: [{ path: '/questions/:questionId', component: QuestionDetailPage }],
+    routes: [
+      { path: '/', component: { template: '<div>home</div>' } },
+      { path: '/questions/:questionId', component: QuestionDetailPage },
+    ],
   })
 
   await router.push('/questions/question-1')
@@ -159,6 +162,7 @@ describe('question detail page', () => {
       question_status: 'open',
       question_created_at: '2026-03-01T12:00:00Z',
       question_updated_at: '2026-03-02T12:00:00Z',
+      tags: [],
       upvotes: 12,
       downvotes: 3,
       score: 9,
@@ -171,5 +175,61 @@ describe('question detail page', () => {
     expect(wrapper.findComponent(SignalVoteRail).exists()).toBe(true)
     expect(wrapper.findComponent(VoteBalanceMeter).exists()).toBe(true)
     expect(wrapper.text()).toContain('Чтобы голосовать, войдите в аккаунт.')
+  })
+
+  it('renders linked public tag chips on the question detail hero', async () => {
+    questionDetailState.data.value = {
+      question_id: 'question-1',
+      user: 'user-1',
+      question_title: 'Как типизировать теги на detail page?',
+      question_body: 'Нужно показать теги рядом с описанием вопроса.',
+      question_status: 'open',
+      question_created_at: '2026-03-01T12:00:00Z',
+      question_updated_at: '2026-03-02T12:00:00Z',
+      tags: [
+        { name: 'typescript', questions_count: 21 },
+        { name: 'vue-router', questions_count: 7 },
+      ],
+      upvotes: 4,
+      downvotes: 1,
+      score: 3,
+      user_vote: null,
+    }
+
+    const { wrapper } = await mountQuestionDetailPage()
+
+    const chips = wrapper.find('[data-testid="question-tag-chips"]')
+    expect(chips.exists()).toBe(true)
+    expect(chips.text()).toContain('#typescript')
+    expect(chips.text()).toContain('#vue-router')
+    expect(chips.text()).not.toContain('questions_count')
+
+    const tagLinks = chips.findAll('a')
+    expect(tagLinks).toHaveLength(2)
+    expect(tagLinks[0].attributes('href')).toBe('/?tag=typescript')
+    expect(tagLinks[0].attributes('aria-label')).toBe('Фильтровать вопросы по тегу typescript')
+    expect(tagLinks[1].attributes('href')).toBe('/?tag=vue-router')
+  })
+
+  it('does not render an empty tag chip container on untagged question detail', async () => {
+    questionDetailState.data.value = {
+      question_id: 'question-1',
+      user: 'user-1',
+      question_title: 'Legacy detail question remains readable',
+      question_body: 'Старый вопрос без тегов должен показывать тело и метаданные.',
+      question_status: 'open',
+      question_created_at: '2026-03-01T12:00:00Z',
+      question_updated_at: '2026-03-02T12:00:00Z',
+      tags: [],
+      upvotes: 0,
+      downvotes: 0,
+      score: 0,
+      user_vote: null,
+    }
+
+    const { wrapper } = await mountQuestionDetailPage()
+
+    expect(wrapper.text()).toContain('Legacy detail question remains readable')
+    expect(wrapper.find('[data-testid="question-tag-chips"]').exists()).toBe(false)
   })
 })

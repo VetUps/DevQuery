@@ -8,6 +8,18 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      backend_tag:
+        description: Backend image tag to deploy
+        required: false
+        type: string
+      frontend_tag:
+        description: Frontend image tag to deploy
+        required: false
+        type: string
+
+permissions:
+  contents: read
 
 jobs:
   backend:
@@ -185,35 +197,121 @@ jobs:
     name: VPS Deploy
     runs-on: ubuntu-latest
     needs: publish-images
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    environment: production
+    concurrency:
+      group: production-vps
+      cancel-in-progress: false
+    permissions:
+      contents: read
     env:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
       VPS_HOST: ${{ secrets.VPS_HOST }}
       VPS_USER: ${{ secrets.VPS_USER }}
       VPS_PORT: ${{ secrets.VPS_PORT || '22' }}
       VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+      VPS_SSH_KNOWN_HOSTS: ${{ secrets.VPS_SSH_KNOWN_HOSTS }}
       VPS_DEPLOY_PATH: ${{ secrets.VPS_DEPLOY_PATH }}
+      PUBLIC_FRONTEND_URL: ${{ vars.PUBLIC_FRONTEND_URL }}
+      PUBLIC_BACKEND_URL: ${{ vars.PUBLIC_BACKEND_URL }}
     steps:
       - name: Validate VPS deploy configuration
         run: |
+          test -n "$DOCKERHUB_USERNAME"
           test -n "$VPS_HOST"
           test -n "$VPS_USER"
           test -n "$VPS_PORT"
           test -n "$VPS_SSH_KEY"
+          test -n "$VPS_SSH_KNOWN_HOSTS"
           test -n "$VPS_DEPLOY_PATH"
+          test -n "$PUBLIC_FRONTEND_URL"
+          test -n "$PUBLIC_BACKEND_URL"
+
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Select deployment images
+        id: deploy-images
+        shell: bash
+        env:
+          BACKEND_TAG_INPUT: ${{ github.event.inputs.backend_tag }}
+          FRONTEND_TAG_INPUT: ${{ github.event.inputs.frontend_tag }}
+        run: |
+          set -euo pipefail
+          SHORT_SHA="${GITHUB_SHA::7}"
+          DEFAULT_TAG="sha-${SHORT_SHA}"
+          BACKEND_TAG="${BACKEND_TAG_INPUT:-$DEFAULT_TAG}"
+          FRONTEND_TAG="${FRONTEND_TAG_INPUT:-$DEFAULT_TAG}"
+          echo "backend_image=${DOCKERHUB_USERNAME}/devquery-backend:${BACKEND_TAG}" >> "$GITHUB_OUTPUT"
+          echo "frontend_image=${DOCKERHUB_USERNAME}/devquery-frontend:${FRONTEND_TAG}" >> "$GITHUB_OUTPUT"
 
       - name: Configure SSH
+        shell: bash
         run: |
-          mkdir -p ~/.ssh
+          set -euo pipefail
+          install -m 700 -d ~/.ssh
           printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -p "$VPS_PORT" "$VPS_HOST" >> ~/.ssh/known_hosts
+          printf '%s\n' "$VPS_SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Sync VPS deploy contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/deploy_key -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" "mkdir -p \"$VPS_DEPLOY_PATH\""
+          scp -i ~/.ssh/deploy_key -P "$VPS_PORT" ci/docker-compose-vps.yml "$VPS_USER@$VPS_HOST:$VPS_DEPLOY_PATH/compose.yaml"
+          scp -i ~/.ssh/deploy_key -P "$VPS_PORT" ci/deploy-vps.sh "$VPS_USER@$VPS_HOST:$VPS_DEPLOY_PATH/.deploy-vps.sh"
+          ssh -i ~/.ssh/deploy_key -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" "chmod +x \"$VPS_DEPLOY_PATH/.deploy-vps.sh\""
 
       - name: Deploy Docker Compose stack
+        shell: bash
+        env:
+          BACKEND_IMAGE: ${{ steps.deploy-images.outputs.backend_image }}
+          FRONTEND_IMAGE: ${{ steps.deploy-images.outputs.frontend_image }}
+          PUBLIC_FRONTEND_URL: ${{ env.PUBLIC_FRONTEND_URL }}
+          PUBLIC_BACKEND_URL: ${{ env.PUBLIC_BACKEND_URL }}
+          COMPOSE_FILE: compose.yaml
+          COMPOSE_PROJECT_NAME: devquery
         run: |
-          ssh -i ~/.ssh/deploy_key -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" "
-            set -e
-            cd \"$VPS_DEPLOY_PATH\"
-            docker compose pull
-            docker compose up -d --remove-orphans
-            docker image prune -f
-          "
+          set -euo pipefail
+          : "${BACKEND_IMAGE:?BACKEND_IMAGE is required}"
+          : "${FRONTEND_IMAGE:?FRONTEND_IMAGE is required}"
+          : "${PUBLIC_FRONTEND_URL:?PUBLIC_FRONTEND_URL is required}"
+          : "${PUBLIC_BACKEND_URL:?PUBLIC_BACKEND_URL is required}"
+          : "${COMPOSE_FILE:?COMPOSE_FILE is required}"
+          : "${COMPOSE_PROJECT_NAME:?COMPOSE_PROJECT_NAME is required}"
+          backend_image=$(printf '%q' "$BACKEND_IMAGE")
+          frontend_image=$(printf '%q' "$FRONTEND_IMAGE")
+          public_frontend_url=$(printf '%q' "$PUBLIC_FRONTEND_URL")
+          public_backend_url=$(printf '%q' "$PUBLIC_BACKEND_URL")
+          compose_file=$(printf '%q' "$COMPOSE_FILE")
+          compose_project_name=$(printf '%q' "$COMPOSE_PROJECT_NAME")
+          ssh -i ~/.ssh/deploy_key -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" "cd \"$VPS_DEPLOY_PATH\" && BACKEND_IMAGE=$backend_image FRONTEND_IMAGE=$frontend_image PUBLIC_FRONTEND_URL=$public_frontend_url PUBLIC_BACKEND_URL=$public_backend_url COMPOSE_FILE=$compose_file COMPOSE_PROJECT_NAME=$compose_project_name bash ./.deploy-vps.sh"
+
+      - name: Verify public deployment from runner
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          retry_http() {
+            local url="$1"
+
+            for attempt in {1..30}; do
+              if curl -fsS "$url" >/dev/null; then
+                return 0
+              fi
+
+              if [[ "$attempt" -lt 30 ]]; then
+                sleep 2
+              fi
+            done
+
+            echo "HTTP check failed for $url" >&2
+            return 1
+          }
+
+          retry_http "$PUBLIC_FRONTEND_URL"
+          retry_http "$PUBLIC_BACKEND_URL/question/"
+          curl -fsS -H "Origin: $PUBLIC_FRONTEND_URL" -D - "$PUBLIC_BACKEND_URL/question/" -o /dev/null | grep -i "access-control-allow-origin"
+          echo "Public deployment verification passed"
