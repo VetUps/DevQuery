@@ -15,8 +15,24 @@ const router = useRouter()
 
 const hasPreviousPage = computed(() => props.page > 1)
 
+function normalizeTags(rawTags: unknown) {
+  const values = Array.isArray(rawTags) ? rawTags : [rawTags]
+  const normalizedTags = values
+    .map((tag) => String(tag ?? '').trim().toLowerCase())
+    .filter((tag) => tag.length > 0)
+
+  return [...new Set(normalizedTags)]
+}
+
 async function goToPage(nextPage: number) {
   const query = { ...route.query }
+  const activeTags = normalizeTags(route.query.tag)
+
+  if (activeTags.length > 0) {
+    query.tag = activeTags
+  } else {
+    delete query.tag
+  }
 
   if (nextPage > 1) {
     query.page = String(nextPage)

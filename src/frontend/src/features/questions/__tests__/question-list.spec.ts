@@ -159,6 +159,7 @@ describe('question list home page', () => {
       page: 2,
       search: 'django',
       ordering: 'question_created_at',
+      tags: [],
     })
   })
 })
