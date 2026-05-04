@@ -1,5 +1,0 @@
-command: docker run --name gsd_m001_mysql -e MYSQL_ROOT_PASSWORD=root_password -e MYSQL_DATABASE=stackoverflow_db -p 3310:3306 -d mysql:8.0
-exit_code: 0
-duration_ms: 387
-e40735ff91302d988bd0b1d8e0a346af1935704cb3f9e5624767470b182eb2ab
-
