@@ -3,6 +3,7 @@ import axios from 'axios'
 export interface QuestionFieldErrors {
   question_title: string
   question_body: string
+  tags: string
 }
 
 function getFirstErrorMessage(value: unknown): string {
@@ -21,6 +22,7 @@ export function extractQuestionFieldErrors(error: unknown): QuestionFieldErrors 
   const fieldErrors: QuestionFieldErrors = {
     question_title: '',
     question_body: '',
+    tags: '',
   }
 
   if (!axios.isAxiosError(error) || !error.response?.data || typeof error.response.data !== 'object') {
@@ -31,6 +33,7 @@ export function extractQuestionFieldErrors(error: unknown): QuestionFieldErrors 
 
   fieldErrors.question_title = getFirstErrorMessage(data.question_title)
   fieldErrors.question_body = getFirstErrorMessage(data.question_body)
+  fieldErrors.tags = getFirstErrorMessage(data.tags)
 
   return fieldErrors
 }
