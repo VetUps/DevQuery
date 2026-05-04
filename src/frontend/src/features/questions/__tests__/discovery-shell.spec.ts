@@ -4,6 +4,9 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMemoryHistory, createRouter } from 'vue-router'
 
+import { VueQueryPlugin } from '@tanstack/vue-query'
+
+import { queryClient } from '@/app/query-client'
 import HomePage from '@/pages/HomePage.vue'
 import { useSessionStore } from '@/features/auth/stores/session'
 
@@ -64,7 +67,7 @@ async function mountHomePage(options: { authenticated?: boolean } = {}) {
 
   const wrapper = mount(HomePage, {
     global: {
-      plugins: [pinia, router],
+      plugins: [pinia, router, [VueQueryPlugin, { queryClient }]],
     },
   })
 
