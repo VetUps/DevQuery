@@ -1,5 +1,0 @@
-RUNNING: src/backend/venv/Scripts/python.exe src/backend/manage.py makemigrations qa --check --dry-run
-No changes detected in app 'qa'
-
-EXIT_CODE=0
-DURATION_MS=768

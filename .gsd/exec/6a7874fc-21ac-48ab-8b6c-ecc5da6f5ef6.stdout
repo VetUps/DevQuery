@@ -1,7 +1,0 @@
-command: src/backend/venv/Scripts/python.exe src/backend/manage.py makemigrations qa --check --dry-run
-exit_code: 0
-duration_ms: 782
-F:\projects\Diplom\StackOverflow2.0\.gsd\worktrees\M001\src\backend\venv\Lib\site-packages\django\core\management\commands\makemigrations.py:162: RuntimeWarning: Got an error checking a consistent migration history performed for database connection 'default': (1045, "Access denied for user 'stackoverflow_user'@'172.20.0.1' (using password: YES)")
-  warnings.warn(
-No changes detected in app 'qa'
-

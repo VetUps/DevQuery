@@ -1,4 +1,0 @@
-command: docker-compose --version
-exit_code: 0
-Docker Compose version v2.40.3-desktop.1
-
