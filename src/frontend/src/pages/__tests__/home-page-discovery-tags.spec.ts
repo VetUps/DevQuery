@@ -226,6 +226,87 @@ describe('HomePage discovery tag routing', () => {
     expect(router.currentRoute.value.query.tag).toEqual(['vue', 'django'])
   })
 
+  it('ignores malformed non-string tag emissions before updating route state', async () => {
+    const { wrapper, router } = await mountHomePage({ tag: ['vue'], page: '3' })
+
+    wrapper.getComponent(DiscoverySearchReserve).vm.$emit('update:tags', [
+      ' Vue ',
+      42,
+      { name: 'django' },
+      'pinia',
+    ] as unknown as string[])
+    await flushRouteUpdates()
+
+    expect(router.currentRoute.value.query).toEqual({ tag: ['vue', 'pinia'] })
+    expect(capturedQuestionParams()).toMatchObject({ page: 1, tags: ['vue', 'pinia'] })
+  })
+
+  it('adds a suggested autocomplete tag through the real route-level input and resets pagination', async () => {
+    autocompleteState.data = [{ name: 'TypeScript' }, { name: 'Vue' }]
+    const { wrapper, router } = await mountHomePage({ tag: ['vue'], page: '5', search: 'serializer' })
+
+    await tagDraft(wrapper).setValue('type')
+    await flushRouteUpdates()
+    await wrapper.get('[data-testid="discovery-tag-suggestion-typescript"]').trigger('click')
+    await flushRouteUpdates()
+
+    expect(router.currentRoute.value.query).toEqual({
+      tag: ['vue', 'typescript'],
+      search: 'serializer',
+    })
+    expect(wrapper.get('[data-testid="discovery-tag-chip-typescript"]').text()).toContain('#typescript')
+    expect(capturedQuestionParams()).toMatchObject({
+      page: 1,
+      search: 'serializer',
+      tags: ['vue', 'typescript'],
+    })
+  })
+
+  it('normalizes invalid page and ordering values before querying and drops whitespace search on the next route edit', async () => {
+    const { wrapper, router } = await mountHomePage({
+      tag: [' Vue ', 'vue', '', 'django'],
+      page: '0',
+      ordering: 'score',
+      search: '   ',
+    })
+
+    expect(capturedQuestionParams()).toEqual({
+      page: 1,
+      search: '',
+      ordering: '-question_created_at',
+      tags: ['vue', 'django'],
+    })
+
+    await addDraftTag(wrapper, 'Pinia')
+
+    expect(router.currentRoute.value.query).toEqual({ tag: ['vue', 'django', 'pinia'] })
+    expect(capturedQuestionParams()).toMatchObject({
+      page: 1,
+      search: '',
+      ordering: '-question_created_at',
+      tags: ['vue', 'django', 'pinia'],
+    })
+  })
+
+  it('keeps manual tag add available when autocomplete payloads are malformed or failed', async () => {
+    autocompleteState.data = { results: [{ name: 'Vue' }] }
+    autocompleteState.isError = true
+    const { wrapper, router } = await mountHomePage({ page: '2' })
+
+    await tagDraft(wrapper).setValue('Rust')
+    await flushRouteUpdates()
+
+    expect(wrapper.get('[data-testid="discovery-tag-autocomplete-status"]').text()).toContain('Можно добавить тег вручную')
+    expect(wrapper.find('[data-testid="discovery-tag-suggestions"]').exists()).toBe(false)
+
+    await addTagButton(wrapper).trigger('click')
+    await flushRouteUpdates()
+
+    expect(router.currentRoute.value.query).toEqual({ tag: ['rust'] })
+    expect(wrapper.get('[data-testid="discovery-tag-chip-rust"] button').attributes('aria-label')).toBe('Убрать фильтр по тегу rust')
+    expect(capturedQuestionParams()).toMatchObject({ page: 1, tags: ['rust'] })
+  })
+
   it('keeps active tag context visible in empty and error states with retry intact', async () => {
     const emptyMount = await mountHomePage({ tag: ['Vue', 'django'], search: 'serializer' })
 
