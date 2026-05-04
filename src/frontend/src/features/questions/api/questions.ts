@@ -7,6 +7,11 @@ export interface PaginatedResponse<T> {
   results: T[]
 }
 
+export interface QuestionTag {
+  name: string
+  questions_count: number
+}
+
 export interface QuestionListItem {
   question_id: string
   user: string
@@ -14,6 +19,7 @@ export interface QuestionListItem {
   question_status: 'open' | 'closed' | 'solved' | string
   question_created_at: string
   question_updated_at: string
+  tags: QuestionTag[]
 }
 
 export type QuestionOrdering = '-question_created_at' | 'question_created_at'
@@ -22,6 +28,7 @@ export interface QuestionListParams {
   page: number
   search?: string
   ordering?: QuestionOrdering
+  tags?: string[]
 }
 
 export interface VoteContext {
@@ -54,14 +61,25 @@ export interface CreateQuestionResponse {
   question_status: 'open' | 'closed' | 'solved' | string
   question_created_at: string
   question_updated_at: string
+  tags: QuestionTag[]
+}
+
+export function normalizeQuestionTags(tags: string[] = []) {
+  const normalizedTags = tags
+    .map((tag) => tag.trim().toLowerCase())
+    .filter((tag) => tag.length > 0)
+
+  return [...new Set(normalizedTags)]
 }
 
 export async function fetchQuestionList(params: QuestionListParams) {
+  const normalizedTags = normalizeQuestionTags(params.tags)
   const response = await http.get<PaginatedResponse<QuestionListItem>>('/question/', {
     params: {
       page: params.page,
       search: params.search || undefined,
       ordering: params.ordering,
+      tag: normalizedTags.length > 0 ? normalizedTags : undefined,
     },
   })
 
