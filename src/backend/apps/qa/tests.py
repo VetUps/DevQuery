@@ -450,10 +450,12 @@ class QuestionDiscoveryTests(APITestCase):
         )
 
     def test_question_list_orders_by_creation_date(self):
-        older_date = timezone.now() - timedelta(days=2)
-        newer_date = timezone.now() - timedelta(days=1)
+        newest_date = timezone.now()
+        newer_date = newest_date - timedelta(days=1)
+        older_date = newest_date - timedelta(days=2)
         Question.objects.filter(question_id=self.django_question.question_id).update(question_created_at=older_date)
         Question.objects.filter(question_id=self.vue_question.question_id).update(question_created_at=newer_date)
+        Question.objects.filter(question_id=self.untagged_question.question_id).update(question_created_at=newest_date)
 
         newest_response = self.client.get('/question/', {'ordering': '-question_created_at'})
         oldest_response = self.client.get('/question/', {'ordering': 'question_created_at'})
