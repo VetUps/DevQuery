@@ -290,8 +290,8 @@ function handleComma(event: KeyboardEvent) {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  min-height: 32px;
-  padding: 0 8px 0 12px;
+  min-height: 40px;
+  padding: 0 8px 0 14px;
   border: 1px solid rgb(14 116 144 / 0.2);
   border-radius: 999px;
   background: rgb(14 116 144 / 0.1);
@@ -309,8 +309,8 @@ function handleComma(event: KeyboardEvent) {
 
 .discovery-tag-filter-input__remove {
   display: inline-grid;
-  width: 22px;
-  height: 22px;
+  min-width: 40px;
+  min-height: 40px;
   place-items: center;
   border-radius: 999px;
   background: rgb(14 116 144 / 0.12);
@@ -319,7 +319,8 @@ function handleComma(event: KeyboardEvent) {
 }
 
 .discovery-tag-filter-input__clear {
-  padding: 0 var(--space-xs);
+  min-height: 40px;
+  padding: 0 var(--space-sm);
   background: transparent;
   color: var(--color-accent);
   font-size: 14px;
@@ -386,8 +387,8 @@ function handleComma(event: KeyboardEvent) {
 }
 
 .discovery-tag-filter-input__suggestion {
-  min-height: 32px;
-  padding: 0 12px;
+  min-height: 40px;
+  padding: 0 14px;
   border: 1px solid rgb(14 116 144 / 0.18);
   border-radius: 999px;
   background: rgb(14 116 144 / 0.08);
