@@ -1,6 +1,7 @@
 import { ref } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
 import { flushPromises, mount } from '@vue/test-utils'
+import type { VueWrapper } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMemoryHistory, createRouter } from 'vue-router'
 
@@ -22,8 +23,18 @@ const createQuestionMutationState = {
   mutateAsync: vi.fn(),
 }
 
+const tagAutocompleteQueryState = {
+  data: ref([]),
+  isPending: ref(false),
+  isError: ref(false),
+}
+
 vi.mock('@/features/questions/queries/useQuestionListQuery', () => ({
   useQuestionListQuery: vi.fn(() => listQueryState),
+}))
+
+vi.mock('@/features/questions/queries/useTagAutocompleteQuery', () => ({
+  useTagAutocompleteQuery: vi.fn(() => tagAutocompleteQueryState),
 }))
 
 vi.mock('@/features/questions/mutations/useCreateQuestionMutation', () => ({
@@ -89,6 +100,16 @@ async function mountQuestionCreateForm() {
   return { wrapper, router }
 }
 
+function getAddTagButton(wrapper: VueWrapper) {
+  const button = wrapper.findAll('button').find((candidate) => candidate.text() === 'Добавить')
+
+  if (!button) {
+    throw new Error('Expected the add tag button to be rendered')
+  }
+
+  return button
+}
+
 describe('question authoring flow', () => {
   beforeEach(() => {
     localStorage.clear()
@@ -100,6 +121,10 @@ describe('question authoring flow', () => {
 
     createQuestionMutationState.isPending.value = false
     createQuestionMutationState.mutateAsync.mockReset()
+
+    tagAutocompleteQueryState.data.value = []
+    tagAutocompleteQueryState.isPending.value = false
+    tagAutocompleteQueryState.isError.value = false
   })
 
   it('registers the protected ask-question route', () => {
@@ -125,6 +150,65 @@ describe('question authoring flow', () => {
     expect(wrapper.text()).toContain('Проверьте форму и исправьте ошибки перед отправкой.')
   })
 
+  it('blocks submit when no tags are selected', async () => {
+    const { wrapper } = await mountQuestionCreateForm()
+
+    await wrapper.get('#question-title').setValue('Как замкнуть markdown preview и publish flow?')
+    await wrapper.get('#question-body').setValue('Нужно пройти полный путь question-created.')
+    await wrapper.get('form').trigger('submit.prevent')
+
+    expect(createQuestionMutationState.mutateAsync).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('Добавьте хотя бы один тег к вопросу.')
+    expect(wrapper.text()).toContain('Проверьте форму и исправьте ошибки перед отправкой.')
+  })
+
+  it('sends selected tags in the create question payload', async () => {
+    createQuestionMutationState.mutateAsync.mockResolvedValue({
+      question_id: 'question-created-id',
+    })
+
+    const { wrapper } = await mountQuestionCreateForm()
+
+    await wrapper.get('#question-title').setValue('  Как замкнуть markdown preview и publish flow?  ')
+    await wrapper.get('#question-body').setValue('  Нужно пройти полный путь question-created.  ')
+    await wrapper.get('#question-tags').setValue('vue')
+    await getAddTagButton(wrapper).trigger('click')
+    await wrapper.get('#question-tags').setValue('django')
+    await getAddTagButton(wrapper).trigger('click')
+    await wrapper.get('form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(createQuestionMutationState.mutateAsync).toHaveBeenCalledWith({
+      question_title: 'Как замкнуть markdown preview и publish flow?',
+      question_body: 'Нужно пройти полный путь question-created.',
+      tags: ['vue', 'django'],
+    })
+  })
+
+  it('renders server tag errors without clearing selected tags', async () => {
+    createQuestionMutationState.mutateAsync.mockRejectedValue({
+      isAxiosError: true,
+      response: {
+        data: {
+          tags: ['Выберите существующий тег или создайте корректный тег.'],
+        },
+      },
+    })
+
+    const { wrapper } = await mountQuestionCreateForm()
+
+    await wrapper.get('#question-title').setValue('Как замкнуть markdown preview и publish flow?')
+    await wrapper.get('#question-body').setValue('Нужно пройти полный путь question-created.')
+    await wrapper.get('#question-tags').setValue('vue')
+    await getAddTagButton(wrapper).trigger('click')
+    await wrapper.get('form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Выберите существующий тег или создайте корректный тег.')
+    expect(wrapper.text()).toContain('#vue')
+    expect(createQuestionMutationState.mutateAsync).toHaveBeenCalledTimes(1)
+  })
+
   it('navigates to the created detail route with the success message', async () => {
     createQuestionMutationState.mutateAsync.mockResolvedValue({
       question_id: 'question-created-id',
@@ -134,6 +218,8 @@ describe('question authoring flow', () => {
 
     await wrapper.get('#question-title').setValue('Как замкнуть markdown preview и publish flow?')
     await wrapper.get('#question-body').setValue('Нужно пройти полный путь question-created.')
+    await wrapper.get('#question-tags').setValue('vue')
+    await getAddTagButton(wrapper).trigger('click')
     await wrapper.get('form').trigger('submit.prevent')
     await flushPromises()
 

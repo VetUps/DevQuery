@@ -11,6 +11,7 @@ import AppButton from '@/shared/ui/AppButton.vue'
 import AppInput from '@/shared/ui/AppInput.vue'
 
 import MarkdownComposer from './MarkdownComposer.vue'
+import QuestionTagInput from './QuestionTagInput.vue'
 
 const router = useRouter()
 const createQuestionMutation = useCreateQuestionMutation()
@@ -18,11 +19,13 @@ const createQuestionMutation = useCreateQuestionMutation()
 const form = reactive({
   question_title: '',
   question_body: '',
+  tags: [] as string[],
 })
 
 const fieldErrors = reactive({
   question_title: '',
   question_body: '',
+  tags: '',
 })
 
 const formError = ref('')
@@ -30,8 +33,9 @@ const formError = ref('')
 function validate() {
   fieldErrors.question_title = form.question_title.trim() ? '' : 'Добавьте короткий заголовок вопроса.'
   fieldErrors.question_body = form.question_body.trim() ? '' : 'Опишите вопрос и приведите технический контекст.'
+  fieldErrors.tags = form.tags.length ? '' : 'Добавьте хотя бы один тег к вопросу.'
 
-  return !fieldErrors.question_title && !fieldErrors.question_body
+  return !fieldErrors.question_title && !fieldErrors.question_body && !fieldErrors.tags
 }
 
 async function handleSubmit() {
@@ -46,6 +50,7 @@ async function handleSubmit() {
     const createdQuestion = await createQuestionMutation.mutateAsync({
       question_title: form.question_title.trim(),
       question_body: form.question_body.trim(),
+      tags: form.tags,
     })
 
     await router.push({
@@ -57,10 +62,11 @@ async function handleSubmit() {
     const nextFieldErrors = extractQuestionFieldErrors(error)
     fieldErrors.question_title = nextFieldErrors.question_title
     fieldErrors.question_body = nextFieldErrors.question_body
+    fieldErrors.tags = nextFieldErrors.tags
 
     formError.value = normalizeQuestionSubmitError(error)
 
-    if (!formError.value || fieldErrors.question_title || fieldErrors.question_body) {
+    if (!formError.value || fieldErrors.question_title || fieldErrors.question_body || fieldErrors.tags) {
       formError.value = 'Проверьте форму и исправьте ошибки перед отправкой.'
     }
   }
@@ -86,6 +92,8 @@ async function handleSubmit() {
       placeholder="Опишите проблему, приложите контекст, код и ожидаемое поведение."
       :error="fieldErrors.question_body"
     />
+
+    <QuestionTagInput id="question-tags" v-model="form.tags" label="Теги" :error="fieldErrors.tags" />
 
     <div class="question-create-form__footer">
       <p class="question-create-form__hint">

@@ -2,6 +2,7 @@
 import { ArrowDownUp, Search } from 'lucide-vue-next'
 
 import type { QuestionOrdering } from '@/features/questions/api/questions'
+import DiscoveryTagFilterInput from '@/features/questions/components/DiscoveryTagFilterInput.vue'
 import SurfacePanel from '@/shared/ui/SurfacePanel.vue'
 
 defineProps<{
@@ -10,6 +11,7 @@ defineProps<{
 
 const search = defineModel<string>('search', { required: true })
 const ordering = defineModel<QuestionOrdering>('ordering', { required: true })
+const tags = defineModel<string[]>('tags', { required: true })
 </script>
 
 <template>
@@ -52,6 +54,14 @@ const ordering = defineModel<QuestionOrdering>('ordering', { required: true })
       </label>
     </div>
 
+    <div class="discovery-search-reserve__tag-filter">
+      <DiscoveryTagFilterInput
+        id="discovery-tag-filter"
+        v-model="tags"
+        label="Фильтр по тегам"
+      />
+    </div>
+
     <div class="discovery-search-reserve__footer">
       <p class="discovery-search-reserve__count">
         В ленте <strong>{{ totalQuestions }}</strong> вопросов.
@@ -67,7 +77,8 @@ const ordering = defineModel<QuestionOrdering>('ordering', { required: true })
 
 .discovery-search-reserve__copy,
 .discovery-search-reserve__surface,
-.discovery-search-reserve__footer {
+.discovery-search-reserve__footer,
+.discovery-search-reserve__tag-filter {
   display: grid;
   gap: var(--space-md);
 }
@@ -161,6 +172,13 @@ const ordering = defineModel<QuestionOrdering>('ordering', { required: true })
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
   border: 0;
+}
+
+.discovery-search-reserve__tag-filter {
+  padding: var(--space-lg);
+  border: 1px solid rgb(14 116 144 / 0.12);
+  border-radius: var(--radius-lg);
+  background: rgb(255 255 255 / 0.5);
 }
 
 .discovery-search-reserve__footer {

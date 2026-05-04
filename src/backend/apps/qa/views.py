@@ -7,19 +7,47 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from drf_spectacular.utils import extend_schema, OpenApiParameter
 
-from .models import Question, Solution, SolutionEdits, Comment
+from .models import Question, Solution, SolutionEdits, Comment, Tag
 from .serializers import (
     QuestionGetSerializer, QuestionListSerializer, QuestionUpdateCreateSerializer,
     QuestionCreateResponseSerializer, SolutionListSerializer, SolutionCreateSerializer,
     SolutionCreateResponseSerializer, SolutionBestSerializer,
     SolutionEditCreateSerializer, SolutionEditCreateResponseSerializer, SolutionEditHistorySerializer,
     CommentCreateResponseSerializer, CommentListSerializer, CommentCreateSerializer, CommentDetailSerializer,
-    VoteSerializer, VoteCreateSerializer, SolutionEditApprovalSerializer,
+    VoteSerializer, VoteCreateSerializer, SolutionEditApprovalSerializer, TagSerializer,
 )
 from .services.solution_edits_service import SolutionEditService
 from .services.comment_service import CommentService
 from .services.solution_service import SolutionService
 from .services.vote_service import VoteService
+
+class TagViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
+    serializer_class = TagSerializer
+    permission_classes = [AllowAny]
+    pagination_class = None
+    autocomplete_limit = 10
+
+    def get_queryset(self):
+        search = self.request.query_params.get('search', '').strip().lower()
+
+        if not search:
+            return Tag.objects.none()
+
+        return Tag.objects.filter(name__icontains=search).order_by('-questions_count', 'name')[:self.autocomplete_limit]
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                'search', OpenApiTypes.STR,
+                location='query', required=False,
+                description='Поиск существующих тегов по части нормализованного имени',
+            ),
+        ],
+        responses=TagSerializer(many=True),
+    )
+    def list(self, request, *args, **kwargs):
+        return super().list(request, *args, **kwargs)
+
 
 class QuestionViewSet(mixins.ListModelMixin,
                       mixins.RetrieveModelMixin,
@@ -56,14 +84,30 @@ class QuestionViewSet(mixins.ListModelMixin,
         return [permission() for permission in permission_classes]
 
     def get_queryset(self):
-        queryset = Question.objects.select_related('user')
+        queryset = Question.objects.select_related('user').prefetch_related('tags')
 
         if self.action == 'list':
             search = self.request.query_params.get('search', '').strip()
             ordering = self.request.query_params.get('ordering', '-question_created_at')
+            raw_tag_filters = self.request.query_params.getlist('tag')
+            tag_filters = []
+            seen_tag_filters = set()
+
+            for raw_tag_filter in raw_tag_filters:
+                tag_filter = raw_tag_filter.strip().lower()
+
+                if tag_filter and tag_filter not in seen_tag_filters:
+                    seen_tag_filters.add(tag_filter)
+                    tag_filters.append(tag_filter)
 
             if search:
                 queryset = queryset.filter(question_title__icontains=search)
+
+            for tag_filter in tag_filters:
+                queryset = queryset.filter(tags__name=tag_filter)
+
+            if tag_filters:
+                queryset = queryset.distinct()
 
             if ordering not in self.question_ordering_fields:
                 ordering = '-question_created_at'
@@ -98,6 +142,11 @@ class QuestionViewSet(mixins.ListModelMixin,
                 'ordering', OpenApiTypes.STR,
                 location='query', required=False,
                 description='Сортировка по дате: -question_created_at или question_created_at'
+            ),
+            OpenApiParameter(
+                'tag', OpenApiTypes.STR,
+                location='query', required=False, many=True,
+                description='Фильтр по существующим нормализованным тегам. Повторите параметр для AND-семантики: ?tag=django&tag=serializer'
             ),
         ],
         responses=QuestionListSerializer(many=True),

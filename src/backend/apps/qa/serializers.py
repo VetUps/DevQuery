@@ -1,10 +1,58 @@
 import re
 
 from django.contrib.contenttypes.models import ContentType
+from django.db import transaction
 from django.db.models import TextChoices
 from rest_framework import serializers
-from .models import Question, Solution, SolutionEdits, Comment, Vote
-from .services.vote_service import VoteService
+from .models import Question, Solution, SolutionEdits, Comment, Vote, Tag
+from .services.question_tag_service import QuestionTagService
+
+
+MAX_QUESTION_TAGS = 5
+TAG_NAME_PATTERN = re.compile(r'^[a-z0-9-]+$')
+
+
+def normalize_question_tags(raw_tags):
+    if not isinstance(raw_tags, list):
+        raise serializers.ValidationError('Теги должны быть списком строк.')
+
+    normalized_tags = []
+    seen_tags = set()
+
+    for raw_tag in raw_tags:
+        if not isinstance(raw_tag, str):
+            raise serializers.ValidationError('Каждый тег должен быть строкой.')
+
+        normalized_tag = raw_tag.strip().lower()
+
+        if not normalized_tag:
+            raise serializers.ValidationError('Тег не может быть пустым.')
+
+        if not TAG_NAME_PATTERN.fullmatch(normalized_tag):
+            raise serializers.ValidationError('Тег может содержать только латинские буквы, цифры и дефисы.')
+
+        if normalized_tag not in seen_tags:
+            seen_tags.add(normalized_tag)
+            normalized_tags.append(normalized_tag)
+
+        if len(normalized_tags) > MAX_QUESTION_TAGS:
+            raise serializers.ValidationError(f'У вопроса не может быть больше {MAX_QUESTION_TAGS} тегов.')
+
+    return normalized_tags
+
+
+class QuestionTagNameField(serializers.CharField):
+    def to_internal_value(self, data):
+        if not isinstance(data, str):
+            raise serializers.ValidationError('Каждый тег должен быть строкой.')
+        return super().to_internal_value(data)
+
+
+class TagSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Tag
+        fields = ['name', 'questions_count']
+        read_only_fields = fields
 
 
 class QuestionGetSerializer(serializers.ModelSerializer):
@@ -12,22 +60,46 @@ class QuestionGetSerializer(serializers.ModelSerializer):
     downvotes = serializers.IntegerField(source='vote_downvotes', read_only=True)
     score = serializers.IntegerField(source='vote_score', read_only=True)
     user_vote = serializers.ChoiceField(source='user_vote_type', choices=Vote.VoteType.choices, read_only=True, allow_null=True)
+    tags = TagSerializer(many=True, read_only=True)
 
     class Meta:
         model = Question
         fields = '__all__'
 
 class QuestionListSerializer(serializers.ModelSerializer):
+    tags = TagSerializer(many=True, read_only=True)
+
     class Meta:
         model = Question
-        fields = ['question_id', 'user', 'question_title', 'question_status', 'question_created_at', 'question_updated_at']
+        fields = ['question_id', 'user', 'question_title', 'question_status', 'question_created_at', 'question_updated_at', 'tags']
 
 class QuestionUpdateCreateSerializer(serializers.ModelSerializer):
+    tags = serializers.ListField(child=QuestionTagNameField(), required=False, write_only=True)
+
     class Meta:
         model = Question
-        fields = ['question_title', 'question_body']
+        fields = ['question_title', 'question_body', 'tags']
+
+    def validate_tags(self, value):
+        return normalize_question_tags(value)
+
+    def create(self, validated_data):
+        tag_names = validated_data.pop('tags', [])
+
+        with transaction.atomic():
+            question = super().create(validated_data)
+            QuestionTagService.attach_tags_to_question(question, tag_names)
+
+        return question
+
+    def update(self, instance, validated_data):
+        validated_data.pop('tags', None)
+        return super().update(instance, validated_data)
+
 
 class QuestionCreateResponseSerializer(serializers.ModelSerializer):
+    tags = TagSerializer(many=True, read_only=True)
+
     class Meta:
         model = Question
         fields = [
@@ -38,6 +110,7 @@ class QuestionCreateResponseSerializer(serializers.ModelSerializer):
             'question_status',
             'question_created_at',
             'question_updated_at',
+            'tags',
         ]
 
 class SolutionListSerializer(serializers.ModelSerializer):

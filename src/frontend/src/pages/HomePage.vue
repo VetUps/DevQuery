@@ -34,6 +34,20 @@ function normalizeOrdering(rawOrdering: unknown): QuestionOrdering {
   return value === 'question_created_at' ? value : '-question_created_at'
 }
 
+function normalizeTags(rawTags: unknown) {
+  const values = Array.isArray(rawTags) ? rawTags : [rawTags]
+  const normalizedTags = values
+    .filter((tag): tag is string => typeof tag === 'string')
+    .map((tag) => tag.trim().toLowerCase())
+    .filter((tag) => tag.length > 0)
+
+  return [...new Set(normalizedTags)]
+}
+
+function areTagListsEqual(left: string[], right: string[]) {
+  return left.length === right.length && left.every((tag, index) => tag === right[index])
+}
+
 const route = useRoute()
 const router = useRouter()
 const sessionStore = useSessionStore()
@@ -42,6 +56,7 @@ const { isAuthenticated } = storeToRefs(sessionStore)
 const currentPage = computed(() => normalizePage(route.query.page))
 const activeSearch = computed(() => normalizeSearch(route.query.search))
 const activeOrdering = computed(() => normalizeOrdering(route.query.ordering))
+const activeTags = computed(() => normalizeTags(route.query.tag))
 const searchDraft = shallowRef(activeSearch.value)
 const orderingModel = computed({
   get: () => activeOrdering.value,
@@ -52,10 +67,26 @@ const orderingModel = computed({
     })
   },
 })
+const tagFilterModel = computed({
+  get: () => activeTags.value,
+  set: (value: string[]) => {
+    const nextTags = normalizeTags(value)
+
+    if (areTagListsEqual(nextTags, activeTags.value)) {
+      return
+    }
+
+    void pushDiscoveryQuery({
+      page: 1,
+      tags: nextTags,
+    })
+  },
+})
 const questionListQuery = useQuestionListQuery(computed(() => ({
   page: currentPage.value,
   search: activeSearch.value,
   ordering: activeOrdering.value,
+  tags: activeTags.value,
 })))
 
 const questionList = computed(() => questionListQuery.data.value?.results ?? [])
@@ -69,6 +100,35 @@ const isEmptyList = computed(
   () => !questionListQuery.isPending.value && !questionListQuery.isError.value && questionList.value.length === 0,
 )
 const isSearchEmptyList = computed(() => isEmptyList.value && Boolean(activeSearch.value))
+const isTagFilteredList = computed(() => activeTags.value.length > 0)
+const isFilteredEmptyList = computed(() => isEmptyList.value && (Boolean(activeSearch.value) || isTagFilteredList.value))
+const activeFilterSummary = computed(() => {
+  const parts: string[] = []
+
+  if (activeSearch.value) {
+    parts.push(`по запросу «${activeSearch.value}»`)
+  }
+
+  if (activeTags.value.length > 0) {
+    parts.push(`с тегами ${activeTags.value.map((tag) => `#${tag}`).join(', ')}`)
+  }
+
+  return parts.join(' и ')
+})
+const emptyStateDescription = computed(() => {
+  if (!isFilteredEmptyList.value) {
+    return 'Как только в системе появятся новые обсуждения, они сразу покажутся здесь.'
+  }
+
+  return `В публичной ленте пока нет вопросов ${activeFilterSummary.value}. Попробуйте изменить поиск или теги.`
+})
+const errorStateDescription = computed(() => {
+  if (!activeFilterSummary.value) {
+    return 'Мы не смогли получить список вопросов с сервера. Повторите запрос ещё раз.'
+  }
+
+  return `Мы не смогли получить список вопросов ${activeFilterSummary.value}. Активные фильтры сохранены — повторите запрос ещё раз.`
+})
 
 let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -76,11 +136,13 @@ function buildDiscoveryQuery(overrides: {
   page?: number
   search?: string
   ordering?: QuestionOrdering
+  tags?: string[]
 }) {
   const query = { ...route.query }
   const nextPage = overrides.page ?? currentPage.value
   const nextSearch = overrides.search ?? activeSearch.value
   const nextOrdering = overrides.ordering ?? activeOrdering.value
+  const nextTags = normalizeTags(overrides.tags ?? activeTags.value)
 
   if (nextPage > 1) {
     query.page = String(nextPage)
@@ -98,6 +160,12 @@ function buildDiscoveryQuery(overrides: {
     query.ordering = nextOrdering
   } else {
     delete query.ordering
+  }
+
+  if (nextTags.length > 0) {
+    query.tag = nextTags
+  } else {
+    delete query.tag
   }
 
   return query
@@ -124,13 +192,14 @@ async function pushDiscoveryQuery(overrides: Parameters<typeof buildDiscoveryQue
   })
 }
 
-async function resetSearch() {
+async function resetEmptyStateFilters() {
   clearSearchDebounceTimer()
   searchDraft.value = ''
 
   await pushDiscoveryQuery({
     page: 1,
     search: '',
+    tags: [],
   })
 }
 
@@ -162,6 +231,7 @@ onBeforeUnmount(clearSearchDebounceTimer)
           <DiscoverySearchReserve
             v-model:search="searchDraft"
             v-model:ordering="orderingModel"
+            v-model:tags="tagFilterModel"
             :total-questions="totalQuestions"
           />
 
@@ -182,7 +252,7 @@ onBeforeUnmount(clearSearchDebounceTimer)
               v-else-if="questionListQuery.isError.value"
               eyebrow="Не удалось загрузить данные. Попробуйте снова."
               title="Лента временно недоступна"
-              description="Мы не смогли получить список вопросов с сервера. Повторите запрос ещё раз."
+              :description="errorStateDescription"
               :show-action="true"
               action-label="Попробовать снова"
               tone="danger"
@@ -192,15 +262,13 @@ onBeforeUnmount(clearSearchDebounceTimer)
 
             <InlineFeedbackPanel
               v-else-if="isEmptyList"
-              :eyebrow="isSearchEmptyList ? 'Поиск по ленте' : 'Публичная лента'"
-              :title="isSearchEmptyList ? 'Ничего не нашли' : 'Вопросов пока нет'"
-              :description="isSearchEmptyList
-                ? `По запросу «${activeSearch}» пока нет подходящих вопросов.`
-                : 'Как только в системе появятся новые обсуждения, они сразу покажутся здесь.'"
-              :show-action="isSearchEmptyList"
-              action-label="Сбросить поиск"
+              :eyebrow="isFilteredEmptyList ? 'Фильтры ленты' : 'Публичная лента'"
+              :title="isFilteredEmptyList ? 'Ничего не нашли' : 'Вопросов пока нет'"
+              :description="emptyStateDescription"
+              :show-action="isFilteredEmptyList"
+              action-label="Сбросить фильтры"
               data-testid="question-list-state-empty"
-              @action="resetSearch"
+              @action="resetEmptyStateFilters"
             />
 
             <div v-else class="home-page__question-list">
