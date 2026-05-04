@@ -6,6 +6,12 @@ import SurfacePanel from '@/shared/ui/SurfacePanel.vue'
 
 defineProps<{
   totalQuestions: number
+  activeTags: string[]
+}>()
+
+const emit = defineEmits<{
+  removeTag: [tag: string]
+  clearTags: []
 }>()
 
 const search = defineModel<string>('search', { required: true })
@@ -56,6 +62,35 @@ const ordering = defineModel<QuestionOrdering>('ordering', { required: true })
       <p class="discovery-search-reserve__count">
         В ленте <strong>{{ totalQuestions }}</strong> вопросов.
       </p>
+
+      <div
+        v-if="activeTags.length > 0"
+        class="discovery-search-reserve__active-tags"
+        aria-label="Активные фильтры по тегам"
+        data-testid="active-tag-filters"
+      >
+        <p class="discovery-search-reserve__active-tags-title">Фильтр по тегам</p>
+        <div class="discovery-search-reserve__active-tag-list">
+          <button
+            v-for="tag in activeTags"
+            :key="tag"
+            class="discovery-search-reserve__tag-chip"
+            type="button"
+            :aria-label="`Убрать фильтр по тегу ${tag}`"
+            @click="emit('removeTag', tag)"
+          >
+            #{{ tag }}
+            <span aria-hidden="true">×</span>
+          </button>
+        </div>
+        <button
+          class="discovery-search-reserve__clear-tags"
+          type="button"
+          @click="emit('clearTags')"
+        >
+          Очистить теги
+        </button>
+      </div>
     </div>
   </SurfacePanel>
 </template>
@@ -67,7 +102,8 @@ const ordering = defineModel<QuestionOrdering>('ordering', { required: true })
 
 .discovery-search-reserve__copy,
 .discovery-search-reserve__surface,
-.discovery-search-reserve__footer {
+.discovery-search-reserve__footer,
+.discovery-search-reserve__active-tags {
   display: grid;
   gap: var(--space-md);
 }
@@ -75,7 +111,8 @@ const ordering = defineModel<QuestionOrdering>('ordering', { required: true })
 .discovery-search-reserve__eyebrow,
 .discovery-search-reserve__title,
 .discovery-search-reserve__description,
-.discovery-search-reserve__count {
+.discovery-search-reserve__count,
+.discovery-search-reserve__active-tags-title {
   margin: 0;
 }
 
@@ -166,6 +203,63 @@ const ordering = defineModel<QuestionOrdering>('ordering', { required: true })
 .discovery-search-reserve__footer {
   grid-template-columns: minmax(0, 1fr);
   gap: var(--space-lg);
+}
+
+.discovery-search-reserve__active-tags {
+  justify-items: start;
+  padding-top: var(--space-sm);
+  border-top: 1px solid rgb(14 116 144 / 0.12);
+}
+
+.discovery-search-reserve__active-tags-title {
+  color: var(--color-muted);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.discovery-search-reserve__active-tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+}
+
+.discovery-search-reserve__tag-chip,
+.discovery-search-reserve__clear-tags {
+  border: 0;
+  font: inherit;
+  cursor: pointer;
+}
+
+.discovery-search-reserve__tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid rgb(14 116 144 / 0.2);
+  border-radius: 999px;
+  background: rgb(14 116 144 / 0.1);
+  color: var(--color-accent);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.discovery-search-reserve__clear-tags {
+  padding: 0;
+  background: transparent;
+  color: var(--color-accent);
+  font-size: 14px;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.discovery-search-reserve__tag-chip:focus-visible,
+.discovery-search-reserve__clear-tags:focus-visible {
+  outline: 3px solid rgb(14 116 144 / 0.28);
+  outline-offset: 2px;
 }
 
 strong {
