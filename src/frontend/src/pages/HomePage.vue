@@ -43,6 +43,10 @@ function normalizeTags(rawTags: unknown) {
   return [...new Set(normalizedTags)]
 }
 
+function areTagListsEqual(left: string[], right: string[]) {
+  return left.length === right.length && left.every((tag, index) => tag === right[index])
+}
+
 const route = useRoute()
 const router = useRouter()
 const sessionStore = useSessionStore()
@@ -62,12 +66,18 @@ const orderingModel = computed({
     })
   },
 })
-const tagsModel = computed({
+const tagFilterModel = computed({
   get: () => activeTags.value,
   set: (value: string[]) => {
+    const nextTags = normalizeTags(value)
+
+    if (areTagListsEqual(nextTags, activeTags.value)) {
+      return
+    }
+
     void pushDiscoveryQuery({
       page: 1,
-      tags: value,
+      tags: nextTags,
     })
   },
 })
@@ -220,7 +230,7 @@ onBeforeUnmount(clearSearchDebounceTimer)
           <DiscoverySearchReserve
             v-model:search="searchDraft"
             v-model:ordering="orderingModel"
-            v-model:tags="tagsModel"
+            v-model:tags="tagFilterModel"
             :total-questions="totalQuestions"
           />
 
