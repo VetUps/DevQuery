@@ -1,12 +1,17 @@
 <script setup lang="ts">
-import { computed, shallowRef } from 'vue'
+import { computed, shallowRef, toValue } from 'vue'
 
+import { useTagAutocompleteQuery } from '@/features/questions/queries/useTagAutocompleteQuery'
 import AppButton from '@/shared/ui/AppButton.vue'
 
 interface Props {
   id: string
   label: string
   modelValue: string[]
+}
+
+interface RawTagSuggestion {
+  name?: unknown
 }
 
 const props = defineProps<Props>()
@@ -22,8 +27,37 @@ const normalizedDraft = computed(() => normalizeTagName(draft.value))
 const selectedTags = computed(() => normalizeTagList(props.modelValue))
 const selectedTagSet = computed(() => new Set(selectedTags.value))
 const hasSelectedTags = computed(() => selectedTags.value.length > 0)
+const autocompleteQuery = useTagAutocompleteQuery(normalizedDraft)
+const visibleSuggestions = computed(() => normalizeSuggestionList(toValue(autocompleteQuery.data)))
+const hasDraft = computed(() => normalizedDraft.value.length > 0)
+const isAutocompletePending = computed(() => hasDraft.value && Boolean(toValue(autocompleteQuery.isFetching)))
+const isAutocompleteError = computed(() => hasDraft.value && Boolean(toValue(autocompleteQuery.isError)))
+const showEmptyAutocompleteFallback = computed(
+  () => hasDraft.value && !isAutocompletePending.value && !isAutocompleteError.value && visibleSuggestions.value.length === 0,
+)
+const autocompleteStatus = computed(() => {
+  if (isAutocompleteError.value) {
+    return 'Не удалось загрузить подсказки. Можно добавить тег вручную.'
+  }
+
+  if (isAutocompletePending.value) {
+    return 'Ищем подходящие теги…'
+  }
+
+  if (showEmptyAutocompleteFallback.value) {
+    return 'Подсказок нет — добавьте тег вручную.'
+  }
+
+  return ''
+})
 const describedBy = computed(() =>
-  [`${props.id}-help`, localFeedback.value ? `${props.id}-feedback` : ''].filter(Boolean).join(' '),
+  [
+    `${props.id}-help`,
+    localFeedback.value ? `${props.id}-feedback` : '',
+    autocompleteStatus.value ? `${props.id}-autocomplete-status` : '',
+  ]
+    .filter(Boolean)
+    .join(' '),
 )
 
 function normalizeTagName(value: string) {
@@ -46,6 +80,28 @@ function normalizeTagList(values: string[] | undefined) {
   }
 
   return normalizedTags
+}
+
+function normalizeSuggestionList(suggestions: unknown) {
+  if (!Array.isArray(suggestions)) {
+    return []
+  }
+
+  const normalizedSuggestions: string[] = []
+  const seenSuggestions = new Set<string>()
+
+  for (const suggestion of suggestions as RawTagSuggestion[]) {
+    const tagName = typeof suggestion.name === 'string' ? normalizeTagName(suggestion.name) : ''
+
+    if (!tagName || selectedTagSet.value.has(tagName) || seenSuggestions.has(tagName)) {
+      continue
+    }
+
+    seenSuggestions.add(tagName)
+    normalizedSuggestions.push(tagName)
+  }
+
+  return normalizedSuggestions
 }
 
 function addTag(rawTag = draft.value) {
@@ -148,6 +204,43 @@ function handleComma(event: KeyboardEvent) {
       <AppButton type="button" variant="secondary" data-testid="discovery-tag-add" @click="addTag()">
         Добавить тег
       </AppButton>
+    </div>
+
+    <div
+      v-if="hasDraft"
+      class="discovery-tag-filter-input__autocomplete"
+      data-testid="discovery-tag-autocomplete"
+    >
+      <ul
+        v-if="visibleSuggestions.length > 0"
+        class="discovery-tag-filter-input__suggestions"
+        role="listbox"
+        :aria-label="`Подсказки тегов для ${normalizedDraft}`"
+        data-testid="discovery-tag-suggestions"
+      >
+        <li v-for="suggestion in visibleSuggestions" :key="suggestion" class="discovery-tag-filter-input__suggestion-item">
+          <button
+            class="discovery-tag-filter-input__suggestion"
+            type="button"
+            role="option"
+            :data-testid="`discovery-tag-suggestion-${suggestion}`"
+            @click="addTag(suggestion)"
+          >
+            #{{ suggestion }}
+          </button>
+        </li>
+      </ul>
+
+      <p
+        v-if="autocompleteStatus"
+        :id="`${id}-autocomplete-status`"
+        class="discovery-tag-filter-input__autocomplete-status"
+        :class="{ 'discovery-tag-filter-input__autocomplete-status--warning': isAutocompleteError }"
+        role="status"
+        data-testid="discovery-tag-autocomplete-status"
+      >
+        {{ autocompleteStatus }}
+      </p>
     </div>
 
     <p
@@ -278,9 +371,54 @@ function handleComma(event: KeyboardEvent) {
   border-color: var(--color-danger);
 }
 
+.discovery-tag-filter-input__autocomplete {
+  display: grid;
+  gap: var(--space-xs);
+}
+
+.discovery-tag-filter-input__suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.discovery-tag-filter-input__suggestion {
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid rgb(14 116 144 / 0.18);
+  border-radius: 999px;
+  background: rgb(14 116 144 / 0.08);
+  color: var(--color-accent);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.discovery-tag-filter-input__suggestion:hover,
+.discovery-tag-filter-input__suggestion:focus-visible {
+  border-color: var(--color-accent);
+  background: rgb(14 116 144 / 0.14);
+  outline: 3px solid rgb(14 116 144 / 0.18);
+  outline-offset: 1px;
+}
+
+.discovery-tag-filter-input__autocomplete-status {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 13px;
+}
+
+.discovery-tag-filter-input__autocomplete-status--warning,
+.discovery-tag-filter-input__feedback {
+  color: var(--color-danger);
+}
+
 .discovery-tag-filter-input__feedback {
   margin: 0;
-  color: var(--color-danger);
   font-size: 13px;
 }
 
