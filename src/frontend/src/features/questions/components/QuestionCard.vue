@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { QuestionListItem } from '@/features/questions/api/questions'
+import QuestionTagChips from '@/features/questions/components/QuestionTagChips.vue'
 import { formatLongDate, formatQuestionStatus } from '@/shared/libs/formatting'
 
 const props = defineProps<{
@@ -30,6 +31,8 @@ const props = defineProps<{
     >
       <h2 class="question-card__title">{{ question.question_title }}</h2>
     </RouterLink>
+
+    <QuestionTagChips :tags="question.tags" />
   </article>
 </template>
 
