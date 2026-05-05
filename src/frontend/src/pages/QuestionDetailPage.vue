@@ -9,7 +9,12 @@ import { useCommentContextQuery } from '@/features/comments/queries/useCommentCo
 import { useCurrentUserQuery } from '@/features/auth/queries/useCurrentUserQuery'
 import { useSessionStore } from '@/features/auth/stores/session'
 import QuestionDetailHero from '@/features/questions/components/QuestionDetailHero.vue'
+import QuestionRevisionHistoryButton from '@/features/questions/components/QuestionRevisionHistoryButton.vue'
+import QuestionEditProposalModal from '@/features/questions/components/QuestionEditProposalModal.vue'
 import QuestionDetailSkeleton from '@/features/questions/components/QuestionDetailSkeleton.vue'
+import QuestionEditForm from '@/features/questions/components/QuestionEditForm.vue'
+import type { QuestionEditRecord } from '@/features/questions/api/questionEdits'
+import type { QuestionDetail } from '@/features/questions/api/questions'
 import { useQuestionDetailQuery } from '@/features/questions/queries/useQuestionDetailQuery'
 import SolutionComposerModal from '@/features/solutions/components/SolutionComposerModal.vue'
 import SolutionComposerPrompt from '@/features/solutions/components/SolutionComposerPrompt.vue'
@@ -20,6 +25,7 @@ import { useSolutionsQuery } from '@/features/solutions/queries/useSolutionsQuer
 import { usePublicProfileQuery } from '@/features/users/queries/usePublicProfileQuery'
 import AppShellLayout from '@/layouts/AppShellLayout.vue'
 import ContentSkeleton from '@/shared/ui/ContentSkeleton.vue'
+import AppDialog from '@/shared/ui/AppDialog.vue'
 import InlineFeedbackPanel from '@/shared/ui/InlineFeedbackPanel.vue'
 
 const route = useRoute()
@@ -36,6 +42,10 @@ const questionAuthorId = computed(() => questionDetailQuery.data.value?.user ?? 
 const questionAuthorQuery = usePublicProfileQuery(questionAuthorId)
 
 const isComposerOpen = ref(false)
+const isQuestionEditOpen = ref(false)
+const isQuestionProposalOpen = ref(false)
+const questionEditSuccessMessage = ref('')
+const questionProposalSuccessMessage = ref('')
 const solutionSuccessMessage = ref('')
 const freshSolutionId = ref<string | null>(null)
 const activeInlineComposerKey = ref<string | null>(null)
@@ -52,6 +62,16 @@ const hasPageError = computed(
 const questionCreatedNotice = computed(() => route.query.message === 'question-created')
 const currentUserId = computed(() => currentUserQuery.data.value?.user_id ?? '')
 const isQuestionAuthor = computed(() => Boolean(currentUserId.value) && currentUserId.value === questionAuthorId.value)
+const canEditQuestion = computed(
+  () => isQuestionAuthor.value && !currentUserQuery.isPending.value && !currentUserQuery.isError.value,
+)
+const canProposeQuestionEdit = computed(
+  () =>
+    Boolean(currentUserId.value) &&
+    !isQuestionAuthor.value &&
+    !currentUserQuery.isPending.value &&
+    !currentUserQuery.isError.value,
+)
 const currentUserSolution = computed(() =>
   (solutionsQuery.data.value ?? []).find((solution) => solution.user === currentUserId.value) ?? null,
 )
@@ -62,6 +82,37 @@ async function retryPage() {
     solutionsQuery.refetch(),
     questionCommentsQuery.refetch(),
   ])
+}
+
+function openQuestionEdit() {
+  questionEditSuccessMessage.value = ''
+  questionProposalSuccessMessage.value = ''
+  isQuestionEditOpen.value = true
+}
+
+function closeQuestionEdit() {
+  isQuestionEditOpen.value = false
+}
+
+function openQuestionProposal() {
+  questionEditSuccessMessage.value = ''
+  questionProposalSuccessMessage.value = ''
+  isQuestionProposalOpen.value = true
+}
+
+function closeQuestionProposal() {
+  isQuestionProposalOpen.value = false
+}
+
+async function handleQuestionEditSaved(_updatedQuestion: QuestionDetail) {
+  await questionDetailQuery.refetch()
+  isQuestionEditOpen.value = false
+  questionEditSuccessMessage.value = 'Изменения сохранены. Вопрос обновлён данными с сервера.'
+}
+
+function handleQuestionProposalSubmitted(_createdEdit: QuestionEditRecord) {
+  isQuestionProposalOpen.value = false
+  questionProposalSuccessMessage.value = 'Правка отправлена на проверку автору вопроса.'
 }
 
 async function focusSolution(solutionId: string) {
@@ -95,6 +146,10 @@ watch(
   questionId,
   () => {
     isComposerOpen.value = false
+    isQuestionEditOpen.value = false
+    isQuestionProposalOpen.value = false
+    questionEditSuccessMessage.value = ''
+    questionProposalSuccessMessage.value = ''
     solutionSuccessMessage.value = ''
     freshSolutionId.value = null
     activeInlineComposerKey.value = null
@@ -139,12 +194,26 @@ onBeforeUnmount(() => {
           Вопрос опубликован. Теперь его могут увидеть другие разработчики.
         </p>
 
+        <p v-if="questionEditSuccessMessage" class="question-detail-page__notice" role="status">
+          {{ questionEditSuccessMessage }}
+        </p>
+
+        <p v-if="questionProposalSuccessMessage" class="question-detail-page__notice" role="status">
+          {{ questionProposalSuccessMessage }}
+        </p>
+
         <QuestionDetailHero
           :question="questionDetailQuery.data.value"
           :author="questionAuthorQuery.data.value"
           :current-user-id="currentUserId"
           :can-vote="isAuthenticated"
+          :can-edit="canEditQuestion"
+          :can-propose-edit="canProposeQuestionEdit"
+          @request-edit="openQuestionEdit"
+          @request-proposal="openQuestionProposal"
         />
+
+        <QuestionRevisionHistoryButton :question-id="questionId" />
 
         <CommentContextBlock
           title="Комментарии к вопросу"
@@ -215,6 +284,28 @@ onBeforeUnmount(() => {
           @close="isComposerOpen = false"
           @submitted="handleSolutionSubmitted"
         />
+
+        <QuestionEditProposalModal
+          v-if="questionDetailQuery.data.value"
+          :open="isQuestionProposalOpen"
+          :question="questionDetailQuery.data.value"
+          @close="closeQuestionProposal"
+          @submitted="handleQuestionProposalSubmitted"
+        />
+
+        <AppDialog
+          v-if="questionDetailQuery.data.value"
+          :open="isQuestionEditOpen"
+          title="Редактировать вопрос"
+          :description="`Измените текст и теги вопроса: ${questionDetailQuery.data.value.question_title}`"
+          size="wide"
+          @close="closeQuestionEdit"
+        >
+          <QuestionEditForm
+            :question="questionDetailQuery.data.value"
+            @saved="handleQuestionEditSaved"
+          />
+        </AppDialog>
 
         <DiscussionThreadModal
           v-if="isQuestionDiscussionOpen && questionDetailQuery.data.value"

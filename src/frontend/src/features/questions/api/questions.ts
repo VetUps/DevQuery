@@ -53,6 +53,12 @@ export interface CreateQuestionPayload {
   tags?: string[]
 }
 
+export interface UpdateQuestionPayload {
+  question_title: string
+  question_body: string
+  tags: string[]
+}
+
 export interface CreateQuestionResponse {
   question_id: string
   user: string
@@ -116,6 +122,49 @@ export async function fetchTagAutocomplete(search: string) {
 
 export async function createQuestion(payload: CreateQuestionPayload) {
   const response = await http.post<CreateQuestionResponse>('/question/', payload)
+
+  return response.data
+}
+
+function isQuestionTag(value: unknown): value is QuestionTag {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+
+  const tag = value as Record<string, unknown>
+
+  return typeof tag.name === 'string' && typeof tag.questions_count === 'number'
+}
+
+function isQuestionDetail(value: unknown): value is QuestionDetail {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+
+  const question = value as Record<string, unknown>
+
+  return (
+    typeof question.question_id === 'string' &&
+    typeof question.user === 'string' &&
+    typeof question.question_title === 'string' &&
+    typeof question.question_body === 'string' &&
+    typeof question.question_status === 'string' &&
+    typeof question.question_created_at === 'string' &&
+    typeof question.question_updated_at === 'string' &&
+    typeof question.upvotes === 'number' &&
+    typeof question.downvotes === 'number' &&
+    typeof question.score === 'number' &&
+    Array.isArray(question.tags) &&
+    question.tags.every(isQuestionTag)
+  )
+}
+
+export async function updateQuestion(questionId: string, payload: UpdateQuestionPayload) {
+  const response = await http.patch<unknown>(`/question/${questionId}/`, payload)
+
+  if (!isQuestionDetail(response.data)) {
+    throw new Error('Malformed question update response')
+  }
 
   return response.data
 }
