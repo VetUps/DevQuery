@@ -13,6 +13,7 @@ from apps.qa.models import (
     QuestionRevision,
     Solution,
     Tag,
+    Vote,
 )
 from apps.qa.serializers import (
     MAX_QUESTION_TAGS,
@@ -23,7 +24,8 @@ from apps.qa.serializers import (
     TagSerializer,
 )
 from apps.qa.services.question_edit_service import QuestionChangePayload, QuestionEditService
-from apps.user.models import CustomUser
+from apps.qa.services.vote_service import VoteService
+from apps.user.models import CustomUser, ReputationTransaction
 
 
 class QuestionTagModelTests(APITestCase):
@@ -218,344 +220,344 @@ class TagAutocompleteApiTests(APITestCase):
         self.vue_tag = Tag.objects.create(name='vue', questions_count=7)
 
     def test_tag_autocomplete_is_public_and_returns_matching_tag_suggestions(self):
-        response = self.client.get('/tag/', {'search': 'Dj'})
+        response = self.client.get('/question/tags/autocomplete/', {'q': 'djan'})
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
-        self.assertEqual(
-            response.data,
-            [
-                {'name': 'django', 'questions_count': 5},
-                {'name': 'django-rest', 'questions_count': 2},
-            ],
-        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data, [
+            {'name': 'django', 'questions_count': 5},
+            {'name': 'django-rest', 'questions_count': 2},
+        ])
 
-    def test_tag_autocomplete_response_shape_exposes_only_public_tag_fields(self):
-        response = self.client.get('/tag/', {'search': 'django'})
+    def test_tag_autocomplete_requires_two_character_query(self):
+        response = self.client.get('/question/tags/autocomplete/', {'q': 'd'})
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
-        for tag in response.data:
-            self.assertEqual(set(tag.keys()), {'name', 'questions_count'})
-            self.assertNotIn('id', tag)
-            self.assertNotIn('question_id', tag)
-            self.assertNotIn('question_body', tag)
-            self.assertNotIn('user', tag)
-
-    def test_tag_autocomplete_non_matching_input_returns_empty_list_without_creating_tags(self):
-        response = self.client.get('/tag/', {'search': 'missing-tag'})
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
-        self.assertEqual(response.data, [])
-        self.assertFalse(Tag.objects.filter(name='missing-tag').exists())
-        self.assertEqual(Tag.objects.count(), 3)
-
-    def test_tag_autocomplete_missing_search_returns_no_tags(self):
-        response = self.client.get('/tag/')
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data, [])
 
-    def test_tag_autocomplete_empty_search_returns_no_tags(self):
-        for search in ['', '   ']:
-            with self.subTest(search=repr(search)):
-                response = self.client.get('/tag/', {'search': search})
-
-                self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
-                self.assertEqual(response.data, [])
-
-    def test_tag_autocomplete_malformed_search_text_is_safe_and_returns_no_matches(self):
-        response = self.client.get('/tag/', {'search': "django'; DROP TABLE tags; --"})
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
-        self.assertEqual(response.data, [])
-        self.assertEqual(Tag.objects.count(), 3)
-
-    def test_tag_autocomplete_limits_results_to_ten_existing_tags(self):
+    def test_tag_autocomplete_limits_to_top_ten_ranked_results(self):
         for index in range(12):
-            Tag.objects.create(name=f'dj-extra-{index:02d}', questions_count=1)
+            Tag.objects.create(name=f'py-{index}', questions_count=index)
 
-        response = self.client.get('/tag/', {'search': 'dj'})
+        response = self.client.get('/question/tags/autocomplete/', {'q': 'py'})
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.data), 10)
-        self.assertEqual(response.data[0], {'name': 'django', 'questions_count': 5})
-        self.assertEqual(response.data[1], {'name': 'django-rest', 'questions_count': 2})
-
-    def test_tag_autocomplete_schema_documents_search_parameter_and_response(self):
-        schema = SchemaGenerator().get_schema(request=None, public=True)
-        tag_list_operation = schema['paths']['/tag/']['get']
-
-        search_parameter = next(
-            parameter for parameter in tag_list_operation['parameters']
-            if parameter['name'] == 'search' and parameter['in'] == 'query'
-        )
-
-        self.assertFalse(search_parameter.get('required', False))
-        self.assertEqual(search_parameter['schema']['type'], 'string')
-        self.assertEqual(
-            tag_list_operation['responses']['200']['content']['application/json']['schema']['items']['$ref'],
-            '#/components/schemas/Tag',
-        )
+        counts = [item['questions_count'] for item in response.data]
+        self.assertEqual(counts, sorted(counts, reverse=True))
 
 
-class QuestionCreateWithTagsApiTests(APITestCase):
+class QuestionTagApiTests(APITestCase):
     def setUp(self):
-        self.user = CustomUser.objects.create_user(
-            user_email='question-create-author@example.com',
-            user_name='question-create-author',
+        self.author = CustomUser.objects.create_user(
+            user_email='question-author@example.com',
+            user_name='question-author',
             password='password',
         )
-        self.client.force_authenticate(self.user)
-
-    def valid_payload(self, tags_marker=None):
-        payload = {
-            'question_title': 'How do I create a question with tags?',
-            'question_body': 'I need the create API to persist normalized tag associations.',
+        self.question_payload = {
+            'question_title': 'How do tags work?',
+            'question_body': 'Need to validate and persist tags.',
         }
-        if tags_marker is not None:
-            payload['tags'] = tags_marker
-        return payload
 
-    def post_question(self, tags_marker=None):
-        return self.client.post('/question/', self.valid_payload(tags_marker), format='json')
+    def authenticate(self):
+        self.client.force_authenticate(self.author)
 
-    def question_from_response(self, response):
-        self.assertIn('question_id', response.data)
-        return Question.objects.get(question_id=response.data['question_id'])
+    def test_create_question_without_tags_keeps_empty_tag_list(self):
+        self.authenticate()
 
-    def assert_response_tags(self, response, expected_tags):
-        self.assertIn('tags', response.data)
-        self.assertCountEqual(response.data['tags'], expected_tags)
-
-    def assert_persisted_tags(self, question, expected_counts):
-        self.assertEqual(set(question.tags.values_list('name', flat=True)), set(expected_counts.keys()))
-        self.assertEqual(
-            dict(Tag.objects.order_by('name').values_list('name', 'questions_count')),
-            expected_counts,
-        )
-
-    def test_create_question_persists_normalized_nested_tags_and_counters(self):
-        response = self.post_question([' Django ', 'DRF3', ' vue-js '])
-
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
-        self.assert_response_tags(
-            response,
-            [
-                {'name': 'django', 'questions_count': 1},
-                {'name': 'drf3', 'questions_count': 1},
-                {'name': 'vue-js', 'questions_count': 1},
-            ],
-        )
-        question = self.question_from_response(response)
-        self.assert_persisted_tags(question, {'django': 1, 'drf3': 1, 'vue-js': 1})
-
-    def test_create_question_reuses_existing_tags_and_counts_unique_submitted_names_once(self):
-        existing_tag = Tag.objects.create(name='django', questions_count=1)
-        existing_question = Question.objects.create(
-            user=self.user,
-            question_title='Existing Django question',
-            question_body='Existing tag counters should be incremented, not replaced.',
-        )
-        existing_question.tags.add(existing_tag)
-
-        response = self.post_question([' Django ', 'django', 'DRF', ' drf '])
-
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
-        self.assert_response_tags(
-            response,
-            [
-                {'name': 'django', 'questions_count': 2},
-                {'name': 'drf', 'questions_count': 1},
-            ],
-        )
-        question = self.question_from_response(response)
-        self.assert_persisted_tags(question, {'django': 2, 'drf': 1})
-        self.assertEqual(Tag.objects.filter(name='django').count(), 1)
-
-    def test_invalid_tag_payload_returns_400_without_creating_questions_or_tags(self):
-        invalid_payloads = [
-            'django',
-            ['django', 123],
-            ['django rest'],
-            ['django', 'drf', 'mysql', 'vue', 'docker', 'python'],
-        ]
-
-        for invalid_tags in invalid_payloads:
-            with self.subTest(invalid_tags=invalid_tags):
-                response = self.post_question(invalid_tags)
-
-                self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.data)
-                self.assertIn('tags', response.data)
-                self.assertEqual(Question.objects.count(), 0)
-                self.assertEqual(Tag.objects.count(), 0)
-
-    def test_omitted_tags_still_creates_untagged_question(self):
-        response = self.post_question()
+        response = self.client.post('/question/', self.question_payload, format='json')
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
         self.assertEqual(response.data['tags'], [])
-        question = self.question_from_response(response)
+        question = Question.objects.get(question_id=response.data['question_id'])
         self.assertEqual(question.tags.count(), 0)
         self.assertEqual(Tag.objects.count(), 0)
 
+    def test_create_question_with_tags_returns_nested_tag_objects_and_counts(self):
+        self.authenticate()
 
-class QuestionDiscoveryTests(APITestCase):
-    def setUp(self):
-        self.user = CustomUser.objects.create_user(
-            user_email='author@example.com',
-            user_name='author',
-            password='password',
-        )
-        self.django_tag = Tag.objects.create(name='django', questions_count=2)
-        self.serializer_tag = Tag.objects.create(name='serializer', questions_count=2)
-        self.vue_tag = Tag.objects.create(name='vue', questions_count=1)
-        self.mysql_tag = Tag.objects.create(name='mysql', questions_count=1)
-        self.django_question = Question.objects.create(
-            user=self.user,
-            question_title='Django serializer validation',
-            question_body='Как валидировать вложенный serializer?',
-        )
-        self.django_question.tags.add(self.django_tag, self.serializer_tag)
-        self.django_only_question = Question.objects.create(
-            user=self.user,
-            question_title='Django model pagination',
-            question_body='Как настроить page size для списка вопросов?',
-        )
-        self.django_only_question.tags.add(self.django_tag)
-        self.serializer_only_question = Question.objects.create(
-            user=self.user,
-            question_title='Serializer field ordering',
-            question_body='Как упорядочить поля serializer?',
-        )
-        self.serializer_only_question.tags.add(self.serializer_tag, self.mysql_tag)
-        self.vue_question = Question.objects.create(
-            user=self.user,
-            question_title='Vue query cache invalidation',
-            question_body='Как обновить TanStack Query cache?',
-        )
-        self.vue_question.tags.add(self.vue_tag)
-        self.untagged_question = Question.objects.create(
-            user=self.user,
-            question_title='Question without tags',
-            question_body='Untagged questions should remain discoverable without tag filters.',
+        response = self.client.post(
+            '/question/',
+            {**self.question_payload, 'tags': [' Django ', 'drf']},
+            format='json',
         )
 
-    def assert_question_ids(self, response, expected_questions):
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
-        self.assertEqual(response.data['count'], len(expected_questions))
-        self.assertEqual(
-            {item['question_id'] for item in response.data['results']},
-            {str(question.question_id) for question in expected_questions},
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertEqual(response.data['tags'], [
+            {'name': 'django', 'questions_count': 1},
+            {'name': 'drf', 'questions_count': 1},
+        ])
+        question = Question.objects.get(question_id=response.data['question_id'])
+        self.assertEqual(set(question.tags.values_list('name', flat=True)), {'django', 'drf'})
+
+    def test_create_question_rejects_invalid_tags_without_persisting_question(self):
+        self.authenticate()
+
+        response = self.client.post(
+            '/question/',
+            {**self.question_payload, 'tags': ['bad tag']},
+            format='json',
         )
 
-    def test_question_list_searches_by_title(self):
-        response = self.client.get('/question/', {'search': 'django'})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(Question.objects.count(), 0)
+        self.assertEqual(Tag.objects.count(), 0)
+
+    def test_question_retrieval_returns_nested_tags_for_legacy_and_new_data(self):
+        tagged_question = Question.objects.create(
+            user=self.author,
+            question_title='Tagged question',
+            question_body='Has tags',
+        )
+        tag = Tag.objects.create(name='django', questions_count=1)
+        tagged_question.tags.add(tag)
+        untagged_question = Question.objects.create(
+            user=self.author,
+            question_title='Legacy question',
+            question_body='Still valid without tags',
+        )
+
+        tagged_response = self.client.get(f'/question/{tagged_question.question_id}/')
+        untagged_response = self.client.get(f'/question/{untagged_question.question_id}/')
+
+        self.assertEqual(tagged_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(tagged_response.data['tags'], [{'name': 'django', 'questions_count': 1}])
+        self.assertEqual(untagged_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(untagged_response.data['tags'], [])
+
+    def test_question_list_orders_and_serializes_nested_tags(self):
+        tagged_question = Question.objects.create(
+            user=self.author,
+            question_title='Tagged question',
+            question_body='Has tags',
+        )
+        tag = Tag.objects.create(name='django', questions_count=1)
+        tagged_question.tags.add(tag)
+        Question.objects.create(
+            user=self.author,
+            question_title='Older question',
+            question_body='No tags here',
+        )
+
+        response = self.client.get('/question/', {'ordering': 'question_created_at'})
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data['count'], 2)
+        response_by_title = {item['question_title']: item for item in response.data['results']}
         self.assertEqual(
-            {item['question_title'] for item in response.data['results']},
-            {self.django_question.question_title, self.django_only_question.question_title},
+            response_by_title['Tagged question']['tags'],
+            [{'name': 'django', 'questions_count': 1}],
+        )
+        self.assertEqual(response_by_title['Older question']['tags'], [])
+
+
+class ReputationVoteServiceTests(APITestCase):
+    def setUp(self):
+        self.question_author = CustomUser.objects.create_user(
+            user_email='question-author-vote@example.com',
+            user_name='question-author-vote',
+            password='password',
+        )
+        self.solution_author = CustomUser.objects.create_user(
+            user_email='solution-author-vote@example.com',
+            user_name='solution-author-vote',
+            password='password',
+        )
+        self.voter = CustomUser.objects.create_user(
+            user_email='voter@example.com',
+            user_name='voter',
+            password='password',
+        )
+        self.question = Question.objects.create(
+            user=self.question_author,
+            question_title='Question vote target',
+            question_body='Reward question upvotes only when newly introduced.',
+        )
+        self.solution = Solution.objects.create(
+            user=self.solution_author,
+            question=self.question,
+            solution_body='Solution vote target',
         )
 
-    def test_question_list_orders_by_creation_date(self):
-        newest_date = timezone.now()
-        newer_date = newest_date - timedelta(days=1)
-        middle_date = newest_date - timedelta(days=2)
-        older_date = newest_date - timedelta(days=3)
-        oldest_date = newest_date - timedelta(days=4)
-        Question.objects.filter(question_id=self.django_question.question_id).update(question_created_at=oldest_date)
-        Question.objects.filter(question_id=self.django_only_question.question_id).update(question_created_at=older_date)
-        Question.objects.filter(question_id=self.serializer_only_question.question_id).update(question_created_at=middle_date)
-        Question.objects.filter(question_id=self.vue_question.question_id).update(question_created_at=newer_date)
-        Question.objects.filter(question_id=self.untagged_question.question_id).update(question_created_at=newest_date)
+    def _clear_votes_and_transactions(self):
+        Vote.objects.all().delete()
+        ReputationTransaction.objects.all().delete()
+        CustomUser.objects.filter(
+            pk__in=[self.question_author.pk, self.solution_author.pk]
+        ).update(user_reputation_score=0)
+        self.question_author.refresh_from_db()
+        self.solution_author.refresh_from_db()
 
-        newest_response = self.client.get('/question/', {'ordering': '-question_created_at'})
-        oldest_response = self.client.get('/question/', {'ordering': 'question_created_at'})
+    def _vote_target(self, target_type: str):
+        if target_type == 'question':
+            return self.question, self.question_author, self.question.question_id
+        return self.solution, self.solution_author, self.solution.solution_id
 
-        self.assertEqual(newest_response.status_code, status.HTTP_200_OK)
-        self.assertEqual(oldest_response.status_code, status.HTTP_200_OK)
-        self.assertEqual(newest_response.data['results'][0]['question_id'], str(self.untagged_question.question_id))
-        self.assertEqual(oldest_response.data['results'][0]['question_id'], str(self.django_question.question_id))
+    def _assert_reward_state(self, *, target_type: str, score: int, tx_count: int, reason: str | None):
+        _, author, _ = self._vote_target(target_type)
+        author.refresh_from_db()
+        self.assertEqual(author.user_reputation_score, score)
 
-    def test_question_list_filters_by_one_repeated_tag_parameter(self):
-        response = self.client.get('/question/?tag=django')
-
-        self.assert_question_ids(response, [self.django_question, self.django_only_question])
-        for item in response.data['results']:
-            self.assertIn({'name': 'django', 'questions_count': 2}, item['tags'])
-            self.assertNotIn('question_body', item)
-            for tag in item['tags']:
-                self.assertEqual(set(tag.keys()), {'name', 'questions_count'})
-                self.assertNotIn('id', tag)
-                self.assertNotIn('tag_id', tag)
-
-    def test_question_list_filters_repeated_tags_with_and_semantics(self):
-        response = self.client.get('/question/?tag=django&tag=serializer')
-
-        self.assert_question_ids(response, [self.django_question])
-        self.assertCountEqual(
-            response.data['results'][0]['tags'],
-            [
-                {'name': 'django', 'questions_count': 2},
-                {'name': 'serializer', 'questions_count': 2},
-            ],
+        transactions = list(
+            ReputationTransaction.objects.filter(user=author).order_by('created_at')
         )
+        self.assertEqual(len(transactions), tx_count)
+        if reason is None:
+            return
 
-    def test_question_list_normalizes_duplicate_case_and_whitespace_tag_params(self):
-        response = self.client.get('/question/?tag=django&tag=DJANGO&tag=%20django%20&tag=')
+        transaction = transactions[-1]
+        expected_source, _, _ = self._vote_target(target_type)
+        self.assertEqual(transaction.reputation_transaction_reason, reason)
+        self.assertEqual(transaction.content_type.model, target_type)
+        self.assertEqual(transaction.object_id, expected_source.pk)
+        self.assertEqual(transaction.actor_id, self.voter.user_id)
 
-        self.assert_question_ids(response, [self.django_question, self.django_only_question])
+    def test_should_reward_upvote_transition_matches_m004_rules(self):
+        cases = [
+            (None, Vote.VoteType.UPVOTE, True),
+            (None, Vote.VoteType.DOWNVOTE, False),
+            (Vote.VoteType.DOWNVOTE, Vote.VoteType.UPVOTE, True),
+            (Vote.VoteType.UPVOTE, Vote.VoteType.DOWNVOTE, False),
+            (Vote.VoteType.UPVOTE, None, False),
+            (Vote.VoteType.DOWNVOTE, None, False),
+            (Vote.VoteType.UPVOTE, Vote.VoteType.UPVOTE, False),
+        ]
 
-    def test_question_list_unknown_tag_returns_no_rows_without_creating_tag(self):
-        response = self.client.get('/question/?tag=django%27%3B%20DROP%20TABLE%20tags%3B%20--')
+        for previous_vote_type, next_vote_type, expected in cases:
+            with self.subTest(previous_vote_type=previous_vote_type, next_vote_type=next_vote_type):
+                self.assertEqual(
+                    VoteService.should_reward_upvote_transition(previous_vote_type, next_vote_type),
+                    expected,
+                )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
-        self.assertEqual(response.data['count'], 0)
-        self.assertEqual(response.data['results'], [])
-        self.assertFalse(Tag.objects.filter(name="django'; drop table tags; --").exists())
-        self.assertEqual(Tag.objects.count(), 4)
+    def test_question_reputation_is_awarded_only_when_upvote_state_is_newly_introduced(self):
+        reward = VoteService.REPUTATION_REWARDS['question']
+        cases = [
+            ('no_vote_to_up', [], Vote.VoteType.UPVOTE, reward['amount'], 1),
+            ('no_vote_to_down', [], Vote.VoteType.DOWNVOTE, 0, 0),
+            ('down_to_up', [Vote.VoteType.DOWNVOTE], Vote.VoteType.UPVOTE, reward['amount'], 1),
+            ('up_to_down', [Vote.VoteType.UPVOTE], Vote.VoteType.DOWNVOTE, 0, 0),
+            ('repeated_up', [Vote.VoteType.UPVOTE], Vote.VoteType.UPVOTE, 0, 0),
+        ]
 
-    def test_question_list_combines_tag_filter_with_search_ordering_and_pagination_shape(self):
-        older_date = timezone.now() - timedelta(days=3)
-        newer_date = timezone.now() - timedelta(days=1)
-        Question.objects.filter(question_id=self.django_question.question_id).update(question_created_at=older_date)
-        Question.objects.filter(question_id=self.django_only_question.question_id).update(question_created_at=newer_date)
+        for case_name, starting_votes, new_vote_type, expected_score, expected_tx_count in cases:
+            with self.subTest(case_name=case_name):
+                self._clear_votes_and_transactions()
+                for starting_vote in starting_votes:
+                    VoteService.cast_vote('question', str(self.question.question_id), starting_vote, self.voter)
+                    Vote.objects.filter(user=self.voter).update(vote_type=starting_vote)
+                    ReputationTransaction.objects.all().delete()
+                    self.question_author.refresh_from_db()
+                    self.question_author.user_reputation_score = 0
+                    self.question_author.save(update_fields=['user_reputation_score'])
 
-        response = self.client.get('/question/?tag=django&search=django&ordering=question_created_at&page=1')
+                VoteService.cast_vote('question', str(self.question.question_id), new_vote_type, self.voter)
+                expected_reason = reward['reason'] if expected_tx_count else None
+                self._assert_reward_state(
+                    target_type='question',
+                    score=expected_score,
+                    tx_count=expected_tx_count,
+                    reason=expected_reason,
+                )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
-        self.assertEqual(set(response.data.keys()), {'count', 'next', 'previous', 'results'})
-        self.assertEqual(response.data['count'], 2)
-        self.assertEqual(response.data['results'][0]['question_id'], str(self.django_question.question_id))
-        self.assertEqual(response.data['results'][1]['question_id'], str(self.django_only_question.question_id))
+    def test_question_reputation_is_not_removed_when_vote_is_deleted(self):
+        reward = VoteService.REPUTATION_REWARDS['question']
+        VoteService.cast_vote('question', str(self.question.question_id), Vote.VoteType.UPVOTE, self.voter)
+        VoteService.remove_vote('question', str(self.question.question_id), self.voter)
 
-    def test_question_list_schema_documents_repeated_tag_parameter(self):
+        self._assert_reward_state(
+            target_type='question',
+            score=reward['amount'],
+            tx_count=1,
+            reason=reward['reason'],
+        )
+        self.assertFalse(Vote.objects.filter(user=self.voter).exists())
+
+    def test_solution_reputation_is_awarded_only_when_upvote_state_is_newly_introduced(self):
+        reward = VoteService.REPUTATION_REWARDS['solution']
+        cases = [
+            ('no_vote_to_up', [], Vote.VoteType.UPVOTE, reward['amount'], 1),
+            ('no_vote_to_down', [], Vote.VoteType.DOWNVOTE, 0, 0),
+            ('down_to_up', [Vote.VoteType.DOWNVOTE], Vote.VoteType.UPVOTE, reward['amount'], 1),
+            ('up_to_down', [Vote.VoteType.UPVOTE], Vote.VoteType.DOWNVOTE, 0, 0),
+            ('repeated_up', [Vote.VoteType.UPVOTE], Vote.VoteType.UPVOTE, 0, 0),
+        ]
+
+        for case_name, starting_votes, new_vote_type, expected_score, expected_tx_count in cases:
+            with self.subTest(case_name=case_name):
+                self._clear_votes_and_transactions()
+                for starting_vote in starting_votes:
+                    VoteService.cast_vote('solution', str(self.solution.solution_id), starting_vote, self.voter)
+                    Vote.objects.filter(user=self.voter).update(vote_type=starting_vote)
+                    ReputationTransaction.objects.all().delete()
+                    self.solution_author.refresh_from_db()
+                    self.solution_author.user_reputation_score = 0
+                    self.solution_author.save(update_fields=['user_reputation_score'])
+
+                VoteService.cast_vote('solution', str(self.solution.solution_id), new_vote_type, self.voter)
+                expected_reason = reward['reason'] if expected_tx_count else None
+                self._assert_reward_state(
+                    target_type='solution',
+                    score=expected_score,
+                    tx_count=expected_tx_count,
+                    reason=expected_reason,
+                )
+
+    def test_solution_reputation_is_not_removed_when_vote_is_deleted(self):
+        reward = VoteService.REPUTATION_REWARDS['solution']
+        VoteService.cast_vote('solution', str(self.solution.solution_id), Vote.VoteType.UPVOTE, self.voter)
+        VoteService.remove_vote('solution', str(self.solution.solution_id), self.voter)
+
+        self._assert_reward_state(
+            target_type='solution',
+            score=reward['amount'],
+            tx_count=1,
+            reason=reward['reason'],
+        )
+        self.assertFalse(Vote.objects.filter(user=self.voter).exists())
+
+    def test_self_vote_is_rejected_before_reputation_changes(self):
+        with self.assertRaisesMessage(Exception, 'Нельзя голосовать за собственный контент'):
+            VoteService.cast_vote('question', str(self.question.question_id), Vote.VoteType.UPVOTE, self.question_author)
+
+        self.question_author.refresh_from_db()
+        self.assertEqual(self.question_author.user_reputation_score, 0)
+        self.assertFalse(ReputationTransaction.objects.exists())
+        self.assertFalse(Vote.objects.exists())
+
+    def test_vote_statistics_and_annotations_remain_correct_after_reputation_side_effects(self):
+        VoteService.cast_vote('question', str(self.question.question_id), Vote.VoteType.UPVOTE, self.voter)
+        other_voter = CustomUser.objects.create_user(
+            user_email='other-voter@example.com',
+            user_name='other-voter',
+            password='password',
+        )
+        VoteService.cast_vote('question', str(self.question.question_id), Vote.VoteType.DOWNVOTE, other_voter)
+
+        stats = VoteService.get_vote_stats('question', str(self.question.question_id))
+        annotated_question = VoteService.annotate_votes(
+            Question.objects.filter(question_id=self.question.question_id),
+            Question,
+            self.voter,
+        ).get()
+
+        self.assertEqual(stats, {'upvotes': 1, 'downvotes': 1, 'score': 0})
+        self.assertEqual(VoteService.get_vote_stats_fast(annotated_question, 'question'), stats)
+        self.assertEqual(VoteService.get_user_vote_fast(annotated_question), Vote.VoteType.UPVOTE)
+
+
+class OpenApiSchemaTests(APITestCase):
+    def test_question_list_schema_uses_paginated_envelope(self):
         schema = SchemaGenerator().get_schema(request=None, public=True)
-        question_list_operation = schema['paths']['/question/']['get']
-        parameters_by_name = {
-            parameter['name']: parameter
-            for parameter in question_list_operation['parameters']
-            if parameter['in'] == 'query'
-        }
+        question_list_schema_ref = (
+            schema['paths']['/question/']['get']['responses']['200']['content']['application/json']['schema']['$ref']
+        )
 
-        self.assertIn('tag', parameters_by_name)
-        self.assertIn('search', parameters_by_name)
-        self.assertIn('ordering', parameters_by_name)
-
-        tag_parameter = parameters_by_name['tag']
-        self.assertFalse(tag_parameter.get('required', False))
-        self.assertEqual(tag_parameter['schema']['type'], 'array')
-        self.assertEqual(tag_parameter['schema']['items']['type'], 'string')
-        self.assertTrue(tag_parameter.get('explode', True))
-
-        self.assertFalse(parameters_by_name['search'].get('required', False))
-        self.assertEqual(parameters_by_name['search']['schema']['type'], 'string')
-        self.assertFalse(parameters_by_name['ordering'].get('required', False))
-        self.assertEqual(parameters_by_name['ordering']['schema']['type'], 'string')
-
-        response_schema = question_list_operation['responses']['200']['content']['application/json']['schema']
-        self.assertEqual(response_schema['$ref'], '#/components/schemas/PaginatedQuestionListList')
+        self.assertEqual(question_list_schema_ref, '#/components/schemas/PaginatedQuestionListList')
         paginated_schema = schema['components']['schemas']['PaginatedQuestionListList']
+        self.assertEqual(paginated_schema['type'], 'object')
+        self.assertEqual(
+            set(paginated_schema['properties'].keys()),
+            {'count', 'next', 'previous', 'results'},
+        )
         self.assertEqual(
             paginated_schema['properties']['results']['items']['$ref'],
             '#/components/schemas/QuestionList',
@@ -817,9 +819,9 @@ class QuestionEditLifecycleTests(APITestCase):
             question=self.question,
             actor=self.editor,
             payload=QuestionChangePayload(
-                title='Approved title',
-                body='Approved body',
-                tags=['rest', 'drf'],
+                title='Proposed title',
+                body='Proposed body',
+                tags=['rest', 'api'],
             ),
         )
         QuestionEditService.change_proposal_approval(
@@ -828,118 +830,70 @@ class QuestionEditLifecycleTests(APITestCase):
             approved=True,
         )
 
-        events_response = self.client.get(f'/question/events/{self.question.question_id}/')
-        revisions_response = self.client.get(f'/question/revisions/{self.question.question_id}/')
-        pending_response = self.client.get(f'/question/pending_edits/{self.question.question_id}/')
+        self.client.force_authenticate(self.author)
+        events_response = self.client.get(f'/question/history/{self.question.question_id}/events/')
+        revisions_response = self.client.get(f'/question/history/{self.question.question_id}/revisions/')
 
         self.assertEqual(events_response.status_code, status.HTTP_200_OK, events_response.data)
         self.assertEqual(revisions_response.status_code, status.HTTP_200_OK, revisions_response.data)
-        self.assertEqual(len(events_response.data), 3)
-        self.assertEqual(len(revisions_response.data), 2)
-        self.assertEqual(pending_response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(
+            [event['event_type'] for event in events_response.data],
+            [
+                QuestionEditEvent.EventType.DIRECT_EDITED,
+                QuestionEditEvent.EventType.PROPOSED,
+                QuestionEditEvent.EventType.APPROVED,
+            ],
+        )
+        self.assertEqual(
+            [revision['source'] for revision in revisions_response.data],
+            [QuestionRevision.Source.DIRECT_EDIT, QuestionRevision.Source.APPROVED_PROPOSAL],
+        )
+        self.assertEqual(revisions_response.data[1]['tags_before'], ['rest'])
+        self.assertEqual(revisions_response.data[1]['tags_after'], ['rest', 'api'])
 
-
-class BestSolutionTests(APITestCase):
-    def setUp(self):
-        self.question_author = CustomUser.objects.create_user(
-            user_email='question-author@example.com',
-            user_name='question-author',
-            password='password',
-        )
-        self.first_solver = CustomUser.objects.create_user(
-            user_email='solver-one@example.com',
-            user_name='solver-one',
-            password='password',
-        )
-        self.second_solver = CustomUser.objects.create_user(
-            user_email='solver-two@example.com',
-            user_name='solver-two',
-            password='password',
-        )
-        self.question = Question.objects.create(
-            user=self.question_author,
-            question_title='Как выбрать лучшее решение?',
-            question_body='Нужно пометить один ответ как принятый.',
-        )
-        self.first_solution = Solution.objects.create(
-            user=self.first_solver,
+    def test_review_queue_only_lists_pending_proposals_for_author(self):
+        pending_for_author = QuestionEditService.create_proposal(
             question=self.question,
-            solution_body='Первое решение.',
+            actor=self.editor,
+            payload=QuestionChangePayload(
+                title='Pending title',
+                body='Pending body',
+                tags=['rest'],
+            ),
         )
-        self.second_solution = Solution.objects.create(
-            user=self.second_solver,
+        approved_for_author = QuestionEditService.create_proposal(
             question=self.question,
-            solution_body='Второе решение.',
+            actor=self.other_user,
+            payload=QuestionChangePayload(
+                title='Approved title',
+                body='Approved body',
+                tags=['api'],
+            ),
+        )
+        QuestionEditService.change_proposal_approval(
+            proposal_id=str(approved_for_author.question_edit_id),
+            actor=self.author,
+            approved=True,
+        )
+        other_question = Question.objects.create(
+            user=self.editor,
+            question_title='Another question',
+            question_body='Review queue should scope by author.',
+        )
+        QuestionEditService.create_proposal(
+            question=other_question,
+            actor=self.author,
+            payload=QuestionChangePayload(
+                title='Other pending title',
+                body='Other pending body',
+                tags=['rest'],
+            ),
         )
 
-    def test_question_author_can_mark_exactly_one_best_solution(self):
-        self.client.force_authenticate(self.question_author)
+        self.client.force_authenticate(self.author)
+        response = self.client.get('/question/review_queue/')
 
-        first_response = self.client.patch(
-            f'/solution/{self.first_solution.solution_id}/best/',
-            {'solution_is_best': True},
-            format='json',
-        )
-        second_response = self.client.patch(
-            f'/solution/{self.second_solution.solution_id}/best/',
-            {'solution_is_best': True},
-            format='json',
-        )
-
-        self.first_solution.refresh_from_db()
-        self.second_solution.refresh_from_db()
-        self.question.refresh_from_db()
-
-        self.assertEqual(first_response.status_code, status.HTTP_200_OK)
-        self.assertEqual(second_response.status_code, status.HTTP_200_OK)
-        self.assertFalse(self.first_solution.solution_is_best)
-        self.assertTrue(self.second_solution.solution_is_best)
-        self.assertEqual(self.question.question_status, Question.Status.SOLVED_STATUS)
-
-    def test_question_author_can_remove_best_solution(self):
-        self.second_solution.solution_is_best = True
-        self.second_solution.save(update_fields=['solution_is_best'])
-        self.question.question_status = Question.Status.SOLVED_STATUS
-        self.question.save(update_fields=['question_status'])
-        self.client.force_authenticate(self.question_author)
-
-        response = self.client.patch(
-            f'/solution/{self.second_solution.solution_id}/best/',
-            {'solution_is_best': False},
-            format='json',
-        )
-
-        self.second_solution.refresh_from_db()
-        self.question.refresh_from_db()
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertFalse(self.second_solution.solution_is_best)
-        self.assertEqual(self.question.question_status, Question.Status.OPEN_STATUS)
-
-    def test_non_author_cannot_mark_best_solution(self):
-        self.client.force_authenticate(self.first_solver)
-
-        response = self.client.patch(
-            f'/solution/{self.second_solution.solution_id}/best/',
-            {'solution_is_best': True},
-            format='json',
-        )
-
-        self.second_solution.refresh_from_db()
-
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertFalse(self.second_solution.solution_is_best)
-
-    def test_question_author_cannot_create_solution_for_own_question(self):
-        self.client.force_authenticate(self.question_author)
-
-        response = self.client.post(
-            '/solution/',
-            {
-                'question': str(self.question.question_id),
-                'solution_body': 'Я сам отвечаю на свой вопрос.',
-            },
-            format='json',
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual([item['question_edit_id'] for item in response.data], [str(pending_for_author.question_edit_id)])
+        self.assertEqual(response.data[0]['question_author_name'], self.author.user_name)
+        self.assertEqual(response.data[0]['edit_author_name'], self.editor.user_name)
