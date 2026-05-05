@@ -7,7 +7,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from drf_spectacular.utils import extend_schema, OpenApiParameter
 
-from .models import Question, Solution, SolutionEdits, Comment, Tag
+from .models import Question, Solution, SolutionEdits, Comment, Tag, QuestionEditProposal
 from .serializers import (
     QuestionGetSerializer, QuestionListSerializer, QuestionUpdateCreateSerializer,
     QuestionCreateResponseSerializer, QuestionEditCreateSerializer, QuestionEditProposalResponseSerializer,
@@ -19,6 +19,7 @@ from .serializers import (
     VoteSerializer, VoteCreateSerializer, SolutionEditApprovalSerializer, TagSerializer,
 )
 from .services.question_edit_service import QuestionChangePayload, QuestionEditService
+from .services.solution_edits_service import SolutionEditService
 from .services.comment_service import CommentService
 from .services.solution_service import SolutionService
 from .services.vote_service import VoteService
@@ -196,7 +197,7 @@ class QuestionViewSet(mixins.ListModelMixin,
 
     @extend_schema(
         request=QuestionUpdateCreateSerializer,
-        responses={200: QuestionCreateResponseSerializer},
+        responses={200: QuestionGetSerializer},
     )
     def update(self, request, *args, **kwargs):
         partial = kwargs.pop('partial', False)
@@ -204,8 +205,12 @@ class QuestionViewSet(mixins.ListModelMixin,
         serializer = self.get_serializer(instance, data=request.data, partial=partial)
         serializer.is_valid(raise_exception=True)
         self.perform_update(serializer)
-        instance.refresh_from_db()
-        response_serializer = self.question_create_response_serializer(instance)
+        updated_question = VoteService.annotate_votes(
+            Question.objects.select_related('user').prefetch_related('tags').filter(question_id=instance.question_id),
+            Question,
+            request.user,
+        ).get()
+        response_serializer = self.question_get_serializer(updated_question, context={'request': request})
         return Response(response_serializer.data, status=status.HTTP_200_OK)
 
     @extend_schema(
@@ -267,6 +272,67 @@ class QuestionViewSet(mixins.ListModelMixin,
         result = QuestionEditService.revision_history(question_id)
         serializer = self.question_revision_serializer(result, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
+
+class QuestionEditsViewSet(mixins.CreateModelMixin,
+                           viewsets.GenericViewSet):
+    serializer_class = QuestionEditProposalResponseSerializer
+    question_edit_create_serializer = QuestionEditCreateSerializer
+    question_edit_response_serializer = QuestionEditProposalResponseSerializer
+
+    def get_queryset(self):
+        return QuestionEditProposal.objects.select_related('question__user', 'author', 'reviewed_by')
+
+    def get_serializer_class(self):
+        if self.action == 'create':
+            return self.question_edit_create_serializer
+        return self.serializer_class
+
+    def get_permissions(self):
+        if self.action in ['create', 'approve', 'disapprove', 'review_queue']:
+            permission_classes = [IsAuthenticated]
+        else:
+            permission_classes = [AllowAny]
+
+        return [permission() for permission in permission_classes]
+
+    @extend_schema(
+        request=QuestionEditCreateSerializer,
+        responses={201: QuestionEditProposalResponseSerializer},
+    )
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        proposal = serializer.save()
+        response_serializer = self.question_edit_response_serializer(proposal)
+        headers = self.get_success_headers(response_serializer.data)
+        return Response(response_serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+
+    @action(detail=False, methods=['get'], url_path='review_queue')
+    @extend_schema(responses=QuestionEditProposalResponseSerializer(many=True))
+    def review_queue(self, request):
+        result = QuestionEditService.review_queue(request.user)
+        serializer = self.question_edit_response_serializer(result, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=['patch'], url_path='approve/(?P<question_edit_id>[^/.]+)')
+    @extend_schema(responses=QuestionEditApprovalSerializer)
+    def approve(self, request, question_edit_id):
+        QuestionEditService.change_proposal_approval(
+            proposal_id=question_edit_id,
+            actor=request.user,
+            approved=True,
+        )
+        return Response({'approved': True}, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=['patch'], url_path='disapprove/(?P<question_edit_id>[^/.]+)')
+    @extend_schema(responses=QuestionEditApprovalSerializer)
+    def disapprove(self, request, question_edit_id):
+        QuestionEditService.change_proposal_approval(
+            proposal_id=question_edit_id,
+            actor=request.user,
+            approved=False,
+        )
+        return Response({'approved': False}, status=status.HTTP_200_OK)
 
 class SolutionViewSet(mixins.ListModelMixin,
                       mixins.CreateModelMixin,
