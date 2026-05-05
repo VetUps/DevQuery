@@ -1,4 +1,5 @@
 from datetime import timedelta
+from unittest.mock import patch
 
 from django.db import IntegrityError, transaction
 from django.utils import timezone
@@ -24,6 +25,7 @@ from apps.qa.serializers import (
     TagSerializer,
 )
 from apps.qa.services.question_edit_service import QuestionChangePayload, QuestionEditService
+from apps.qa.services.solution_edits_service import SolutionEditService
 from apps.qa.services.vote_service import VoteService
 from apps.user.models import CustomUser, ReputationTransaction
 
@@ -377,7 +379,7 @@ class ReputationVoteServiceTests(APITestCase):
             solution_body='Solution vote target',
         )
 
-    def _clear_votes_and_transactions(self):
+    def _reset_vote_reward_state(self):
         Vote.objects.all().delete()
         ReputationTransaction.objects.all().delete()
         CustomUser.objects.filter(
@@ -390,6 +392,16 @@ class ReputationVoteServiceTests(APITestCase):
         if target_type == 'question':
             return self.question, self.question_author, self.question.question_id
         return self.solution, self.solution_author, self.solution.solution_id
+
+    def _seed_existing_vote(self, *, target_type: str, vote_type: str):
+        target_object, _, target_id = self._vote_target(target_type)
+        Vote.objects.create(
+            user=self.voter,
+            content_type=VoteService.get_content_type(target_type),
+            object_id=target_id,
+            vote_type=vote_type,
+        )
+        return target_object
 
     def _assert_reward_state(self, *, target_type: str, score: int, tx_count: int, reason: str | None):
         _, author, _ = self._vote_target(target_type)
@@ -428,28 +440,23 @@ class ReputationVoteServiceTests(APITestCase):
                     expected,
                 )
 
-    def test_question_reputation_is_awarded_only_when_upvote_state_is_newly_introduced(self):
+    def test_question_reputation_transitions_follow_m004_upvote_rules(self):
         reward = VoteService.REPUTATION_REWARDS['question']
         cases = [
-            ('no_vote_to_up', [], Vote.VoteType.UPVOTE, reward['amount'], 1),
-            ('no_vote_to_down', [], Vote.VoteType.DOWNVOTE, 0, 0),
-            ('down_to_up', [Vote.VoteType.DOWNVOTE], Vote.VoteType.UPVOTE, reward['amount'], 1),
-            ('up_to_down', [Vote.VoteType.UPVOTE], Vote.VoteType.DOWNVOTE, 0, 0),
-            ('repeated_up', [Vote.VoteType.UPVOTE], Vote.VoteType.UPVOTE, 0, 0),
+            ('no_vote_to_up', None, Vote.VoteType.UPVOTE, reward['amount'], 1),
+            ('no_vote_to_down', None, Vote.VoteType.DOWNVOTE, 0, 0),
+            ('down_to_up', Vote.VoteType.DOWNVOTE, Vote.VoteType.UPVOTE, reward['amount'], 1),
+            ('up_to_down', Vote.VoteType.UPVOTE, Vote.VoteType.DOWNVOTE, 0, 0),
+            ('repeated_up', Vote.VoteType.UPVOTE, Vote.VoteType.UPVOTE, 0, 0),
         ]
 
-        for case_name, starting_votes, new_vote_type, expected_score, expected_tx_count in cases:
+        for case_name, previous_vote_type, next_vote_type, expected_score, expected_tx_count in cases:
             with self.subTest(case_name=case_name):
-                self._clear_votes_and_transactions()
-                for starting_vote in starting_votes:
-                    VoteService.cast_vote('question', str(self.question.question_id), starting_vote, self.voter)
-                    Vote.objects.filter(user=self.voter).update(vote_type=starting_vote)
-                    ReputationTransaction.objects.all().delete()
-                    self.question_author.refresh_from_db()
-                    self.question_author.user_reputation_score = 0
-                    self.question_author.save(update_fields=['user_reputation_score'])
+                self._reset_vote_reward_state()
+                if previous_vote_type is not None:
+                    self._seed_existing_vote(target_type='question', vote_type=previous_vote_type)
 
-                VoteService.cast_vote('question', str(self.question.question_id), new_vote_type, self.voter)
+                VoteService.cast_vote('question', str(self.question.question_id), next_vote_type, self.voter)
                 expected_reason = reward['reason'] if expected_tx_count else None
                 self._assert_reward_state(
                     target_type='question',
@@ -471,28 +478,23 @@ class ReputationVoteServiceTests(APITestCase):
         )
         self.assertFalse(Vote.objects.filter(user=self.voter).exists())
 
-    def test_solution_reputation_is_awarded_only_when_upvote_state_is_newly_introduced(self):
+    def test_solution_reputation_transitions_follow_m004_upvote_rules(self):
         reward = VoteService.REPUTATION_REWARDS['solution']
         cases = [
-            ('no_vote_to_up', [], Vote.VoteType.UPVOTE, reward['amount'], 1),
-            ('no_vote_to_down', [], Vote.VoteType.DOWNVOTE, 0, 0),
-            ('down_to_up', [Vote.VoteType.DOWNVOTE], Vote.VoteType.UPVOTE, reward['amount'], 1),
-            ('up_to_down', [Vote.VoteType.UPVOTE], Vote.VoteType.DOWNVOTE, 0, 0),
-            ('repeated_up', [Vote.VoteType.UPVOTE], Vote.VoteType.UPVOTE, 0, 0),
+            ('no_vote_to_up', None, Vote.VoteType.UPVOTE, reward['amount'], 1),
+            ('no_vote_to_down', None, Vote.VoteType.DOWNVOTE, 0, 0),
+            ('down_to_up', Vote.VoteType.DOWNVOTE, Vote.VoteType.UPVOTE, reward['amount'], 1),
+            ('up_to_down', Vote.VoteType.UPVOTE, Vote.VoteType.DOWNVOTE, 0, 0),
+            ('repeated_up', Vote.VoteType.UPVOTE, Vote.VoteType.UPVOTE, 0, 0),
         ]
 
-        for case_name, starting_votes, new_vote_type, expected_score, expected_tx_count in cases:
+        for case_name, previous_vote_type, next_vote_type, expected_score, expected_tx_count in cases:
             with self.subTest(case_name=case_name):
-                self._clear_votes_and_transactions()
-                for starting_vote in starting_votes:
-                    VoteService.cast_vote('solution', str(self.solution.solution_id), starting_vote, self.voter)
-                    Vote.objects.filter(user=self.voter).update(vote_type=starting_vote)
-                    ReputationTransaction.objects.all().delete()
-                    self.solution_author.refresh_from_db()
-                    self.solution_author.user_reputation_score = 0
-                    self.solution_author.save(update_fields=['user_reputation_score'])
+                self._reset_vote_reward_state()
+                if previous_vote_type is not None:
+                    self._seed_existing_vote(target_type='solution', vote_type=previous_vote_type)
 
-                VoteService.cast_vote('solution', str(self.solution.solution_id), new_vote_type, self.voter)
+                VoteService.cast_vote('solution', str(self.solution.solution_id), next_vote_type, self.voter)
                 expected_reason = reward['reason'] if expected_tx_count else None
                 self._assert_reward_state(
                     target_type='solution',
@@ -542,6 +544,171 @@ class ReputationVoteServiceTests(APITestCase):
         self.assertEqual(stats, {'upvotes': 1, 'downvotes': 1, 'score': 0})
         self.assertEqual(VoteService.get_vote_stats_fast(annotated_question, 'question'), stats)
         self.assertEqual(VoteService.get_user_vote_fast(annotated_question), Vote.VoteType.UPVOTE)
+
+
+class SolutionEditLifecycleTests(APITestCase):
+    def setUp(self):
+        self.question_author = CustomUser.objects.create_user(
+            user_email='solution-question-owner@example.com',
+            user_name='solution-question-owner',
+            password='password',
+        )
+        self.solution_author = CustomUser.objects.create_user(
+            user_email='solution-owner@example.com',
+            user_name='solution-owner',
+            password='password',
+        )
+        self.editor = CustomUser.objects.create_user(
+            user_email='solution-editor@example.com',
+            user_name='solution-editor',
+            password='password',
+        )
+        self.other_user = CustomUser.objects.create_user(
+            user_email='solution-other@example.com',
+            user_name='solution-other',
+            password='password',
+        )
+        self.question = Question.objects.create(
+            user=self.question_author,
+            question_title='Question for solution edits',
+            question_body='Need to review proposed solution changes.',
+        )
+        self.solution = Solution.objects.create(
+            user=self.solution_author,
+            question=self.question,
+            solution_body='Original solution body',
+        )
+
+    def test_solution_edit_approval_awards_reputation_once_with_source_reference(self):
+        self.client.force_authenticate(self.editor)
+        create_response = self.client.post(
+            '/solution_edits/',
+            {
+                'solution': str(self.solution.solution_id),
+                'solution_edit_body_after': 'Approved edit body',
+            },
+            format='json',
+        )
+
+        self.assertEqual(create_response.status_code, status.HTTP_201_CREATED, create_response.data)
+        solution_edit_id = create_response.data['solution_edit_id']
+        solution_edit = SolutionEdits.objects.get(solution_edit_id=solution_edit_id)
+        self.assertIsNone(solution_edit.solution_edit_is_approved)
+
+        self.client.force_authenticate(self.solution_author)
+        approve_response = self.client.patch(f'/solution_edits/approve/{solution_edit_id}/')
+
+        self.assertEqual(approve_response.status_code, status.HTTP_200_OK, approve_response.data)
+        self.assertEqual(approve_response.data, {'approved': True})
+        self.solution.refresh_from_db()
+        solution_edit.refresh_from_db()
+        self.editor.refresh_from_db()
+        self.assertTrue(solution_edit.solution_edit_is_approved)
+        self.assertEqual(self.solution.solution_body, 'Approved edit body')
+        self.assertEqual(self.editor.user_reputation_score, SolutionEditService.APPROVED_EDIT_REPUTATION_AWARD)
+
+        reputation_transaction = ReputationTransaction.objects.get(user=self.editor)
+        self.assertEqual(reputation_transaction.reputation_transaction_reason, ReputationTransaction.TransactionReason.APPROVED_EDIT)
+        self.assertEqual(reputation_transaction.reputation_transaction_amount, SolutionEditService.APPROVED_EDIT_REPUTATION_AWARD)
+        self.assertEqual(reputation_transaction.actor_id, self.solution_author.user_id)
+        self.assertEqual(reputation_transaction.content_type.model, 'solutionedits')
+        self.assertEqual(reputation_transaction.object_id, solution_edit.pk)
+
+    def test_solution_edit_rejection_does_not_mutate_content_or_reputation(self):
+        solution_edit = SolutionEdits.objects.create(
+            solution=self.solution,
+            user=self.editor,
+            solution_edit_body_before=self.solution.solution_body,
+            solution_edit_body_after='Rejected edit body',
+        )
+
+        self.client.force_authenticate(self.solution_author)
+        response = self.client.patch(f'/solution_edits/disapprove/{solution_edit.solution_edit_id}/')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual(response.data, {'approved': False})
+        self.solution.refresh_from_db()
+        solution_edit.refresh_from_db()
+        self.editor.refresh_from_db()
+        self.assertFalse(solution_edit.solution_edit_is_approved)
+        self.assertEqual(self.solution.solution_body, 'Original solution body')
+        self.assertEqual(self.editor.user_reputation_score, 0)
+        self.assertFalse(ReputationTransaction.objects.exists())
+
+    def test_solution_edit_cannot_be_reviewed_twice_or_by_non_author(self):
+        approved_edit = SolutionEdits.objects.create(
+            solution=self.solution,
+            user=self.editor,
+            solution_edit_body_before=self.solution.solution_body,
+            solution_edit_body_after='Approved once body',
+        )
+        SolutionEditService.change_approve(str(approved_edit.solution_edit_id), True, self.solution_author)
+
+        self.editor.refresh_from_db()
+        self.assertEqual(self.editor.user_reputation_score, SolutionEditService.APPROVED_EDIT_REPUTATION_AWARD)
+        self.assertEqual(ReputationTransaction.objects.filter(user=self.editor).count(), 1)
+
+        self.client.force_authenticate(self.solution_author)
+        repeated_response = self.client.patch(f'/solution_edits/disapprove/{approved_edit.solution_edit_id}/')
+        self.assertEqual(repeated_response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.editor.refresh_from_db()
+        self.assertEqual(self.editor.user_reputation_score, SolutionEditService.APPROVED_EDIT_REPUTATION_AWARD)
+        self.assertEqual(ReputationTransaction.objects.filter(user=self.editor).count(), 1)
+
+        pending_edit = SolutionEdits.objects.create(
+            solution=self.solution,
+            user=self.other_user,
+            solution_edit_body_before=self.solution.solution_body,
+            solution_edit_body_after='Pending body',
+        )
+        self.client.force_authenticate(self.other_user)
+        forbidden_response = self.client.patch(f'/solution_edits/approve/{pending_edit.solution_edit_id}/')
+        self.assertEqual(forbidden_response.status_code, status.HTTP_403_FORBIDDEN)
+        pending_edit.refresh_from_db()
+        self.assertIsNone(pending_edit.solution_edit_is_approved)
+        self.assertFalse(ReputationTransaction.objects.filter(user=self.other_user).exists())
+
+    def test_solution_edit_approval_rolls_back_if_ledger_write_fails(self):
+        solution_edit = SolutionEdits.objects.create(
+            solution=self.solution,
+            user=self.editor,
+            solution_edit_body_before=self.solution.solution_body,
+            solution_edit_body_after='Rollback body',
+        )
+
+        with patch(
+            'apps.qa.services.solution_edits_service.ReputationService.record_transaction',
+            side_effect=RuntimeError('ledger failed'),
+        ):
+            with self.assertRaisesMessage(RuntimeError, 'ledger failed'):
+                SolutionEditService.change_approve(str(solution_edit.solution_edit_id), True, self.solution_author)
+
+        self.solution.refresh_from_db()
+        solution_edit.refresh_from_db()
+        self.editor.refresh_from_db()
+        self.assertEqual(self.solution.solution_body, 'Original solution body')
+        self.assertIsNone(solution_edit.solution_edit_is_approved)
+        self.assertEqual(self.editor.user_reputation_score, 0)
+        self.assertFalse(ReputationTransaction.objects.exists())
+
+    def test_author_direct_solution_edit_does_not_create_reputation_reward(self):
+        self.client.force_authenticate(self.solution_author)
+        response = self.client.post(
+            '/solution_edits/',
+            {
+                'solution': str(self.solution.solution_id),
+                'solution_edit_body_after': 'Author direct edit body',
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.solution.refresh_from_db()
+        self.solution_author.refresh_from_db()
+        self.assertEqual(self.solution.solution_body, 'Author direct edit body')
+        self.assertEqual(self.solution_author.user_reputation_score, 0)
+        self.assertFalse(ReputationTransaction.objects.exists())
+        self.assertTrue(SolutionEdits.objects.get(solution_edit_id=response.data['solution_edit_id']).solution_edit_is_approved)
 
 
 class OpenApiSchemaTests(APITestCase):
@@ -659,6 +826,7 @@ class QuestionEditLifecycleTests(APITestCase):
         self.assertEqual(approve_response.status_code, status.HTTP_200_OK, approve_response.data)
         self.question.refresh_from_db()
         proposal.refresh_from_db()
+        self.editor.refresh_from_db()
         self.assertTrue(proposal.question_edit_is_approved)
         self.assertEqual(self.question.question_title, 'Proposed title')
         self.assertEqual(self.question.question_body, 'Proposed body')
@@ -671,6 +839,13 @@ class QuestionEditLifecycleTests(APITestCase):
             list(QuestionEditEvent.objects.filter(question=self.question).order_by('created_at').values_list('event_type', flat=True)),
             [QuestionEditEvent.EventType.PROPOSED, QuestionEditEvent.EventType.APPROVED],
         )
+        self.assertEqual(self.editor.user_reputation_score, QuestionEditService.APPROVED_EDIT_REPUTATION_AWARD)
+        reputation_transaction = ReputationTransaction.objects.get(user=self.editor)
+        self.assertEqual(reputation_transaction.reputation_transaction_reason, ReputationTransaction.TransactionReason.APPROVED_EDIT)
+        self.assertEqual(reputation_transaction.reputation_transaction_amount, QuestionEditService.APPROVED_EDIT_REPUTATION_AWARD)
+        self.assertEqual(reputation_transaction.actor_id, self.author.user_id)
+        self.assertEqual(reputation_transaction.content_type.model, 'questioneditproposal')
+        self.assertEqual(reputation_transaction.object_id, proposal.pk)
 
     def test_frontend_question_edits_routes_match_browser_contract(self):
         self.client.force_authenticate(self.editor)
@@ -725,10 +900,13 @@ class QuestionEditLifecycleTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
         proposal.refresh_from_db()
         self.question.refresh_from_db()
+        self.editor.refresh_from_db()
         self.assertFalse(proposal.question_edit_is_approved)
         self.assertEqual(self.question.question_title, 'Original title')
         self.assertEqual(set(self.question.tags.values_list('name', flat=True)), {'django'})
         self.assertFalse(QuestionRevision.objects.filter(proposal=proposal).exists())
+        self.assertEqual(self.editor.user_reputation_score, 0)
+        self.assertFalse(ReputationTransaction.objects.exists())
         self.assertEqual(
             list(QuestionEditEvent.objects.filter(question=self.question).order_by('created_at').values_list('event_type', flat=True)),
             [QuestionEditEvent.EventType.PROPOSED, QuestionEditEvent.EventType.REJECTED],
@@ -785,6 +963,46 @@ class QuestionEditLifecycleTests(APITestCase):
         response = self.client.patch(f'/question/reject_edit/{proposal.question_edit_id}/')
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.editor.refresh_from_db()
+        self.assertEqual(self.editor.user_reputation_score, QuestionEditService.APPROVED_EDIT_REPUTATION_AWARD)
+        self.assertEqual(ReputationTransaction.objects.filter(user=self.editor).count(), 1)
+
+    def test_approval_reputation_rolls_back_if_ledger_write_fails(self):
+        proposal = QuestionEditService.create_proposal(
+            question=self.question,
+            actor=self.editor,
+            payload=QuestionChangePayload(
+                title='Rollback title',
+                body='Rollback body',
+                tags=['rest'],
+            ),
+        )
+
+        with patch(
+            'apps.qa.services.question_edit_service.ReputationService.record_transaction',
+            side_effect=RuntimeError('ledger failed'),
+        ):
+            with self.assertRaisesMessage(RuntimeError, 'ledger failed'):
+                QuestionEditService.change_proposal_approval(
+                    proposal_id=str(proposal.question_edit_id),
+                    actor=self.author,
+                    approved=True,
+                )
+
+        proposal.refresh_from_db()
+        self.question.refresh_from_db()
+        self.editor.refresh_from_db()
+        self.assertIsNone(proposal.question_edit_is_approved)
+        self.assertEqual(self.question.question_title, 'Original title')
+        self.assertEqual(self.question.question_body, 'Original body')
+        self.assertEqual(set(self.question.tags.values_list('name', flat=True)), {'django'})
+        self.assertEqual(self.editor.user_reputation_score, 0)
+        self.assertFalse(ReputationTransaction.objects.exists())
+        self.assertFalse(QuestionRevision.objects.filter(proposal=proposal).exists())
+        self.assertEqual(
+            list(QuestionEditEvent.objects.filter(question=self.question).values_list('event_type', flat=True)),
+            [QuestionEditEvent.EventType.PROPOSED],
+        )
 
     def test_invalid_tags_reject_direct_edit_without_partial_apply(self):
         self.client.force_authenticate(self.author)
