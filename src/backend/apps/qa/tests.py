@@ -13,6 +13,7 @@ from apps.qa.models import (
     QuestionEditProposal,
     QuestionRevision,
     Solution,
+    SolutionEdits,
     Tag,
     Vote,
 )
@@ -26,8 +27,10 @@ from apps.qa.serializers import (
 )
 from apps.qa.services.question_edit_service import QuestionChangePayload, QuestionEditService
 from apps.qa.services.solution_edits_service import SolutionEditService
+from apps.qa.services.solution_service import BEST_SOLUTION_REPUTATION_AWARD, SolutionService
 from apps.qa.services.vote_service import VoteService
 from apps.user.models import CustomUser, ReputationTransaction
+from apps.user.services.reputation_service import ReputationService
 
 
 class QuestionTagModelTests(APITestCase):
@@ -544,6 +547,137 @@ class ReputationVoteServiceTests(APITestCase):
         self.assertEqual(stats, {'upvotes': 1, 'downvotes': 1, 'score': 0})
         self.assertEqual(VoteService.get_vote_stats_fast(annotated_question, 'question'), stats)
         self.assertEqual(VoteService.get_user_vote_fast(annotated_question), Vote.VoteType.UPVOTE)
+
+
+class ReputationIntegratedScoringRegressionTests(APITestCase):
+    def setUp(self):
+        self.receiver = CustomUser.objects.create_user(
+            user_email='integrated-receiver@example.com',
+            user_name='integrated-receiver',
+            password='password',
+        )
+        self.question_owner = CustomUser.objects.create_user(
+            user_email='integrated-question-owner@example.com',
+            user_name='integrated-question-owner',
+            password='password',
+        )
+        self.voter = CustomUser.objects.create_user(
+            user_email='integrated-voter@example.com',
+            user_name='integrated-voter',
+            password='password',
+        )
+        self.answer_target_question = Question.objects.create(
+            user=self.question_owner,
+            question_title='How should integrated scoring be tested?',
+            question_body='This question receives the best answer and approved edit events.',
+        )
+        self.receiver_solution = Solution.objects.create(
+            user=self.receiver,
+            question=self.answer_target_question,
+            solution_body='Integrated answer that should earn reputation.',
+        )
+        self.receiver_question = Question.objects.create(
+            user=self.receiver,
+            question_title='Question authored by the integrated receiver',
+            question_body='This question should earn upvote reputation.',
+        )
+
+    def test_mixed_m004_scoring_events_keep_score_progress_and_ledger_coherent(self):
+        proposal = QuestionEditService.create_proposal(
+            question=self.answer_target_question,
+            actor=self.receiver,
+            payload=QuestionChangePayload(
+                title='How should integrated scoring be regression tested?',
+                body='Approved edit body used by the integrated reputation test.',
+                tags=[],
+            ),
+        )
+
+        SolutionService.set_best_solution(self.receiver_solution, True, self.question_owner)
+        VoteService.cast_vote('solution', str(self.receiver_solution.solution_id), Vote.VoteType.UPVOTE, self.voter)
+        VoteService.cast_vote('question', str(self.receiver_question.question_id), Vote.VoteType.UPVOTE, self.voter)
+        QuestionEditService.change_proposal_approval(
+            proposal_id=str(proposal.question_edit_id),
+            actor=self.question_owner,
+            approved=True,
+        )
+
+        expected_score = (
+            BEST_SOLUTION_REPUTATION_AWARD
+            + VoteService.REPUTATION_REWARDS['solution']['amount']
+            + VoteService.REPUTATION_REWARDS['question']['amount']
+            + QuestionEditService.APPROVED_EDIT_REPUTATION_AWARD
+        )
+        self.receiver.refresh_from_db()
+        self.assertEqual(self.receiver.user_reputation_score, expected_score)
+
+        progress = ReputationService.get_progress(self.receiver)
+        self.assertEqual(progress['score'], expected_score)
+        self.assertEqual(progress['level'], CustomUser.ReputationLevel.PARTICIPANT)
+        self.assertEqual(progress['next_level'], CustomUser.ReputationLevel.EXPERT)
+        self.assertEqual(progress['points_to_next_level'], 100 - expected_score)
+        self.assertFalse(progress['is_manual_override'])
+
+        transactions = list(
+            ReputationTransaction.objects.filter(user=self.receiver).order_by('created_at')
+        )
+        self.assertEqual(
+            [
+                (
+                    transaction.reputation_transaction_reason,
+                    transaction.reputation_transaction_amount,
+                    transaction.content_type.model,
+                    transaction.object_id,
+                    transaction.actor_id,
+                )
+                for transaction in transactions
+            ],
+            [
+                (
+                    ReputationTransaction.TransactionReason.BEST_SOLUTION,
+                    BEST_SOLUTION_REPUTATION_AWARD,
+                    'solution',
+                    self.receiver_solution.pk,
+                    self.question_owner.user_id,
+                ),
+                (
+                    ReputationTransaction.TransactionReason.SOLUTION_UPVOTED,
+                    VoteService.REPUTATION_REWARDS['solution']['amount'],
+                    'solution',
+                    self.receiver_solution.pk,
+                    self.voter.user_id,
+                ),
+                (
+                    ReputationTransaction.TransactionReason.QUESTION_UPVOTED,
+                    VoteService.REPUTATION_REWARDS['question']['amount'],
+                    'question',
+                    self.receiver_question.pk,
+                    self.voter.user_id,
+                ),
+                (
+                    ReputationTransaction.TransactionReason.APPROVED_EDIT,
+                    QuestionEditService.APPROVED_EDIT_REPUTATION_AWARD,
+                    'questioneditproposal',
+                    proposal.pk,
+                    self.question_owner.user_id,
+                ),
+            ],
+        )
+
+        transaction_count = ReputationTransaction.objects.filter(user=self.receiver).count()
+        SolutionService.set_best_solution(self.receiver_solution, True, self.question_owner)
+        VoteService.cast_vote('solution', str(self.receiver_solution.solution_id), Vote.VoteType.UPVOTE, self.voter)
+        VoteService.cast_vote('question', str(self.receiver_question.question_id), Vote.VoteType.UPVOTE, self.voter)
+        with self.assertRaisesMessage(Exception, 'Правка вопроса уже была одобрена или отклонена'):
+            QuestionEditService.change_proposal_approval(
+                proposal_id=str(proposal.question_edit_id),
+                actor=self.question_owner,
+                approved=True,
+            )
+
+        self.receiver.refresh_from_db()
+        self.assertEqual(self.receiver.user_reputation_score, expected_score)
+        self.assertEqual(ReputationTransaction.objects.filter(user=self.receiver).count(), transaction_count)
 
 
 class SolutionEditLifecycleTests(APITestCase):
