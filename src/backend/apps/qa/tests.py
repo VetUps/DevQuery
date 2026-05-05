@@ -549,6 +549,132 @@ class ReputationVoteServiceTests(APITestCase):
         self.assertEqual(VoteService.get_user_vote_fast(annotated_question), Vote.VoteType.UPVOTE)
 
 
+class BestSolutionReputationTests(APITestCase):
+    def setUp(self):
+        self.question_owner = CustomUser.objects.create_user(
+            user_email='best-question-owner@example.com',
+            user_name='best-question-owner',
+            password='password',
+        )
+        self.first_author = CustomUser.objects.create_user(
+            user_email='best-first-author@example.com',
+            user_name='best-first-author',
+            password='password',
+        )
+        self.second_author = CustomUser.objects.create_user(
+            user_email='best-second-author@example.com',
+            user_name='best-second-author',
+            password='password',
+        )
+        self.outsider = CustomUser.objects.create_user(
+            user_email='best-outsider@example.com',
+            user_name='best-outsider',
+            password='password',
+        )
+        self.question = Question.objects.create(
+            user=self.question_owner,
+            question_title='Which answer should become the best solution?',
+            question_body='Need to verify reputation transitions for best-solution selection.',
+        )
+        self.first_solution = Solution.objects.create(
+            user=self.first_author,
+            question=self.question,
+            solution_body='First candidate answer.',
+        )
+        self.second_solution = Solution.objects.create(
+            user=self.second_author,
+            question=self.question,
+            solution_body='Second candidate answer.',
+        )
+
+    def assert_single_best_solution_reward(self, solution: Solution, author: CustomUser):
+        author.refresh_from_db()
+        self.assertEqual(author.user_reputation_score, BEST_SOLUTION_REPUTATION_AWARD)
+
+        transactions = list(ReputationTransaction.objects.filter(user=author))
+        self.assertEqual(len(transactions), 1)
+        self.assertEqual(transactions[0].reputation_transaction_reason, ReputationTransaction.TransactionReason.BEST_SOLUTION)
+        self.assertEqual(transactions[0].reputation_transaction_amount, BEST_SOLUTION_REPUTATION_AWARD)
+        self.assertEqual(transactions[0].actor_id, self.question_owner.user_id)
+        self.assertEqual(transactions[0].content_type.model, 'solution')
+        self.assertEqual(transactions[0].object_id, solution.pk)
+
+    def test_setting_best_solution_awards_reputation_once_with_source_reference(self):
+        SolutionService.set_best_solution(self.first_solution, True, self.question_owner)
+
+        self.first_solution.refresh_from_db()
+        self.question.refresh_from_db()
+
+        self.assertTrue(self.first_solution.solution_is_best)
+        self.assertEqual(self.question.question_status, Question.Status.SOLVED_STATUS)
+        self.assert_single_best_solution_reward(self.first_solution, self.first_author)
+
+    def test_repeating_best_solution_selection_is_idempotent_for_reputation(self):
+        SolutionService.set_best_solution(self.first_solution, True, self.question_owner)
+        SolutionService.set_best_solution(self.first_solution, True, self.question_owner)
+
+        self.assert_single_best_solution_reward(self.first_solution, self.first_author)
+
+    def test_unsetting_best_solution_does_not_create_reputation_transaction(self):
+        SolutionService.set_best_solution(self.first_solution, True, self.question_owner)
+        SolutionService.set_best_solution(self.first_solution, False, self.question_owner)
+
+        self.first_solution.refresh_from_db()
+        self.question.refresh_from_db()
+        self.first_author.refresh_from_db()
+
+        self.assertFalse(self.first_solution.solution_is_best)
+        self.assertEqual(self.question.question_status, Question.Status.OPEN_STATUS)
+        self.assertEqual(self.first_author.user_reputation_score, BEST_SOLUTION_REPUTATION_AWARD)
+        self.assertEqual(ReputationTransaction.objects.filter(user=self.first_author).count(), 1)
+
+    def test_switching_best_solution_rewards_new_author_without_double_awarding_previous_one(self):
+        SolutionService.set_best_solution(self.first_solution, True, self.question_owner)
+        SolutionService.set_best_solution(self.second_solution, True, self.question_owner)
+
+        self.first_solution.refresh_from_db()
+        self.second_solution.refresh_from_db()
+        self.question.refresh_from_db()
+        self.first_author.refresh_from_db()
+        self.second_author.refresh_from_db()
+
+        self.assertFalse(self.first_solution.solution_is_best)
+        self.assertTrue(self.second_solution.solution_is_best)
+        self.assertEqual(self.question.question_status, Question.Status.SOLVED_STATUS)
+        self.assertEqual(self.first_author.user_reputation_score, BEST_SOLUTION_REPUTATION_AWARD)
+        self.assertEqual(self.second_author.user_reputation_score, BEST_SOLUTION_REPUTATION_AWARD)
+        self.assertEqual(ReputationTransaction.objects.filter(user=self.first_author).count(), 1)
+        self.assertEqual(ReputationTransaction.objects.filter(user=self.second_author).count(), 1)
+
+    def test_unsetting_non_best_solution_keeps_question_solved_when_another_best_exists(self):
+        SolutionService.set_best_solution(self.first_solution, True, self.question_owner)
+        SolutionService.set_best_solution(self.second_solution, False, self.question_owner)
+
+        self.first_solution.refresh_from_db()
+        self.second_solution.refresh_from_db()
+        self.question.refresh_from_db()
+        self.second_author.refresh_from_db()
+
+        self.assertTrue(self.first_solution.solution_is_best)
+        self.assertFalse(self.second_solution.solution_is_best)
+        self.assertEqual(self.question.question_status, Question.Status.SOLVED_STATUS)
+        self.assertEqual(self.second_author.user_reputation_score, 0)
+        self.assertEqual(ReputationTransaction.objects.filter(user=self.second_author).count(), 0)
+
+    def test_non_author_attempt_rolls_back_best_solution_and_reputation_changes(self):
+        with self.assertRaisesMessage(PermissionDenied, 'Только автор вопроса может выбирать лучшее решение'):
+            SolutionService.set_best_solution(self.first_solution, True, self.outsider)
+
+        self.first_solution.refresh_from_db()
+        self.question.refresh_from_db()
+        self.first_author.refresh_from_db()
+
+        self.assertFalse(self.first_solution.solution_is_best)
+        self.assertEqual(self.question.question_status, Question.Status.OPEN_STATUS)
+        self.assertEqual(self.first_author.user_reputation_score, 0)
+        self.assertFalse(ReputationTransaction.objects.exists())
+
+
 class ReputationIntegratedScoringRegressionTests(APITestCase):
     def setUp(self):
         self.receiver = CustomUser.objects.create_user(

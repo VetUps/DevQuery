@@ -69,8 +69,9 @@ class SolutionService:
                 solution_is_best=True,
             ).exclude(solution_id=solution.solution_id).exists()
 
-            if not has_other_best_solution:
-                question.question_status = Question.Status.OPEN_STATUS
+            question.question_status = (
+                Question.Status.SOLVED_STATUS if has_other_best_solution else Question.Status.OPEN_STATUS
+            )
 
         solution.save(update_fields=['solution_is_best', 'solution_updated_at'])
         question.save(update_fields=['question_status', 'question_updated_at'])
