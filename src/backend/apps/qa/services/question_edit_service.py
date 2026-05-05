@@ -7,7 +7,8 @@ from django.db import transaction
 from django.db.models import F, QuerySet
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 
-from ...user.models import CustomUser
+from ...user.models import CustomUser, ReputationTransaction
+from ...user.services.reputation_service import ReputationService
 from ..models import Question, QuestionEditEvent, QuestionEditProposal, QuestionRevision, Tag
 from .question_tag_service import QuestionTagService
 
@@ -20,6 +21,8 @@ class QuestionChangePayload:
 
 
 class QuestionEditService:
+    APPROVED_EDIT_REPUTATION_AWARD = 2
+
     @staticmethod
     def _base_proposal_queryset() -> QuerySet[QuestionEditProposal]:
         return QuestionEditProposal.objects.select_related('question__user', 'author')
@@ -135,6 +138,14 @@ class QuestionEditService:
                 after_body=proposal.question.question_body,
                 after_tags=list(proposal.question_edit_tags_after),
                 proposal=proposal,
+            )
+            ReputationService.record_transaction(
+                user=proposal.author,
+                amount=QuestionEditService.APPROVED_EDIT_REPUTATION_AWARD,
+                reason=ReputationTransaction.TransactionReason.APPROVED_EDIT,
+                actor=actor,
+                source=proposal,
+                note='Награда за одобренную правку вопроса.',
             )
 
         proposal.question_edit_is_approved = approved
