@@ -7,13 +7,25 @@ from django.db.models.functions import Coalesce
 from rest_framework.exceptions import PermissionDenied, ValidationError, NotFound
 
 from ..models import Vote, Question, Solution
-from ...user.models import CustomUser
+from ...user.models import CustomUser, ReputationTransaction
+from ...user.services.reputation_service import ReputationService
 
 
 class VoteService:
     """
     Сервис для управления голосами
     """
+
+    REPUTATION_REWARDS = {
+        'question': {
+            'amount': 5,
+            'reason': ReputationTransaction.TransactionReason.QUESTION_UPVOTED,
+        },
+        'solution': {
+            'amount': 10,
+            'reason': ReputationTransaction.TransactionReason.SOLUTION_UPVOTED,
+        },
+    }
 
     @staticmethod
     def get_target_object(target_type: str, target_id: str) -> Question | Solution:
@@ -135,7 +147,45 @@ class VoteService:
             raise ValidationError('Неверный тип цели')
 
     @staticmethod
-    def cast_vote(target_type: str, target_id: str, vote_type: str, user: CustomUser) -> tuple[Vote, bool]:
+    def should_reward_upvote_transition(previous_vote_type: str | None, next_vote_type: str | None) -> bool:
+        """
+        Возвращает True, если переход впервые вводит состояние upvote.
+        M004 v1 начисляет репутацию только за новые upvote-переходы и
+        не выполняет списание при downvote/remove.
+        """
+        return previous_vote_type != Vote.VoteType.UPVOTE and next_vote_type == Vote.VoteType.UPVOTE
+
+    @classmethod
+    def award_upvote_reputation_if_needed(
+        cls,
+        *,
+        target_type: str,
+        target_object: Question | Solution,
+        previous_vote_type: str | None,
+        next_vote_type: str | None,
+        actor: CustomUser,
+    ) -> None:
+        if not cls.should_reward_upvote_transition(previous_vote_type, next_vote_type):
+            return
+
+        reward = cls.REPUTATION_REWARDS.get(target_type)
+        if reward is None:
+            return
+
+        ReputationService.record_transaction(
+            user=target_object.user,
+            amount=reward['amount'],
+            reason=reward['reason'],
+            actor=actor,
+            source=target_object,
+            note=(
+                f'M004 vote transition reward: {target_type} '
+                f'{previous_vote_type or "none"} -> {next_vote_type}'
+            ),
+        )
+
+    @classmethod
+    def cast_vote(cls, target_type: str, target_id: str, vote_type: str, user: CustomUser) -> tuple[Vote, bool]:
         """
         Поставить или изменить голос за объект.
         :param target_type: Тип цели ('question' или 'solution')
@@ -149,10 +199,10 @@ class VoteService:
         if vote_type not in [Vote.VoteType.UPVOTE, Vote.VoteType.DOWNVOTE]:
             raise ValidationError(f'Неверный тип голоса. Допустимые значения: {Vote.VoteType.UPVOTE}, {Vote.VoteType.DOWNVOTE}')
 
-        target_object = VoteService.get_target_object(target_type, target_id)
-        VoteService.validate_vote_permission(target_object, user)
+        target_object = cls.get_target_object(target_type, target_id)
+        cls.validate_vote_permission(target_object, user)
 
-        content_type = VoteService.get_content_type(target_type)
+        content_type = cls.get_content_type(target_type)
 
         # Проверяем существующий голос
         existing_vote = Vote.objects.filter(
@@ -161,10 +211,19 @@ class VoteService:
             object_id=target_id
         ).first()
 
+        previous_vote_type = existing_vote.vote_type if existing_vote else None
+
         if existing_vote:
             if existing_vote.vote_type != vote_type:
                 existing_vote.vote_type = vote_type
                 existing_vote.save(update_fields=['vote_type', 'updated_at'])
+            cls.award_upvote_reputation_if_needed(
+                target_type=target_type,
+                target_object=target_object,
+                previous_vote_type=previous_vote_type,
+                next_vote_type=existing_vote.vote_type,
+                actor=user,
+            )
             return existing_vote, False
 
         vote = Vote.objects.create(
@@ -172,6 +231,13 @@ class VoteService:
             content_type=content_type,
             object_id=target_id,
             vote_type=vote_type
+        )
+        cls.award_upvote_reputation_if_needed(
+            target_type=target_type,
+            target_object=target_object,
+            previous_vote_type=previous_vote_type,
+            next_vote_type=vote.vote_type,
+            actor=user,
         )
         return vote, True
 

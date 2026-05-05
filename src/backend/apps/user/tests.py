@@ -4,6 +4,7 @@ from rest_framework.test import APIClient
 
 from apps.user.models import CustomUser, ReputationLevelThreshold, ReputationTransaction
 from apps.user.serializers import PublicUserProfileSerializer, UserProfileSerializer, UserRegisterSerializer
+from apps.user.services.reputation_service import ReputationService
 
 
 class UserRegisterSerializerTests(TestCase):
@@ -104,6 +105,32 @@ class ReputationSerializerTests(TestCase):
             reputation_transaction_reason=reason,
             note='Visible admin explanation',
         )
+
+    def test_record_transaction_persists_source_reference_for_vote_backed_rewards(self):
+        target_user = CustomUser.objects.create_user(
+            user_email='rewarded@example.com',
+            user_name='rewarded_user',
+            password='password123',
+        )
+        question = target_user.question_set.create(
+            question_title='Question source',
+            question_body='Question source body',
+        )
+
+        transaction = ReputationService.record_transaction(
+            user=target_user,
+            amount=5,
+            reason=ReputationTransaction.TransactionReason.QUESTION_UPVOTED,
+            actor=self.actor,
+            source=question,
+            note='Vote transition reward',
+        )
+
+        target_user.refresh_from_db()
+        self.assertEqual(target_user.user_reputation_score, 5)
+        self.assertEqual(transaction.content_type.model, 'question')
+        self.assertEqual(transaction.object_id, question.pk)
+        self.assertEqual(transaction.actor, self.actor)
 
     def test_private_profile_includes_progress_override_and_bounded_ledger(self):
         for index in range(12):
