@@ -5,6 +5,7 @@ from django.db import IntegrityError, transaction
 from django.utils import timezone
 from drf_spectacular.generators import SchemaGenerator
 from rest_framework import status
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.test import APITestCase
 
 from apps.qa.models import (

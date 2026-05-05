@@ -190,12 +190,12 @@ class QuestionEditService:
     @staticmethod
     def event_history(question_id: str) -> QuerySet[QuestionEditEvent]:
         question = QuestionEditService.get_question(question_id)
-        return QuestionEditService._base_event_queryset().filter(question=question).order_by('-created_at')
+        return QuestionEditService._base_event_queryset().filter(question=question).order_by('created_at')
 
     @staticmethod
     def revision_history(question_id: str) -> QuerySet[QuestionRevision]:
         question = QuestionEditService.get_question(question_id)
-        return QuestionEditService._base_revision_queryset().filter(question=question).order_by('-created_at')
+        return QuestionEditService._base_revision_queryset().filter(question=question).order_by('created_at')
 
     @staticmethod
     def _assert_question_author(question: Question, actor: CustomUser) -> None:
