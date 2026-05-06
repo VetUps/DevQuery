@@ -18,17 +18,23 @@ const tags = defineModel<string[]>('tags', { required: true })
   <SurfacePanel
     class="discovery-search-reserve"
     variant="accent"
-    padding="lg"
+    padding="md"
     data-testid="discovery-search-reserve"
   >
-    <div class="discovery-search-reserve__copy">
-      <p class="discovery-search-reserve__eyebrow">Навигация по ленте</p>
-      <h1 class="discovery-search-reserve__title">Найдите вопрос по названию</h1>
+    <div class="discovery-search-reserve__header">
+      <div class="discovery-search-reserve__copy">
+        <p class="discovery-search-reserve__eyebrow">Навигация по ленте</p>
+        <h1 class="discovery-search-reserve__title">Найдите вопрос по названию</h1>
+      </div>
+
+      <p class="discovery-search-reserve__count">
+        <strong>{{ totalQuestions }}</strong> вопросов
+      </p>
     </div>
 
-    <div class="discovery-search-reserve__surface">
+    <div class="discovery-search-reserve__controls">
       <label class="discovery-search-reserve__field">
-        <Search :size="18" aria-hidden="true" />
+        <Search :size="17" aria-hidden="true" />
         <span class="discovery-search-reserve__visually-hidden">Поиск по названию вопроса</span>
         <input
           v-model="search"
@@ -41,8 +47,8 @@ const tags = defineModel<string[]>('tags', { required: true })
       </label>
 
       <label class="discovery-search-reserve__sort">
-        <ArrowDownUp :size="16" aria-hidden="true" />
-        <span>Сортировка</span>
+        <ArrowDownUp :size="15" aria-hidden="true" />
+        <span class="discovery-search-reserve__sort-label">Сортировка</span>
         <select
           v-model="ordering"
           class="discovery-search-reserve__select"
@@ -61,71 +67,99 @@ const tags = defineModel<string[]>('tags', { required: true })
         label="Фильтр по тегам"
       />
     </div>
-
-    <div class="discovery-search-reserve__footer">
-      <p class="discovery-search-reserve__count">
-        В ленте <strong>{{ totalQuestions }}</strong> вопросов.
-      </p>
-    </div>
   </SurfacePanel>
 </template>
 
 <style scoped>
 .discovery-search-reserve {
-  gap: var(--space-xl);
+  gap: var(--space-md);
 }
 
-.discovery-search-reserve__copy,
-.discovery-search-reserve__surface,
-.discovery-search-reserve__footer,
-.discovery-search-reserve__tag-filter {
-  display: grid;
+.discovery-search-reserve__header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
   gap: var(--space-md);
+}
+
+.discovery-search-reserve__copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
 }
 
 .discovery-search-reserve__eyebrow,
 .discovery-search-reserve__title,
-.discovery-search-reserve__description,
 .discovery-search-reserve__count {
   margin: 0;
 }
 
 .discovery-search-reserve__eyebrow {
   color: var(--color-accent);
-  font-size: 14px;
-  font-weight: 600;
-  letter-spacing: 0.1em;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.11em;
   text-transform: uppercase;
 }
 
-.discovery-search-reserve__description,
-.discovery-search-reserve__count {
-  color: var(--color-muted);
-  line-height: 1.65;
-}
-
 .discovery-search-reserve__title {
-  max-width: 18ch;
-  font-size: clamp(30px, 5vw, 42px);
-  line-height: 1.02;
-  letter-spacing: -0.04em;
+  font-size: clamp(21px, 2.4vw, 28px);
+  line-height: 1.08;
+  letter-spacing: -0.035em;
 }
 
-.discovery-search-reserve__surface {
+.discovery-search-reserve__count {
+  flex: 0 0 auto;
+  padding: 7px 11px;
+  border: 1px solid rgb(14 116 144 / 0.14);
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.54);
+  color: var(--color-muted);
+  font-size: 13px;
+  line-height: 1;
+}
+
+.discovery-search-reserve__count strong {
+  color: var(--color-text);
+}
+
+.discovery-search-reserve__controls {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) minmax(190px, 0.34fr);
   gap: var(--space-sm);
+}
+
+.discovery-search-reserve__field,
+.discovery-search-reserve__sort {
+  min-width: 0;
+  border: 1px solid rgb(207 198 180 / 0.86);
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.72);
+  color: var(--color-text);
 }
 
 .discovery-search-reserve__field {
   display: flex;
   align-items: center;
   gap: var(--space-sm);
-  min-width: 0;
-  min-height: 56px;
-  padding: 0 var(--space-lg);
-  border: 1px solid rgb(14 116 144 / 0.18);
-  border-radius: 999px;
-  background: rgb(255 255 255 / 0.86);
-  color: var(--color-text);
+  min-height: 44px;
+  padding: 0 var(--space-md);
+}
+
+.discovery-search-reserve__sort {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: 7px;
+  min-height: 44px;
+  padding: 0 12px;
+  font-size: 13px;
+}
+
+.discovery-search-reserve__sort-label {
+  color: var(--color-muted);
+  font-size: 12px;
+  line-height: 1;
 }
 
 .discovery-search-reserve__input,
@@ -143,24 +177,10 @@ const tags = defineModel<string[]>('tags', { required: true })
   color: var(--color-muted);
 }
 
-.discovery-search-reserve__sort {
-  display: inline-flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-sm);
-  min-width: 0;
-  min-height: 44px;
-  padding: 0 var(--space-md);
-  border: 1px solid rgb(207 198 180 / 0.88);
-  border-radius: 999px;
-  background: rgb(255 255 255 / 0.48);
-  color: var(--color-text);
-  font-size: 14px;
-}
-
 .discovery-search-reserve__select {
-  min-width: 150px;
+  grid-column: 1 / -1;
   cursor: pointer;
+  font-size: 13px;
 }
 
 .discovery-search-reserve__visually-hidden {
@@ -175,35 +195,24 @@ const tags = defineModel<string[]>('tags', { required: true })
 }
 
 .discovery-search-reserve__tag-filter {
-  padding: var(--space-lg);
-  border: 1px solid rgb(14 116 144 / 0.12);
-  border-radius: var(--radius-lg);
-  background: rgb(255 255 255 / 0.5);
-}
-
-.discovery-search-reserve__footer {
-  grid-template-columns: minmax(0, 1fr);
-  gap: var(--space-lg);
-}
-
-strong {
-  color: var(--color-text);
+  padding: var(--space-md);
+  border: 1px solid rgb(14 116 144 / 0.1);
+  border-radius: var(--radius-md);
+  background: rgb(255 255 255 / 0.42);
 }
 
 @media (width <= 760px) {
-  .discovery-search-reserve__title {
-    max-width: none;
+  .discovery-search-reserve__header {
+    align-items: stretch;
+    flex-direction: column;
   }
 
-  .discovery-search-reserve__footer {
+  .discovery-search-reserve__count {
+    align-self: flex-start;
+  }
+
+  .discovery-search-reserve__controls {
     grid-template-columns: 1fr;
-  }
-
-  .discovery-search-reserve__field {
-    flex-wrap: wrap;
-    align-items: center;
-    min-height: auto;
-    padding: var(--space-md) var(--space-lg);
   }
 }
 </style>
