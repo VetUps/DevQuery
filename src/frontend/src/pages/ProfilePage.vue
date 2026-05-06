@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { isAxiosError } from 'axios'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -13,6 +13,7 @@ import ReputationExplanationPanel from '@/features/users/components/ReputationEx
 import ReputationLedgerList from '@/features/users/components/ReputationLedgerList.vue'
 import AppShellLayout from '@/layouts/AppShellLayout.vue'
 import { formatLongDate } from '@/shared/libs/formatting'
+import AppDialog from '@/shared/ui/AppDialog.vue'
 import InlineFeedbackPanel from '@/shared/ui/InlineFeedbackPanel.vue'
 import SurfacePanel from '@/shared/ui/SurfacePanel.vue'
 
@@ -32,6 +33,7 @@ const route = useRoute()
 const router = useRouter()
 const sessionStore = useSessionStore()
 const profileQuery = useCurrentUserQuery()
+const isReputationDialogOpen = ref(false)
 
 watch(
   () => profileQuery.error.value,
@@ -79,6 +81,12 @@ const activeTab = computed<ProfileTab>(() => {
   const routeTab = String(route.query.tab ?? 'overview').trim()
 
   return isProfileTab(routeTab) ? routeTab : 'overview'
+})
+
+watch(activeTab, (tab) => {
+  if (tab !== 'overview') {
+    isReputationDialogOpen.value = false
+  }
 })
 
 async function setActiveTab(tab: ProfileTab) {
@@ -152,7 +160,16 @@ async function setActiveTab(tab: ProfileTab) {
               :reputation="reputation"
             />
 
-            <ReputationExplanationPanel :reputation="reputation" />
+            <div class="profile-page__reputation-actions">
+              <button
+                type="button"
+                class="profile-page__reputation-trigger"
+                data-testid="reputation-explanation-trigger"
+                @click="isReputationDialogOpen = true"
+              >
+                Как работает репутация
+              </button>
+            </div>
 
             <ReputationLedgerList
               class="profile-page__ledger"
@@ -170,6 +187,16 @@ async function setActiveTab(tab: ProfileTab) {
 
           <ProfileEditHistoryTab v-else />
         </SurfacePanel>
+
+        <AppDialog
+          :open="isReputationDialogOpen"
+          title="Как работает репутация"
+          description="Коротко о начислениях, уровнях доверия и истории изменений."
+          size="wide"
+          @close="isReputationDialogOpen = false"
+        >
+          <ReputationExplanationPanel :reputation="reputation" />
+        </AppDialog>
       </template>
     </section>
   </AppShellLayout>
@@ -268,6 +295,28 @@ async function setActiveTab(tab: ProfileTab) {
 .profile-page__grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-lg);
+}
+
+.profile-page__reputation-actions {
+  display: flex;
+  align-items: start;
+  justify-content: flex-start;
+}
+
+.profile-page__reputation-trigger {
+  min-height: 42px;
+  padding: 0 16px;
+  border: 1px solid rgb(14 116 144 / 0.22);
+  border-radius: 999px;
+  background: rgb(14 116 144 / 0.08);
+  color: var(--color-accent);
+  font-weight: 700;
+}
+
+.profile-page__reputation-trigger:hover,
+.profile-page__reputation-trigger:focus-visible {
+  border-color: rgb(14 116 144 / 0.38);
+  background: rgb(14 116 144 / 0.12);
 }
 
 .profile-page__ledger {

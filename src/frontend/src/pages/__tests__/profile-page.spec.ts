@@ -1,7 +1,7 @@
 import { ref } from 'vue'
-import { flushPromises, mount } from '@vue/test-utils'
+import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMemoryHistory, createRouter } from 'vue-router'
 
 import ProfilePage from '@/pages/ProfilePage.vue'
@@ -13,25 +13,27 @@ const profileState = {
   error: ref<unknown>(null),
 }
 
+const mountedWrappers: VueWrapper[] = []
+
 vi.mock('@/features/auth/queries/useCurrentUserQuery', () => ({
   useCurrentUserQuery: vi.fn(() => profileState),
 }))
 
 vi.mock('@/features/solutions/components/ProfileEditReviewQueue.vue', () => ({
   default: {
-    template: '<div data-testid="solution-review-workspace">Здесь появится очередь правок к вашим решениям.</div>',
+    template: '<div data-testid="solution-review-workspace">Очередь правок к вашим решениям готова к проверке.</div>',
   },
 }))
 
 vi.mock('@/features/questions/components/ProfileQuestionEditReviewQueue.vue', () => ({
   default: {
-    template: '<div data-testid="question-review-workspace">Здесь появится очередь правок к вашим вопросам.</div>',
+    template: '<div data-testid="question-review-workspace">Очередь правок к вашим вопросам готова к проверке.</div>',
   },
 }))
 
 vi.mock('@/features/solutions/components/ProfileEditHistoryTab.vue', () => ({
   default: {
-    template: '<div data-testid="history-workspace">Здесь будет история уже обработанных правок к вашим решениям.</div>',
+    template: '<div data-testid="history-workspace">История обработанных правок к вашим решениям доступна в профиле.</div>',
   },
 }))
 
@@ -61,6 +63,7 @@ async function mountProfilePage(initialQuery?: Record<string, string>) {
     },
   })
 
+  mountedWrappers.push(wrapper)
   await flushPromises()
 
   return { wrapper, router }
@@ -109,15 +112,51 @@ function buildProfile(overrides: Record<string, unknown> = {}) {
   }
 }
 
+function getDialog() {
+  return document.body.querySelector<HTMLElement>('[role="dialog"]')
+}
+
+function getExplanationPanel() {
+  return document.body.querySelector<HTMLElement>('[data-testid="reputation-explanation-panel"]')
+}
+
+async function openReputationDialog(wrapper: VueWrapper) {
+  await wrapper.get('[data-testid="reputation-explanation-trigger"]').trigger('click')
+  await flushPromises()
+}
+
+async function expectReputationDialogClosed(
+  routerQuery: Record<string, unknown>,
+  expectedQuery: Record<string, unknown> = {},
+) {
+  await flushPromises()
+
+  expect(getDialog()).toBeNull()
+  expect(getExplanationPanel()).toBeNull()
+  expect(document.body.style.overflow).toBe('')
+  expect(routerQuery).toEqual(expectedQuery)
+}
+
 describe('profile reputation surfaces', () => {
   beforeEach(() => {
+    document.body.innerHTML = ''
+    document.body.style.overflow = ''
     profileState.data.value = buildProfile()
     profileState.isPending.value = false
     profileState.isError.value = false
     profileState.error.value = null
   })
 
-  it('renders the reputation summary, explanation, and ledger together in the overview tab', async () => {
+  afterEach(() => {
+    while (mountedWrappers.length > 0) {
+      mountedWrappers.pop()?.unmount()
+    }
+
+    document.body.innerHTML = ''
+    document.body.style.overflow = ''
+  })
+
+  it('renders the reputation summary trigger and ledger in overview without inline explanation content', async () => {
     const { wrapper } = await mountProfilePage()
     const text = wrapper.text()
 
@@ -125,22 +164,19 @@ describe('profile reputation surfaces', () => {
     expect(text).toContain('128')
     expect(text).toContain('Мастер')
     expect(text).toContain('172')
-    expect(text).toContain('Как работает репутация')
-    expect(text).toContain('Лучшее решение+15')
-    expect(text).toContain('Голос за решение+10')
-    expect(text).toContain('Голос за вопрос+5')
-    expect(text).toContain('Одобренная правка+2')
-    expect(text).toContain('Эксперт100–299')
-    expect(text).toContain('Мастер300+')
-    expect(text).not.toContain('Новичок0–29')
-    expect(text).not.toContain('Участник30–99')
-    expect(text).toContain('Достижения и бейджи появятся позже')
+    expect(wrapper.get('[data-testid="reputation-explanation-trigger"]').text()).toContain('Как работает репутация')
+    expect(wrapper.find('[data-testid="reputation-explanation-panel"]').exists()).toBe(false)
+    expect(getDialog()).toBeNull()
+    expect(getExplanationPanel()).toBeNull()
+    expect(document.body.style.overflow).toBe('')
+    expect(text).not.toContain('За что начисляются очки')
+    expect(text).not.toContain('Уровни доверия')
     expect(text).toContain('Лучшее решение')
     expect(text).toContain('+15')
     expect(text).toContain('Ваш ответ выбрали лучшим решением.')
   })
 
-  it('renders backend-provided threshold bands in the explanation panel when profile fixtures change', async () => {
+  it('opens the real AppDialog with scoring rules and backend-provided threshold bands', async () => {
     profileState.data.value = buildProfile({
       user_reputation_score: 165,
       reputation: {
@@ -157,13 +193,68 @@ describe('profile reputation surfaces', () => {
       },
     })
 
-    const { wrapper } = await mountProfilePage()
-    const explanation = wrapper.get('[data-testid="reputation-explanation-panel"]').text()
+    const { wrapper, router } = await mountProfilePage()
 
-    expect(explanation).toContain('Эксперт150–449')
-    expect(explanation).toContain('Мастер450+')
-    expect(explanation).not.toContain('Эксперт100–299')
-    expect(explanation).not.toContain('Мастер300+')
+    expect(getDialog()).toBeNull()
+    expect(getExplanationPanel()).toBeNull()
+
+    await openReputationDialog(wrapper)
+
+    const dialog = getDialog()
+    const explanation = getExplanationPanel()
+
+    expect(dialog).not.toBeNull()
+    expect(dialog?.getAttribute('aria-label')).toBe('Как работает репутация')
+    expect(explanation).not.toBeNull()
+    expect(document.body.style.overflow).toBe('hidden')
+    expect(explanation?.textContent).toContain('Лучшее решение+15')
+    expect(explanation?.textContent).toContain('Голос за решение+10')
+    expect(explanation?.textContent).toContain('Голос за вопрос+5')
+    expect(explanation?.textContent).toContain('Одобренная правка+2')
+    expect(explanation?.textContent).toContain('Эксперт150–449')
+    expect(explanation?.textContent).toContain('Мастер450+')
+    expect(explanation?.textContent).not.toContain('Эксперт100–299')
+    expect(explanation?.textContent).not.toContain('Мастер300+')
+    expect(router.currentRoute.value.query).toEqual({})
+  })
+
+  it('closes the reputation dialog with the AppDialog close button without disrupting the overview route', async () => {
+    const { wrapper, router } = await mountProfilePage()
+
+    await openReputationDialog(wrapper)
+    expect(getDialog()).not.toBeNull()
+    expect(document.body.style.overflow).toBe('hidden')
+
+    document.body.querySelector<HTMLButtonElement>('.app-dialog__close')?.click()
+
+    await expectReputationDialogClosed(router.currentRoute.value.query)
+    expect(wrapper.get('[data-testid="reputation-explanation-trigger"]').exists()).toBe(true)
+  })
+
+  it('closes the reputation dialog with an overlay self-click without disrupting the overview route', async () => {
+    const { wrapper, router } = await mountProfilePage()
+
+    await openReputationDialog(wrapper)
+    expect(getDialog()).not.toBeNull()
+    expect(document.body.style.overflow).toBe('hidden')
+
+    document.body.querySelector<HTMLElement>('.app-dialog')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+
+    await expectReputationDialogClosed(router.currentRoute.value.query)
+  })
+
+  it('closes the reputation dialog and clears the body lock when switching away from overview', async () => {
+    const { wrapper, router } = await mountProfilePage()
+
+    await openReputationDialog(wrapper)
+    expect(getDialog()).not.toBeNull()
+    expect(document.body.style.overflow).toBe('hidden')
+
+    await wrapper.get('[data-testid="profile-tab-review"]').trigger('click')
+    await flushPromises()
+
+    await expectReputationDialogClosed(router.currentRoute.value.query, { tab: 'review' })
+    expect(wrapper.text()).toContain('Очередь правок к вашим решениям готова к проверке.')
   })
 
   it('renders a localized loading state for the full profile shell', async () => {
@@ -207,8 +298,10 @@ describe('profile reputation surfaces', () => {
     const { wrapper, router } = await mountProfilePage({ tab: 'review' })
 
     expect(router.currentRoute.value.query.tab).toBe('review')
-    expect(wrapper.text()).toContain('Здесь появится очередь правок к вашим решениям.')
-    expect(wrapper.text()).toContain('Здесь появится очередь правок к вашим вопросам.')
+    expect(wrapper.text()).toContain('Очередь правок к вашим решениям готова к проверке.')
+    expect(wrapper.text()).toContain('Очередь правок к вашим вопросам готова к проверке.')
+    expect(getDialog()).toBeNull()
+    expect(getExplanationPanel()).toBeNull()
   })
 
   it('updates the route when switching tabs from the shell', async () => {
@@ -218,6 +311,6 @@ describe('profile reputation surfaces', () => {
     await flushPromises()
 
     expect(router.currentRoute.value.query.tab).toBe('history')
-    expect(wrapper.text()).toContain('Здесь будет история уже обработанных правок к вашим решениям.')
+    expect(wrapper.text()).toContain('История обработанных правок к вашим решениям доступна в профиле.')
   })
 })
