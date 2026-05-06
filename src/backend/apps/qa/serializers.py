@@ -24,6 +24,7 @@ from .models import (
 from .services.question_edit_service import QuestionChangePayload, QuestionEditService
 from .services.question_protection_service import QuestionProtectionService
 from .services.question_tag_service import QuestionTagService
+from .services.vote_service import VoteService
 
 
 MAX_QUESTION_TAGS = 5

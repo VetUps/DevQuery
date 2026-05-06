@@ -1,9 +1,11 @@
-from django.db import models
+from datetime import timedelta
+import uuid
+
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
-
-import uuid
+from django.core.exceptions import ValidationError
+from django.db import models
 
 class CustomUserManager(BaseUserManager):
     def create_user(self, user_email, user_name, password, **extra_fields):
@@ -150,8 +152,45 @@ class ReputationLevelThreshold(models.Model):
             models.Index(fields=['is_active', 'minimum_score'], name='rep_threshold_active_score_idx'),
         ]
 
+    def clean(self):
+        if self.level == CustomUser.ReputationLevel.NEWCOMER and self.minimum_score != 0:
+            raise ValidationError({'minimum_score': 'Порог уровня newcomer должен начинаться с 0.'})
+
     def __str__(self):
         return f'{self.get_level_display()} ({self.minimum_score})'
+
+
+class ReputationPolicyConfig(models.Model):
+    singleton_key = models.CharField(max_length=32, default='default', unique=True, editable=False)
+    protected_newcomer_window_hours = models.PositiveIntegerField(
+        default=12,
+        help_text='Длительность protected-window для вопросов новичков в часах.',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'reputation_policy_config'
+        verbose_name = 'Reputation policy config'
+        verbose_name_plural = 'Reputation policy config'
+
+    def clean(self):
+        if self.protected_newcomer_window_hours <= 0:
+            raise ValidationError(
+                {'protected_newcomer_window_hours': 'Защитное окно должно быть положительным количеством часов.'}
+            )
+
+    @property
+    def protected_newcomer_window(self) -> timedelta:
+        return timedelta(hours=self.protected_newcomer_window_hours)
+
+    def save(self, *args, **kwargs):
+        self.singleton_key = 'default'
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f'Protected newcomer window: {self.protected_newcomer_window_hours}h'
 
 
 class ReputationTransaction(models.Model):

@@ -32,7 +32,7 @@ from apps.qa.services.solution_edits_service import SolutionEditService
 from apps.qa.services.solution_service import BEST_SOLUTION_REPUTATION_AWARD, SolutionService
 from apps.qa.services.vote_service import VoteService
 from apps.qa.services.question_protection_service import QuestionProtectionService
-from apps.user.models import CustomUser, ReputationTransaction
+from apps.user.models import CustomUser, ReputationPolicyConfig, ReputationTransaction
 from apps.user.services.reputation_service import ReputationService
 
 
@@ -117,6 +117,7 @@ class QuestionProtectionServiceTests(APITestCase):
         self.assertIsNotNone(state.protected_until)
 
     def test_newcomer_question_is_not_protected_at_window_boundary(self):
+        ReputationPolicyConfig.objects.create(protected_newcomer_window_hours=12)
         created_at = timezone.now() - timedelta(hours=12)
         question = self.create_question(author=self.newcomer_author, created_at=created_at)
 
@@ -135,6 +136,17 @@ class QuestionProtectionServiceTests(APITestCase):
         self.assertFalse(state.is_protected)
         self.assertEqual(state.reason_code, QuestionProtectionService.NOT_PROTECTED)
         self.assertIsNone(state.protected_until)
+
+    def test_newcomer_question_uses_updated_protected_window_config(self):
+        ReputationPolicyConfig.objects.create(protected_newcomer_window_hours=24)
+        created_at = timezone.now() - timedelta(hours=23, minutes=59, seconds=59)
+        question = self.create_question(author=self.newcomer_author, created_at=created_at)
+
+        state = QuestionProtectionService.get_protection_state(question)
+
+        self.assertTrue(state.is_protected)
+        self.assertEqual(state.reason_code, QuestionProtectionService.PROTECTED_NEWCOMER)
+        self.assertIsNotNone(state.protected_until)
 
     def test_non_newcomer_authors_do_not_trigger_protection(self):
         for author in [self.participant_author, self.expert_author, self.master_author]:

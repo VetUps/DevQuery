@@ -1,15 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import timedelta
 
 from django.utils import timezone
 
 from apps.qa.models import Question
 from apps.user.models import CustomUser
 from apps.user.services.reputation_service import ReputationService
-
-PROTECTED_NEWCOMER_WINDOW = timedelta(hours=12)
 
 
 @dataclass(frozen=True)
@@ -59,7 +56,7 @@ class QuestionProtectionService:
     @classmethod
     def get_protection_state(cls, question: Question) -> QuestionProtectionState:
         author = question.user
-        protected_until = question.question_created_at + PROTECTED_NEWCOMER_WINDOW
+        protected_until = question.question_created_at + ReputationService.get_protected_newcomer_window()
 
         if author is None:
             return QuestionProtectionState(
