@@ -63,53 +63,69 @@ async function goToNextPage() {
 </script>
 
 <template>
-  <nav class="question-list-pagination" aria-label="Пагинация вопросов">
+  <nav
+    class="question-list-pagination"
+    aria-label="Пагинация вопросов"
+    data-testid="question-list-pagination"
+  >
     <AppButton
-      variant="secondary"
+      class="question-list-pagination__control"
+      variant="ghost"
+      size="compact"
+      aria-label="Предыдущая страница"
       :disabled="!hasPreviousPage || isBusy"
       @click="goToPreviousPage"
     >
-      Предыдущая страница
+      <span aria-hidden="true">‹</span>
     </AppButton>
 
-    <p class="question-list-pagination__label">
-      <span>Страница {{ page }}</span>
+    <p class="question-list-pagination__label" :aria-label="`Текущая страница ${page}`">
+      {{ page }}
     </p>
 
     <AppButton
-      variant="secondary"
+      class="question-list-pagination__control"
+      variant="ghost"
+      size="compact"
+      aria-label="Следующая страница"
       :disabled="!hasNextPage || isBusy"
       @click="goToNextPage"
     >
-      Следующая страница
+      <span aria-hidden="true">›</span>
     </AppButton>
   </nav>
 </template>
 
 <style scoped>
 .question-list-pagination {
-  display: flex;
-  flex-wrap: wrap;
+  display: inline-flex;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--space-md);
-  padding: var(--space-lg);
-  border: 1px solid rgb(207 198 180 / 0.72);
-  border-radius: var(--radius-lg);
-  background: rgb(255 255 255 / 0.58);
+  justify-content: center;
+  gap: var(--space-sm);
+  width: 100%;
+  padding-block: var(--space-sm);
+  color: var(--color-muted);
+}
+
+.question-list-pagination__control {
+  min-width: 40px;
+  padding-inline: var(--space-sm);
+  font-size: 1.35rem;
+  line-height: 1;
 }
 
 .question-list-pagination__label {
-  display: grid;
-  gap: 2px;
+  min-width: 2.25rem;
   margin: 0;
-  color: var(--color-muted);
+  color: var(--color-text);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
   text-align: center;
 }
 
 @media (width <= 640px) {
   .question-list-pagination {
-    justify-content: center;
+    gap: var(--space-xs);
   }
 }
 </style>

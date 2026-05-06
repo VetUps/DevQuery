@@ -1,7 +1,10 @@
 <script setup lang="ts">
+type AppButtonSize = 'regular' | 'compact'
+
 interface Props {
   type?: 'button' | 'submit' | 'reset'
   variant?: 'primary' | 'secondary' | 'ghost'
+  size?: AppButtonSize
   disabled?: boolean
   block?: boolean
 }
@@ -9,6 +12,7 @@ interface Props {
 withDefaults(defineProps<Props>(), {
   type: 'button',
   variant: 'primary',
+  size: 'regular',
   disabled: false,
   block: false,
 })
@@ -17,7 +21,7 @@ withDefaults(defineProps<Props>(), {
 <template>
   <button
     class="app-button"
-    :class="[`app-button--${variant}`, { 'app-button--block': block }]"
+    :class="[`app-button--${variant}`, `app-button--${size}`, { 'app-button--block': block }]"
     :type="type"
     :disabled="disabled"
   >
@@ -31,8 +35,6 @@ withDefaults(defineProps<Props>(), {
   align-items: center;
   justify-content: center;
   gap: var(--space-sm);
-  min-height: 44px;
-  padding: 0 var(--space-lg);
   border: 1px solid transparent;
   border-radius: 999px;
   font-weight: 600;
@@ -41,6 +43,16 @@ withDefaults(defineProps<Props>(), {
     border-color 0.2s ease,
     color 0.2s ease,
     opacity 0.2s ease;
+}
+
+.app-button--regular {
+  min-height: 44px;
+  padding: 0 var(--space-lg);
+}
+
+.app-button--compact {
+  min-height: 40px;
+  padding: 0 var(--space-md);
 }
 
 .app-button--block {

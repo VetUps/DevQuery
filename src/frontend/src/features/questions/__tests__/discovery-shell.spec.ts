@@ -1,6 +1,6 @@
 import { ref } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
-import { flushPromises, mount } from '@vue/test-utils'
+import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMemoryHistory, createRouter } from 'vue-router'
 
@@ -76,13 +76,27 @@ async function mountHomePage(options: { authenticated?: boolean } = {}) {
   return { wrapper }
 }
 
-function collectLinks(wrapper: ReturnType<typeof mount>) {
+function collectLinks(wrapper: VueWrapper) {
   return wrapper
     .findAll('a')
     .map((link) => ({
       text: link.text(),
       href: link.attributes('href') ?? '',
     }))
+}
+
+function expectDiscoveryOnlySidebar(wrapper: VueWrapper) {
+  const sidebar = wrapper.get('[data-testid="home-discovery-sidebar"]')
+  const sidebarText = sidebar.text()
+
+  expect(sidebarText).toContain('Публичная лента')
+  expect(sidebarText).toContain('Читать, а потом отвечать')
+  expect(sidebarText).toContain('Сейчас в ленте 12 вопросов')
+  expect(sidebarText).not.toContain('Быстрый вход')
+  expect(sidebarText).not.toContain('Задать вопрос')
+  expect(sidebarText).not.toContain('Создать аккаунт')
+  expect(sidebarText).not.toContain('Войти')
+  expect(sidebar.findAll('a')).toHaveLength(0)
 }
 
 describe('discovery shell polish', () => {
@@ -110,19 +124,21 @@ describe('discovery shell polish', () => {
     expect(wrapper.get('[data-testid="question-ordering-select"]').text()).toContain('Сначала новые')
   })
 
-  it('keeps guest ask-question entry pointed at registration', async () => {
+  it('keeps guest ask-question entry in the header while the sidebar stays discovery-only', async () => {
     const { wrapper } = await mountHomePage()
     const links = collectLinks(wrapper)
 
+    expectDiscoveryOnlySidebar(wrapper)
     expect(
       links.some((link) => link.text.includes('Задать вопрос') && link.href === '/register'),
     ).toBe(true)
   })
 
-  it('switches ask-question entry to the authoring route for authenticated users', async () => {
+  it('keeps authenticated ask-question entry in the header while the sidebar stays discovery-only', async () => {
     const { wrapper } = await mountHomePage({ authenticated: true })
     const links = collectLinks(wrapper)
 
+    expectDiscoveryOnlySidebar(wrapper)
     expect(
       links.some((link) => link.text.includes('Задать вопрос') && link.href === '/questions/ask'),
     ).toBe(true)

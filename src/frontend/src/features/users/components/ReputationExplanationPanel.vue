@@ -66,7 +66,7 @@ const levelThresholds = computed(() => {
       <p class="reputation-explanation-panel__eyebrow">Как работает репутация</p>
       <h2 class="reputation-explanation-panel__title">Репутация растёт за полезный вклад в сообщество</h2>
       <p class="reputation-explanation-panel__copy">
-        Счёт показывает доверие к участнику и объясняет, почему доступны уровни и будущие ограничения действий.
+        Счёт показывает доверие к участнику: чем полезнее вклад, тем выше уровень и заметнее история участия.
       </p>
     </header>
 
@@ -101,7 +101,7 @@ const levelThresholds = computed(() => {
     </div>
 
     <p class="reputation-explanation-panel__note">
-      Достижения и бейджи появятся позже: в M004 этот блок показывает только репутацию, уровни и историю изменений.
+      История репутации помогает понять, какие действия уже повлияли на счёт и сколько очков осталось до следующего уровня.
     </p>
   </SurfacePanel>
 </template>

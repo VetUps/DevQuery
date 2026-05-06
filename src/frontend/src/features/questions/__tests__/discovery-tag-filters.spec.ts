@@ -159,7 +159,7 @@ describe('discovery tag filters', () => {
     })
   })
 
-  it('preserves and normalizes repeated tag params when paginating', async () => {
+  it('preserves search, ordering, and normalized repeated tag params when paginating forward', async () => {
     queryState.data.value = {
       count: 30,
       next: 'http://api.example.test/question/?page=3',
@@ -167,17 +167,50 @@ describe('discovery tag filters', () => {
       results: [],
     }
 
-    const { wrapper, router } = await mountHomePage('/?tag=Vue&tag=vue&tag=django&page=2&search=serializer')
+    const { wrapper, router } = await mountHomePage('/?tag=Vue&tag=&tag=vue&tag=DJANGO&page=2&search=serializer&ordering=question_created_at')
 
-    await wrapper.get('.question-list-pagination button:last-child').trigger('click')
+    await wrapper.get('button[aria-label="Следующая страница"]').trigger('click')
     await flushPromises()
 
     expect(router.currentRoute.value.query).toEqual({
       tag: ['vue', 'django'],
       page: '3',
       search: 'serializer',
+      ordering: 'question_created_at',
     })
-    expect(latestListParams()).toMatchObject({ tags: ['vue', 'django'], page: 3 })
+    expect(latestListParams()).toMatchObject({
+      tags: ['vue', 'django'],
+      page: 3,
+      search: 'serializer',
+      ordering: 'question_created_at',
+    })
+  })
+
+  it('removes page while preserving search, ordering, and repeated tags when paginating back to page one', async () => {
+    queryState.data.value = {
+      count: 30,
+      next: 'http://api.example.test/question/?page=3',
+      previous: 'http://api.example.test/question/?page=1',
+      results: [],
+    }
+
+    const { wrapper, router } = await mountHomePage('/?tag=Vue&tag=&tag=vue&tag=DJANGO&page=2&search=serializer&ordering=question_created_at')
+
+    await wrapper.get('button[aria-label="Предыдущая страница"]').trigger('click')
+    await flushPromises()
+
+    expect(router.currentRoute.value.query).toEqual({
+      tag: ['vue', 'django'],
+      search: 'serializer',
+      ordering: 'question_created_at',
+    })
+    expect(router.currentRoute.value.query.page).toBeUndefined()
+    expect(latestListParams()).toMatchObject({
+      tags: ['vue', 'django'],
+      page: 1,
+      search: 'serializer',
+      ordering: 'question_created_at',
+    })
   })
 
   it('keeps active filters visible and retryable when the list query errors', async () => {
