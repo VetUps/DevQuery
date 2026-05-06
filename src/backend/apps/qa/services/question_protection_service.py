@@ -6,7 +6,7 @@ from django.utils import timezone
 
 from apps.qa.models import Question
 from apps.user.models import CustomUser
-from apps.user.services.reputation_service import ReputationService
+from apps.user.services.reputation_service import ReputationService, ResolvedReputationLevel
 
 
 @dataclass(frozen=True)
@@ -20,6 +20,7 @@ class ProtectionProgress:
 class QuestionProtectionState:
     is_protected: bool
     author_level: str | None
+    author_level_label: str | None
     protected_until: timezone.datetime | None
     reason_code: str
     progress: ProtectionProgress
@@ -56,32 +57,28 @@ class QuestionProtectionService:
     @classmethod
     def get_protection_state(cls, question: Question) -> QuestionProtectionState:
         author = question.user
-        protected_until = question.question_created_at + ReputationService.get_protected_newcomer_window()
-
         if author is None:
             return QuestionProtectionState(
                 is_protected=False,
                 author_level=None,
+                author_level_label=None,
                 protected_until=None,
                 reason_code=cls.PROTECTED_MISSING_AUTHOR,
                 progress=ProtectionProgress(),
             )
 
-        author_progress = ReputationService.get_progress(author)
-        author_level = author_progress['level']
+        author_resolution = ReputationService.resolve_level(user=author)
+        protected_until = question.question_created_at + ReputationService.get_protected_newcomer_window()
         is_within_window = timezone.now() < protected_until
-        is_protected = author_level == CustomUser.ReputationLevel.NEWCOMER and is_within_window
+        is_protected = author_resolution.value == CustomUser.ReputationLevel.NEWCOMER and is_within_window
 
         return QuestionProtectionState(
             is_protected=is_protected,
-            author_level=author_level,
+            author_level=author_resolution.value,
+            author_level_label=author_resolution.label,
             protected_until=protected_until if is_protected else None,
             reason_code=cls.PROTECTED_NEWCOMER if is_protected else cls.NOT_PROTECTED,
-            progress=ProtectionProgress(
-                points_to_next_level=author_progress.get('points_to_next_level'),
-                next_level=author_progress.get('next_level'),
-                next_level_label=author_progress.get('next_level_label'),
-            ),
+            progress=cls._build_progress(author),
         )
 
     @classmethod
@@ -91,7 +88,7 @@ class QuestionProtectionService:
             return cls._build_decision(
                 allowed=True,
                 reason_code=cls.ANSWER_ALLOWED,
-                viewer=viewer,
+                viewer=None,
                 protected_until=None,
             )
 
@@ -103,14 +100,13 @@ class QuestionProtectionService:
                 protected_until=state.protected_until,
             )
 
-        viewer_progress = ReputationService.get_progress(viewer)
-        viewer_level = viewer_progress['level']
-        if cls._is_level_at_least(viewer_level, cls.ANSWER_REQUIRED_LEVEL):
+        viewer_resolution = ReputationService.resolve_level(user=viewer)
+        if cls._is_level_at_least(viewer_resolution.value, cls.ANSWER_REQUIRED_LEVEL):
             return cls._build_decision(
                 allowed=True,
                 reason_code=cls.ANSWER_ALLOWED,
                 viewer=viewer,
-                viewer_progress=viewer_progress,
+                viewer_resolution=viewer_resolution,
                 protected_until=state.protected_until,
             )
 
@@ -118,7 +114,7 @@ class QuestionProtectionService:
             allowed=False,
             reason_code=cls.ANSWER_BLOCKED_INSUFFICIENT_LEVEL,
             viewer=viewer,
-            viewer_progress=viewer_progress,
+            viewer_resolution=viewer_resolution,
             protected_until=state.protected_until,
         )
 
@@ -129,19 +125,28 @@ class QuestionProtectionService:
             return cls._build_decision(
                 allowed=True,
                 reason_code=cls.DOWNVOTE_ALLOWED,
-                viewer=viewer,
+                viewer=None,
                 protected_until=None,
                 required_level=None,
             )
 
-        viewer_progress = ReputationService.get_progress(viewer) if viewer is not None else None
+        viewer_resolution = ReputationService.resolve_level(user=viewer) if viewer is not None else None
         return cls._build_decision(
             allowed=False,
             reason_code=cls.DOWNVOTE_BLOCKED_PROTECTED,
             viewer=viewer,
-            viewer_progress=viewer_progress,
+            viewer_resolution=viewer_resolution,
             protected_until=state.protected_until,
             required_level=None,
+        )
+
+    @classmethod
+    def _build_progress(cls, user: CustomUser) -> ProtectionProgress:
+        progress = ReputationService.get_progress(user)
+        return ProtectionProgress(
+            points_to_next_level=progress.get('points_to_next_level'),
+            next_level=progress.get('next_level'),
+            next_level_label=progress.get('next_level_label'),
         )
 
     @classmethod
@@ -151,18 +156,19 @@ class QuestionProtectionService:
         allowed: bool,
         reason_code: str,
         viewer: CustomUser | None,
-        viewer_progress: dict | None = None,
+        viewer_resolution: ResolvedReputationLevel | None = None,
         protected_until,
         required_level: str | None = ANSWER_REQUIRED_LEVEL,
     ) -> ProtectionDecision:
-        if viewer is not None and viewer_progress is None:
-            viewer_progress = ReputationService.get_progress(viewer)
+        viewer_progress = ReputationService.get_progress(viewer) if viewer is not None else None
+        if viewer is not None and viewer_resolution is None:
+            viewer_resolution = ReputationService.resolve_level(user=viewer)
 
         required_level_label = (
             CustomUser.ReputationLevel(required_level).label if required_level is not None else None
         )
-        viewer_level = viewer_progress.get('level') if viewer_progress else None
-        viewer_level_label = viewer_progress.get('level_label') if viewer_progress else None
+        viewer_level = viewer_resolution.value if viewer_resolution else None
+        viewer_level_label = viewer_resolution.label if viewer_resolution else None
 
         return ProtectionDecision(
             allowed=allowed,
