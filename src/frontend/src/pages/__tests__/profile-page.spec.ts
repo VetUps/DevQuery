@@ -117,7 +117,7 @@ describe('profile reputation surfaces', () => {
     profileState.error.value = null
   })
 
-  it('renders the reputation summary and ledger in the overview tab', async () => {
+  it('renders the reputation summary, explanation, and ledger together in the overview tab', async () => {
     const { wrapper } = await mountProfilePage()
     const text = wrapper.text()
 
@@ -125,6 +125,16 @@ describe('profile reputation surfaces', () => {
     expect(text).toContain('128')
     expect(text).toContain('Мастер')
     expect(text).toContain('172')
+    expect(text).toContain('Как работает репутация')
+    expect(text).toContain('Лучшее решение+15')
+    expect(text).toContain('Голос за решение+10')
+    expect(text).toContain('Голос за вопрос+5')
+    expect(text).toContain('Одобренная правка+2')
+    expect(text).toContain('Новичок0–29')
+    expect(text).toContain('Участник30–99')
+    expect(text).toContain('Эксперт100–299')
+    expect(text).toContain('Мастер300+')
+    expect(text).toContain('Достижения и бейджи появятся позже')
     expect(text).toContain('Лучшее решение')
     expect(text).toContain('+15')
     expect(text).toContain('Ваш ответ выбрали лучшим решением.')

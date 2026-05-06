@@ -138,7 +138,7 @@ export function buildReputationProgress(progress: ReputationProgress) {
   const earnedSinceLevel = Math.min(Math.max(progress.score - currentFloor, 0), levelSpan)
 
   return {
-    percent: Math.min(Math.max((earnedSinceLevel / levelSpan) * 100, 0), 100),
+    percent: Math.round(Math.min(Math.max((earnedSinceLevel / levelSpan) * 100, 0), 100)),
     earnedSinceLevel,
     levelSpan,
   }

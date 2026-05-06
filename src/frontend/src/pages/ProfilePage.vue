@@ -9,6 +9,7 @@ import ProfileQuestionEditReviewQueue from '@/features/questions/components/Prof
 import ProfileEditHistoryTab from '@/features/solutions/components/ProfileEditHistoryTab.vue'
 import ProfileEditReviewQueue from '@/features/solutions/components/ProfileEditReviewQueue.vue'
 import ProfileReputationSummary from '@/features/users/components/ProfileReputationSummary.vue'
+import ReputationExplanationPanel from '@/features/users/components/ReputationExplanationPanel.vue'
 import ReputationLedgerList from '@/features/users/components/ReputationLedgerList.vue'
 import AppShellLayout from '@/layouts/AppShellLayout.vue'
 import { formatLongDate } from '@/shared/libs/formatting'
@@ -151,7 +152,10 @@ async function setActiveTab(tab: ProfileTab) {
               :reputation="reputation"
             />
 
+            <ReputationExplanationPanel />
+
             <ReputationLedgerList
+              class="profile-page__ledger"
               :items="reputationLedger"
               :is-pending="profileQuery.isPending.value"
               :is-error="showReputationFallback"
@@ -264,6 +268,10 @@ async function setActiveTab(tab: ProfileTab) {
 .profile-page__grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-lg);
+}
+
+.profile-page__ledger {
+  grid-column: 1 / -1;
 }
 
 .profile-page__review-grid {
