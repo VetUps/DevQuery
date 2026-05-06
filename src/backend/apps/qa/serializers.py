@@ -4,6 +4,9 @@ from django.contrib.contenttypes.models import ContentType
 from django.db import transaction
 from django.db.models import TextChoices
 from rest_framework import serializers
+from rest_framework.exceptions import PermissionDenied
+
+from apps.user.models import CustomUser
 from .models import (
     Question,
     QuestionEditEvent,
@@ -16,11 +19,32 @@ from .models import (
     Tag,
 )
 from .services.question_edit_service import QuestionChangePayload, QuestionEditService
+from .services.question_protection_service import QuestionProtectionService
 from .services.question_tag_service import QuestionTagService
+from .services.vote_service import VoteService
 
 
 MAX_QUESTION_TAGS = 5
 TAG_NAME_PATTERN = re.compile(r'^[a-z0-9-]+$')
+PROTECTED_NEWCOMER_ANSWER_ERROR_CODE = 'protected_newcomer_answer_required'
+PROTECTED_NEWCOMER_ANSWER_MESSAGE = (
+    'В течение 12 часов после публикации на вопросы новичков могут отвечать только эксперты и мастера.'
+)
+PROTECTED_NEWCOMER_ANSWER_REASON_MESSAGES = {
+    QuestionProtectionService.ANSWER_ALLOWED: '',
+    QuestionProtectionService.ANSWER_BLOCKED_ANONYMOUS: (
+        'Этот вопрос новичка защищён на первые 12 часов. Войдите в аккаунт с уровнем Эксперт или Мастер, чтобы ответить.'
+    ),
+    QuestionProtectionService.ANSWER_BLOCKED_INSUFFICIENT_LEVEL: (
+        'Этот вопрос новичка защищён на первые 12 часов. Отвечать сейчас могут только участники уровня Эксперт или Мастер.'
+    ),
+}
+PROTECTED_NEWCOMER_DOWNVOTE_REASON_MESSAGES = {
+    QuestionProtectionService.DOWNVOTE_ALLOWED: '',
+    QuestionProtectionService.DOWNVOTE_BLOCKED_PROTECTED: (
+        'В первые 12 часов после публикации у вопросов новичков отключены даунвоуты, чтобы обсуждение начиналось с содержательной обратной связи.'
+    ),
+}
 
 
 def normalize_question_tags(raw_tags):
@@ -66,23 +90,198 @@ class TagSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
-class QuestionGetSerializer(serializers.ModelSerializer):
+class QuestionProtectionMixin:
+    protection_field_names = [
+        'is_protected',
+        'protection_reason_code',
+        'protected_until',
+        'author_level',
+        'author_points_to_next_level',
+        'author_next_level',
+        'author_next_level_label',
+        'viewer_can_answer',
+        'viewer_answer_reason_code',
+        'viewer_answer_reason_message',
+        'viewer_answer_required_level',
+        'viewer_answer_required_level_label',
+        'viewer_level',
+        'viewer_level_label',
+        'viewer_points_to_next_level',
+        'viewer_next_level',
+        'viewer_next_level_label',
+        'viewer_can_downvote',
+        'viewer_downvote_reason_code',
+        'viewer_downvote_reason_message',
+    ]
+
+    def _get_request_user(self):
+        request = self.context.get('request')
+        if request is None:
+            return None
+
+        user = getattr(request, 'user', None)
+        if user is None or not getattr(user, 'is_authenticated', False):
+            return None
+
+        return user
+
+    def _get_protection_state(self, obj: Question):
+        return QuestionProtectionService.get_protection_state(obj)
+
+    def _get_answer_decision(self, obj: Question):
+        return QuestionProtectionService.get_answer_eligibility(obj, self._get_request_user())
+
+    def _get_downvote_decision(self, obj: Question):
+        return QuestionProtectionService.get_question_downvote_eligibility(obj, self._get_request_user())
+
+    def get_is_protected(self, obj: Question):
+        return self._get_protection_state(obj).is_protected
+
+    def get_protection_reason_code(self, obj: Question):
+        return self._get_protection_state(obj).reason_code
+
+    def get_protected_until(self, obj: Question):
+        return self._get_protection_state(obj).protected_until
+
+    def get_author_level(self, obj: Question):
+        return self._get_protection_state(obj).author_level
+
+    def get_author_points_to_next_level(self, obj: Question):
+        return self._get_protection_state(obj).progress.points_to_next_level
+
+    def get_author_next_level(self, obj: Question):
+        return self._get_protection_state(obj).progress.next_level
+
+    def get_author_next_level_label(self, obj: Question):
+        return self._get_protection_state(obj).progress.next_level_label
+
+    def get_viewer_can_answer(self, obj: Question):
+        return self._get_answer_decision(obj).allowed
+
+    def get_viewer_answer_reason_code(self, obj: Question):
+        return self._get_answer_decision(obj).reason_code
+
+    def get_viewer_answer_reason_message(self, obj: Question):
+        return PROTECTED_NEWCOMER_ANSWER_REASON_MESSAGES.get(self._get_answer_decision(obj).reason_code, '')
+
+    def get_viewer_answer_required_level(self, obj: Question):
+        return self._get_answer_decision(obj).required_level
+
+    def get_viewer_answer_required_level_label(self, obj: Question):
+        return self._get_answer_decision(obj).required_level_label
+
+    def get_viewer_level(self, obj: Question):
+        answer_decision = self._get_answer_decision(obj)
+        if answer_decision.viewer_level is not None:
+            return answer_decision.viewer_level
+
+        return self._get_downvote_decision(obj).viewer_level
+
+    def get_viewer_level_label(self, obj: Question):
+        answer_decision = self._get_answer_decision(obj)
+        if answer_decision.viewer_level_label is not None:
+            return answer_decision.viewer_level_label
+
+        return self._get_downvote_decision(obj).viewer_level_label
+
+    def get_viewer_points_to_next_level(self, obj: Question):
+        answer_decision = self._get_answer_decision(obj)
+        if answer_decision.points_to_next_level is not None:
+            return answer_decision.points_to_next_level
+
+        return self._get_downvote_decision(obj).points_to_next_level
+
+    def get_viewer_next_level(self, obj: Question):
+        answer_decision = self._get_answer_decision(obj)
+        if answer_decision.next_level is not None:
+            return answer_decision.next_level
+
+        return self._get_downvote_decision(obj).next_level
+
+    def get_viewer_next_level_label(self, obj: Question):
+        answer_decision = self._get_answer_decision(obj)
+        if answer_decision.next_level_label is not None:
+            return answer_decision.next_level_label
+
+        return self._get_downvote_decision(obj).next_level_label
+
+    def get_viewer_can_downvote(self, obj: Question):
+        return self._get_downvote_decision(obj).allowed
+
+    def get_viewer_downvote_reason_code(self, obj: Question):
+        return self._get_downvote_decision(obj).reason_code
+
+    def get_viewer_downvote_reason_message(self, obj: Question):
+        return PROTECTED_NEWCOMER_DOWNVOTE_REASON_MESSAGES.get(self._get_downvote_decision(obj).reason_code, '')
+
+
+class QuestionGetSerializer(QuestionProtectionMixin, serializers.ModelSerializer):
     upvotes = serializers.IntegerField(source='vote_upvotes', read_only=True)
     downvotes = serializers.IntegerField(source='vote_downvotes', read_only=True)
     score = serializers.IntegerField(source='vote_score', read_only=True)
     user_vote = serializers.ChoiceField(source='user_vote_type', choices=Vote.VoteType.choices, read_only=True, allow_null=True)
     tags = TagSerializer(many=True, read_only=True)
+    is_protected = serializers.SerializerMethodField()
+    protection_reason_code = serializers.SerializerMethodField()
+    protected_until = serializers.SerializerMethodField()
+    author_level = serializers.SerializerMethodField()
+    author_points_to_next_level = serializers.SerializerMethodField()
+    author_next_level = serializers.SerializerMethodField()
+    author_next_level_label = serializers.SerializerMethodField()
+    viewer_can_answer = serializers.SerializerMethodField()
+    viewer_answer_reason_code = serializers.SerializerMethodField()
+    viewer_answer_reason_message = serializers.SerializerMethodField()
+    viewer_answer_required_level = serializers.SerializerMethodField()
+    viewer_answer_required_level_label = serializers.SerializerMethodField()
+    viewer_level = serializers.SerializerMethodField()
+    viewer_level_label = serializers.SerializerMethodField()
+    viewer_points_to_next_level = serializers.SerializerMethodField()
+    viewer_next_level = serializers.SerializerMethodField()
+    viewer_next_level_label = serializers.SerializerMethodField()
+    viewer_can_downvote = serializers.SerializerMethodField()
+    viewer_downvote_reason_code = serializers.SerializerMethodField()
+    viewer_downvote_reason_message = serializers.SerializerMethodField()
 
     class Meta:
         model = Question
         fields = '__all__'
 
-class QuestionListSerializer(serializers.ModelSerializer):
+
+class QuestionListSerializer(QuestionProtectionMixin, serializers.ModelSerializer):
     tags = TagSerializer(many=True, read_only=True)
+    is_protected = serializers.SerializerMethodField()
+    protection_reason_code = serializers.SerializerMethodField()
+    protected_until = serializers.SerializerMethodField()
+    author_level = serializers.SerializerMethodField()
+    author_points_to_next_level = serializers.SerializerMethodField()
+    author_next_level = serializers.SerializerMethodField()
+    author_next_level_label = serializers.SerializerMethodField()
+    viewer_can_answer = serializers.SerializerMethodField()
+    viewer_answer_reason_code = serializers.SerializerMethodField()
+    viewer_answer_reason_message = serializers.SerializerMethodField()
+    viewer_answer_required_level = serializers.SerializerMethodField()
+    viewer_answer_required_level_label = serializers.SerializerMethodField()
+    viewer_level = serializers.SerializerMethodField()
+    viewer_level_label = serializers.SerializerMethodField()
+    viewer_points_to_next_level = serializers.SerializerMethodField()
+    viewer_next_level = serializers.SerializerMethodField()
+    viewer_next_level_label = serializers.SerializerMethodField()
+    viewer_can_downvote = serializers.SerializerMethodField()
+    viewer_downvote_reason_code = serializers.SerializerMethodField()
+    viewer_downvote_reason_message = serializers.SerializerMethodField()
 
     class Meta:
         model = Question
-        fields = ['question_id', 'user', 'question_title', 'question_status', 'question_created_at', 'question_updated_at', 'tags']
+        fields = [
+            'question_id',
+            'user',
+            'question_title',
+            'question_status',
+            'question_created_at',
+            'question_updated_at',
+            'tags',
+            *QuestionProtectionMixin.protection_field_names,
+        ]
 
 class QuestionUpdateCreateSerializer(serializers.ModelSerializer):
     tags = serializers.ListField(child=QuestionTagNameField(), required=False, write_only=True)
@@ -338,6 +537,15 @@ class SolutionCreateSerializer(serializers.ModelSerializer):
         model = Solution
         fields = ['question', 'solution_body']
 
+    @staticmethod
+    def _raise_protected_newcomer_answer_denied() -> None:
+        permission_error = PermissionDenied(detail=PROTECTED_NEWCOMER_ANSWER_MESSAGE)
+        permission_error.detail = {
+            'detail': PROTECTED_NEWCOMER_ANSWER_MESSAGE,
+            'code': PROTECTED_NEWCOMER_ANSWER_ERROR_CODE,
+        }
+        raise permission_error
+
     def validate(self, data):
         user = self.context.get('request').user
         question = data.get('question')
@@ -347,6 +555,11 @@ class SolutionCreateSerializer(serializers.ModelSerializer):
 
         if Solution.objects.filter(user=user, question=question).exists():
             raise serializers.ValidationError('Пользователь уже выложил решение на данный вопрос')
+
+        answer_decision = QuestionProtectionService.get_answer_eligibility(question, user)
+        if not answer_decision.allowed:
+            self._raise_protected_newcomer_answer_denied()
+
         return data
 
 

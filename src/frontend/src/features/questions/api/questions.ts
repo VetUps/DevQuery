@@ -1,4 +1,5 @@
 import { http } from '@/shared/api/http'
+import type { ReputationSummary } from '@/features/users/api/reputation'
 
 export interface PaginatedResponse<T> {
   count: number
@@ -12,9 +13,84 @@ export interface QuestionTag {
   questions_count: number
 }
 
-export interface QuestionListItem {
+export interface QuestionProtectionSnapshot {
+  is_protected: boolean
+  protection_reason_code: string
+  protected_until: string | null
+  author_level: string | null
+  author_points_to_next_level: number | null
+  author_next_level: string | null
+  author_next_level_label: string | null
+  viewer_can_answer: boolean
+  viewer_answer_reason_code: string | null
+  viewer_answer_reason_message: string
+  viewer_answer_required_level: string | null
+  viewer_answer_required_level_label: string | null
+  viewer_level: string | null
+  viewer_level_label: string | null
+  viewer_points_to_next_level: number | null
+  viewer_next_level: string | null
+  viewer_next_level_label: string | null
+  viewer_can_downvote: boolean
+  viewer_downvote_reason_code: string | null
+  viewer_downvote_reason_message: string
+}
+
+function parseDateValue(value: string | null | undefined) {
+  if (!value) {
+    return null
+  }
+
+  const timestamp = Date.parse(value)
+  return Number.isNaN(timestamp) ? null : timestamp
+}
+
+export function getProtectedQuestionWindowHours(
+  question: Pick<QuestionListItem, 'question_created_at' | 'protected_until'>,
+) {
+  const createdAt = parseDateValue(question.question_created_at)
+  const protectedUntil = parseDateValue(question.protected_until)
+
+  if (createdAt === null || protectedUntil === null || protectedUntil <= createdAt) {
+    return 12
+  }
+
+  const windowHours = Math.round((protectedUntil - createdAt) / (1000 * 60 * 60))
+
+  return windowHours > 0 ? windowHours : 12
+}
+
+export function getProtectedQuestionWindowLabel(windowHours: number) {
+  return `${windowHours} ${windowHours % 10 === 1 && windowHours % 100 !== 11 ? 'час' : 'часов'}`
+}
+
+export function getProtectedQuestionAnswerWindowLabel(
+  question: Pick<QuestionListItem, 'question_created_at' | 'protected_until' | 'viewer_answer_required_level_label'>,
+) {
+  const requiredLabel = question.viewer_answer_required_level_label ?? 'Эксперт'
+  const windowLabel = getProtectedQuestionWindowLabel(getProtectedQuestionWindowHours(question))
+
+  return `${requiredLabel}+ отвечают первые ${windowLabel}`
+}
+
+export function getProtectedQuestionAnswerWindowSummary(
+  question: Pick<QuestionListItem, 'question_created_at' | 'protected_until' | 'viewer_answer_required_level_label'>,
+) {
+  const requiredLabel = question.viewer_answer_required_level_label ?? 'Эксперт'
+  const responderGroup = requiredLabel === 'Участник'
+    ? 'участники и мастера'
+    : `${requiredLabel.toLowerCase()}ы и мастера`
+  const windowLabel = getProtectedQuestionWindowLabel(getProtectedQuestionWindowHours(question))
+
+  return `В течение первых ${windowLabel} после публикации отвечать могут только ${responderGroup}.`
+}
+
+export interface QuestionListItem extends QuestionProtectionSnapshot {
   question_id: string
   user: string
+  user_name?: string
+  user_reputation_score?: number | null
+  reputation?: ReputationSummary | null
   question_title: string
   question_status: 'open' | 'closed' | 'solved' | string
   question_created_at: string
@@ -70,6 +146,131 @@ export interface CreateQuestionResponse {
   tags: QuestionTag[]
 }
 
+const DEFAULT_QUESTION_PROTECTION_SNAPSHOT: QuestionProtectionSnapshot = {
+  is_protected: false,
+  protection_reason_code: 'question_not_protected',
+  protected_until: null,
+  author_level: null,
+  author_points_to_next_level: null,
+  author_next_level: null,
+  author_next_level_label: null,
+  viewer_can_answer: true,
+  viewer_answer_reason_code: 'answer_allowed',
+  viewer_answer_reason_message: '',
+  viewer_answer_required_level: null,
+  viewer_answer_required_level_label: null,
+  viewer_level: null,
+  viewer_level_label: null,
+  viewer_points_to_next_level: null,
+  viewer_next_level: null,
+  viewer_next_level_label: null,
+  viewer_can_downvote: true,
+  viewer_downvote_reason_code: 'question_downvote_allowed',
+  viewer_downvote_reason_message: '',
+}
+
+function isNullableString(value: unknown): value is string | null {
+  return typeof value === 'string' || value === null
+}
+
+function isNullableNumber(value: unknown): value is number | null {
+  return typeof value === 'number' || value === null
+}
+
+export function normalizeQuestionProtectionSnapshot(value: unknown): QuestionProtectionSnapshot {
+  if (!value || typeof value !== 'object') {
+    return { ...DEFAULT_QUESTION_PROTECTION_SNAPSHOT }
+  }
+
+  const raw = value as Record<string, unknown>
+
+  return {
+    is_protected: typeof raw.is_protected === 'boolean' ? raw.is_protected : DEFAULT_QUESTION_PROTECTION_SNAPSHOT.is_protected,
+    protection_reason_code:
+      typeof raw.protection_reason_code === 'string'
+        ? raw.protection_reason_code
+        : DEFAULT_QUESTION_PROTECTION_SNAPSHOT.protection_reason_code,
+    protected_until: isNullableString(raw.protected_until)
+      ? raw.protected_until
+      : DEFAULT_QUESTION_PROTECTION_SNAPSHOT.protected_until,
+    author_level: isNullableString(raw.author_level) ? raw.author_level : DEFAULT_QUESTION_PROTECTION_SNAPSHOT.author_level,
+    author_points_to_next_level: isNullableNumber(raw.author_points_to_next_level)
+      ? raw.author_points_to_next_level
+      : DEFAULT_QUESTION_PROTECTION_SNAPSHOT.author_points_to_next_level,
+    author_next_level: isNullableString(raw.author_next_level)
+      ? raw.author_next_level
+      : DEFAULT_QUESTION_PROTECTION_SNAPSHOT.author_next_level,
+    author_next_level_label: isNullableString(raw.author_next_level_label)
+      ? raw.author_next_level_label
+      : DEFAULT_QUESTION_PROTECTION_SNAPSHOT.author_next_level_label,
+    viewer_can_answer:
+      typeof raw.viewer_can_answer === 'boolean'
+        ? raw.viewer_can_answer
+        : DEFAULT_QUESTION_PROTECTION_SNAPSHOT.viewer_can_answer,
+    viewer_answer_reason_code: isNullableString(raw.viewer_answer_reason_code)
+      ? raw.viewer_answer_reason_code
+      : DEFAULT_QUESTION_PROTECTION_SNAPSHOT.viewer_answer_reason_code,
+    viewer_answer_reason_message:
+      typeof raw.viewer_answer_reason_message === 'string'
+        ? raw.viewer_answer_reason_message
+        : DEFAULT_QUESTION_PROTECTION_SNAPSHOT.viewer_answer_reason_message,
+    viewer_answer_required_level: isNullableString(raw.viewer_answer_required_level)
+      ? raw.viewer_answer_required_level
+      : DEFAULT_QUESTION_PROTECTION_SNAPSHOT.viewer_answer_required_level,
+    viewer_answer_required_level_label: isNullableString(raw.viewer_answer_required_level_label)
+      ? raw.viewer_answer_required_level_label
+      : DEFAULT_QUESTION_PROTECTION_SNAPSHOT.viewer_answer_required_level_label,
+    viewer_level: isNullableString(raw.viewer_level) ? raw.viewer_level : DEFAULT_QUESTION_PROTECTION_SNAPSHOT.viewer_level,
+    viewer_level_label: isNullableString(raw.viewer_level_label)
+      ? raw.viewer_level_label
+      : DEFAULT_QUESTION_PROTECTION_SNAPSHOT.viewer_level_label,
+    viewer_points_to_next_level: isNullableNumber(raw.viewer_points_to_next_level)
+      ? raw.viewer_points_to_next_level
+      : DEFAULT_QUESTION_PROTECTION_SNAPSHOT.viewer_points_to_next_level,
+    viewer_next_level: isNullableString(raw.viewer_next_level)
+      ? raw.viewer_next_level
+      : DEFAULT_QUESTION_PROTECTION_SNAPSHOT.viewer_next_level,
+    viewer_next_level_label: isNullableString(raw.viewer_next_level_label)
+      ? raw.viewer_next_level_label
+      : DEFAULT_QUESTION_PROTECTION_SNAPSHOT.viewer_next_level_label,
+    viewer_can_downvote:
+      typeof raw.viewer_can_downvote === 'boolean'
+        ? raw.viewer_can_downvote
+        : DEFAULT_QUESTION_PROTECTION_SNAPSHOT.viewer_can_downvote,
+    viewer_downvote_reason_code: isNullableString(raw.viewer_downvote_reason_code)
+      ? raw.viewer_downvote_reason_code
+      : DEFAULT_QUESTION_PROTECTION_SNAPSHOT.viewer_downvote_reason_code,
+    viewer_downvote_reason_message:
+      typeof raw.viewer_downvote_reason_message === 'string'
+        ? raw.viewer_downvote_reason_message
+        : DEFAULT_QUESTION_PROTECTION_SNAPSHOT.viewer_downvote_reason_message,
+  }
+}
+
+function attachQuestionProtectionSnapshot<T extends Record<string, unknown>>(question: T) {
+  return {
+    ...question,
+    ...normalizeQuestionProtectionSnapshot(question),
+  }
+}
+
+export function normalizeQuestionListItem(value: unknown): QuestionListItem {
+  const question = value as Record<string, unknown>
+
+  return attachQuestionProtectionSnapshot({
+    question_id: typeof question.question_id === 'string' ? question.question_id : '',
+    user: typeof question.user === 'string' ? question.user : '',
+    user_name: typeof question.user_name === 'string' ? question.user_name : undefined,
+    user_reputation_score: typeof question.user_reputation_score === 'number' ? question.user_reputation_score : null,
+    reputation: (question.reputation as ReputationSummary | null | undefined) ?? null,
+    question_title: typeof question.question_title === 'string' ? question.question_title : '',
+    question_status: typeof question.question_status === 'string' ? question.question_status : 'open',
+    question_created_at: typeof question.question_created_at === 'string' ? question.question_created_at : '',
+    question_updated_at: typeof question.question_updated_at === 'string' ? question.question_updated_at : '',
+    tags: Array.isArray(question.tags) ? question.tags.filter(isQuestionTag) : [],
+  })
+}
+
 export function normalizeQuestionTags(tags: readonly unknown[] = []) {
   const normalizedTags = tags
     .filter((tag): tag is string => typeof tag === 'string')
@@ -81,7 +282,7 @@ export function normalizeQuestionTags(tags: readonly unknown[] = []) {
 
 export async function fetchQuestionList(params: QuestionListParams) {
   const normalizedTags = normalizeQuestionTags(params.tags)
-  const response = await http.get<PaginatedResponse<QuestionListItem>>('/question/', {
+  const response = await http.get<PaginatedResponse<unknown>>('/question/', {
     params: {
       page: params.page,
       search: params.search || undefined,
@@ -93,13 +294,18 @@ export async function fetchQuestionList(params: QuestionListParams) {
     },
   })
 
-  return response.data
+  return {
+    ...response.data,
+    results: Array.isArray(response.data.results)
+      ? response.data.results.map((item) => normalizeQuestionListItem(item))
+      : [],
+  } satisfies PaginatedResponse<QuestionListItem>
 }
 
 export async function fetchQuestionDetail(questionId: string) {
-  const response = await http.get<QuestionDetail>(`/question/${questionId}/`)
+  const response = await http.get<unknown>(`/question/${questionId}/`)
 
-  return response.data
+  return normalizeQuestionDetail(response.data)
 }
 
 export function normalizeTagSearch(search: string) {
@@ -159,6 +365,23 @@ function isQuestionDetail(value: unknown): value is QuestionDetail {
   )
 }
 
+function normalizeQuestionDetail(value: unknown): QuestionDetail {
+  const question = value as Record<string, unknown>
+  const listItem = normalizeQuestionListItem(value)
+
+  return {
+    ...listItem,
+    question_body: typeof question.question_body === 'string' ? question.question_body : '',
+    upvotes: typeof question.upvotes === 'number' ? question.upvotes : 0,
+    downvotes: typeof question.downvotes === 'number' ? question.downvotes : 0,
+    score: typeof question.score === 'number' ? question.score : 0,
+    user_vote:
+      question.user_vote === 'up' || question.user_vote === 'down' || question.user_vote === null
+        ? question.user_vote
+        : null,
+  }
+}
+
 export async function updateQuestion(questionId: string, payload: UpdateQuestionPayload) {
   const response = await http.patch<unknown>(`/question/${questionId}/`, payload)
 
@@ -166,5 +389,5 @@ export async function updateQuestion(questionId: string, payload: UpdateQuestion
     throw new Error('Malformed question update response')
   }
 
-  return response.data
+  return normalizeQuestionDetail(response.data)
 }

@@ -1,10 +1,13 @@
 import { http } from '@/shared/api/http'
 import type { PaginatedResponse, VoteContext } from '@/features/questions/api/questions'
+import type { ReputationSummary } from '@/features/users/api/reputation'
 
 export interface SolutionListItem extends VoteContext {
   solution_id: string
   user: string
   user_name: string
+  user_reputation_score?: number | null
+  reputation?: ReputationSummary | null
   question_id?: string
   solution_body: string
   solution_is_best: boolean

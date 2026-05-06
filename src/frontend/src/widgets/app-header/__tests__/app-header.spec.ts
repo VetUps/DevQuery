@@ -1,3 +1,4 @@
+import { ref } from 'vue'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { flushPromises, mount } from '@vue/test-utils'
@@ -7,12 +8,32 @@ import { createAppRouter } from '@/app/router'
 import { useSessionStore } from '@/features/auth/stores/session'
 import AppHeader from '@/widgets/app-header/AppHeader.vue'
 
-async function mountHeader() {
+const currentUserState = {
+  data: ref<{ user_name?: string } | null>(null),
+  isPending: ref(false),
+  isError: ref(false),
+  refetch: vi.fn(),
+}
+
+vi.mock('@/features/auth/queries/useCurrentUserQuery', () => ({
+  useCurrentUserQuery: vi.fn(() => currentUserState),
+}))
+
+async function mountHeader(options: { authenticated?: boolean; initialRoute?: string } = {}) {
   const pinia = createPinia()
   setActivePinia(pinia)
 
+  const sessionStore = useSessionStore()
+
+  if (options.authenticated) {
+    sessionStore.setSession({
+      access: 'test-access-token',
+      refresh: 'test-refresh-token',
+    })
+  }
+
   const router = createAppRouter(createMemoryHistory())
-  await router.push('/')
+  await router.push(options.initialRoute ?? '/')
   await router.isReady()
 
   const wrapper = mount(AppHeader, {
@@ -21,58 +42,83 @@ async function mountHeader() {
     },
   })
 
-  return { wrapper, router }
+  await flushPromises()
+
+  return { wrapper, router, sessionStore }
 }
 
 describe('AppHeader', () => {
   beforeEach(() => {
     localStorage.clear()
+    currentUserState.data.value = null
+    currentUserState.isPending.value = false
+    currentUserState.isError.value = false
+    currentUserState.refetch.mockReset()
   })
 
-  it('shows guest navigation actions', async () => {
+  it('shows compact guest navigation actions with the expected routes', async () => {
     const { wrapper } = await mountHeader()
 
+    expect(wrapper.get('[data-testid="app-header"]').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="ask-question-link"]').attributes('href')).toBe('/register')
+    expect(wrapper.get('[data-testid="register-link"]').attributes('href')).toBe('/register')
+    expect(wrapper.get('[data-testid="login-link"]').attributes('href')).toBe('/login')
+    expect(wrapper.text()).toContain('Задать вопрос')
     expect(wrapper.text()).toContain('Создать аккаунт')
     expect(wrapper.text()).toContain('Войти')
     expect(wrapper.text()).not.toContain('Профиль')
+
+    const compactButtons = wrapper.findAll('.app-button--compact')
+    expect(compactButtons).toHaveLength(2)
+    expect(wrapper.findAll('.app-button--regular')).toHaveLength(0)
+    expect(wrapper.find('[data-testid="login-link"].app-header__link--compact').exists()).toBe(true)
   })
 
-  it('shows authenticated navigation and logout flow', async () => {
-    const pinia = createPinia()
-    setActivePinia(pinia)
+  it('shows authenticated compact navigation and account-menu routes', async () => {
+    currentUserState.data.value = { user_name: 'Пользователь' }
 
-    const sessionStore = useSessionStore()
-    sessionStore.setSession({
-      access: 'test-access-token',
-      refresh: 'test-refresh-token',
-    })
+    const { wrapper } = await mountHeader({ authenticated: true })
 
-    const logoutSpy = vi.spyOn(sessionStore, 'logout').mockResolvedValue(undefined)
-    const router = createAppRouter(createMemoryHistory())
-
-    await router.push('/profile')
-    await router.isReady()
-
-    const wrapper = mount(AppHeader, {
-      global: {
-        plugins: [pinia, router],
-      },
-    })
-
+    expect(wrapper.get('[data-testid="ask-question-link"]').attributes('href')).toBe('/questions/ask')
+    expect(wrapper.get('[data-testid="home-link"]').attributes('href')).toBe('/')
+    expect(wrapper.text()).toContain('Задать вопрос')
     expect(wrapper.text()).toContain('Главная')
+    expect(wrapper.text()).not.toContain('Создать аккаунт')
+    expect(wrapper.findAll('.app-button--compact')).toHaveLength(2)
+    expect(wrapper.findAll('.app-button--regular')).toHaveLength(0)
+    expect(wrapper.get('[data-testid="account-menu-toggle"]').attributes('title')).toBe('Пользователь')
 
     await wrapper.get('[data-testid="account-menu-toggle"]').trigger('click')
 
+    expect(wrapper.get('[data-testid="account-menu-panel"]').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="profile-menu-link"]').attributes('href')).toBe('/profile')
+    expect(wrapper.get('[data-testid="review-menu-link"]').attributes('href')).toBe('/profile?tab=review')
     expect(wrapper.text()).toContain('Профиль')
     expect(wrapper.text()).toContain('Проверка правок')
     expect(wrapper.text()).toContain('Выйти')
     expect(wrapper.find('[data-testid="future-placeholder"]').exists()).toBe(false)
-    expect(wrapper.get('[data-testid="review-menu-link"]').attributes('href')).toBe('/profile?tab=review')
+  })
 
+  it('falls back to the account label when current-user data is missing or blank', async () => {
+    currentUserState.data.value = { user_name: '   ' }
+
+    const { wrapper } = await mountHeader({ authenticated: true })
+    const toggle = wrapper.get('[data-testid="account-menu-toggle"]')
+
+    expect(toggle.attributes('title')).toBe('Аккаунт')
+    expect(toggle.text()).toContain('Аккаунт')
+  })
+
+  it('keeps logout wired to the session store and redirects home', async () => {
+    currentUserState.data.value = { user_name: 'Пользователь' }
+    const { wrapper, router, sessionStore } = await mountHeader({ authenticated: true, initialRoute: '/profile' })
+    const logoutSpy = vi.spyOn(sessionStore, 'logout').mockResolvedValue(undefined)
+
+    await wrapper.get('[data-testid="account-menu-toggle"]').trigger('click')
     await wrapper.get('[data-testid="logout-button"]').trigger('click')
     await flushPromises()
 
-    expect(logoutSpy).toHaveBeenCalled()
+    expect(logoutSpy).toHaveBeenCalledTimes(1)
     expect(router.currentRoute.value.path).toBe('/')
   })
 })

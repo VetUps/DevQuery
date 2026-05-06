@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { computed } from 'vue'
+
 import AppButton from '@/shared/ui/AppButton.vue'
 
 const props = withDefaults(defineProps<{
@@ -7,6 +9,8 @@ const props = withDefaults(defineProps<{
 }>(), {
   label: 'Аккаунт',
 })
+
+const displayLabel = computed(() => props.label?.trim() || 'Аккаунт')
 
 defineEmits<{
   close: []
@@ -18,11 +22,12 @@ defineEmits<{
   <div class="account-menu">
     <AppButton
       variant="secondary"
+      size="compact"
       data-testid="account-menu-toggle"
-      :title="props.label"
+      :title="displayLabel"
       @click="$emit('close')"
     >
-      <span class="account-menu__label">{{ props.label }}</span>
+      <span class="account-menu__label">{{ displayLabel }}</span>
     </AppButton>
 
     <div
@@ -30,7 +35,7 @@ defineEmits<{
       class="account-menu__panel"
       data-testid="account-menu-panel"
     >
-      <RouterLink class="account-menu__link" to="/profile">
+      <RouterLink class="account-menu__link" data-testid="profile-menu-link" to="/profile">
         Профиль
       </RouterLink>
       <RouterLink
@@ -54,7 +59,7 @@ defineEmits<{
 
 .account-menu__label {
   display: inline-block;
-  max-width: 16ch;
+  max-width: 14ch;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -62,12 +67,12 @@ defineEmits<{
 
 .account-menu__panel {
   position: absolute;
-  top: calc(100% + var(--space-sm));
+  top: calc(100% + var(--space-xs));
   right: 0;
   display: grid;
-  gap: var(--space-sm);
-  min-width: 240px;
-  padding: var(--space-md);
+  gap: var(--space-xs);
+  min-width: 220px;
+  padding: var(--space-sm);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   background: #fbf8f1;
@@ -79,13 +84,14 @@ defineEmits<{
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  min-height: 44px;
-  padding: 0 var(--space-md);
+  min-height: 40px;
+  padding: 0 var(--space-sm);
   border-radius: var(--radius-sm);
   border: 1px solid transparent;
   background: transparent;
   color: var(--color-text);
-  font-size: 15px;
+  font-size: 14px;
+  font-weight: 600;
 }
 
 .account-menu__link:hover,

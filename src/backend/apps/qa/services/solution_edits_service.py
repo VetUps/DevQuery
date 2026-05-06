@@ -3,11 +3,15 @@ from django.db.models import QuerySet
 from django.db.models import Q
 from rest_framework.exceptions import PermissionDenied, NotFound, ValidationError
 
+from ...user.models import CustomUser, ReputationTransaction
+from ...user.services.reputation_service import ReputationService
 from ..models import Solution, SolutionEdits
-from ...user.models import CustomUser
 from .solution_service import SolutionService
 
+
 class SolutionEditService:
+    APPROVED_EDIT_REPUTATION_AWARD = 2
+
     @staticmethod
     def _base_queryset() -> QuerySet[SolutionEdits]:
         return SolutionEdits.objects.select_related(
@@ -60,6 +64,14 @@ class SolutionEditService:
 
             # Изменяем содержимое оригинального решения
             SolutionService.change_solution_body(solution_edit.solution, solution_edit.solution_edit_body_after)
+            ReputationService.record_transaction(
+                user=solution_edit.user,
+                amount=SolutionEditService.APPROVED_EDIT_REPUTATION_AWARD,
+                reason=ReputationTransaction.TransactionReason.APPROVED_EDIT,
+                actor=user,
+                source=solution_edit,
+                note='Награда за одобренную правку решения.',
+            )
 
         # Сохранение
         solution_edit.solution_edit_is_approved = is_approved

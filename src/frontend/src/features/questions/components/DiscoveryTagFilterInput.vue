@@ -201,7 +201,7 @@ function handleComma(event: KeyboardEvent) {
         @keydown.,="handleComma"
       >
 
-      <AppButton type="button" variant="secondary" data-testid="discovery-tag-add" @click="addTag()">
+      <AppButton type="button" variant="secondary" size="compact" data-testid="discovery-tag-add" @click="addTag()">
         Добавить тег
       </AppButton>
     </div>
@@ -263,20 +263,22 @@ function handleComma(event: KeyboardEvent) {
 }
 
 .discovery-tag-filter-input__header {
-  display: grid;
-  gap: var(--space-xs);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px var(--space-sm);
 }
 
 .discovery-tag-filter-input__label {
   color: var(--color-text);
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 700;
 }
 
 .discovery-tag-filter-input__help {
   color: var(--color-muted);
-  font-size: 13px;
-  line-height: 1.45;
+  font-size: 12px;
+  line-height: 1.35;
 }
 
 .discovery-tag-filter-input__chips {
@@ -343,20 +345,21 @@ function handleComma(event: KeyboardEvent) {
 .discovery-tag-filter-input__entry {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: var(--space-sm);
+  gap: var(--space-xs);
 }
 
 .discovery-tag-filter-input__control {
   width: 100%;
   min-width: 0;
   box-sizing: border-box;
-  min-height: 44px;
+  min-height: 40px;
   padding: 0 var(--space-md);
   border: 1px solid var(--color-border);
   border-radius: 999px;
-  background: rgb(255 255 255 / 0.86);
+  background: rgb(255 255 255 / 0.78);
   color: var(--color-text);
   font: inherit;
+  font-size: 14px;
 }
 
 .discovery-tag-filter-input__control::placeholder {

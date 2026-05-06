@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
+import { isAxiosError } from 'axios'
 import { useRoute, useRouter } from 'vue-router'
 
 import { useCurrentUserQuery } from '@/features/auth/queries/useCurrentUserQuery'
@@ -7,8 +8,12 @@ import { useSessionStore } from '@/features/auth/stores/session'
 import ProfileQuestionEditReviewQueue from '@/features/questions/components/ProfileQuestionEditReviewQueue.vue'
 import ProfileEditHistoryTab from '@/features/solutions/components/ProfileEditHistoryTab.vue'
 import ProfileEditReviewQueue from '@/features/solutions/components/ProfileEditReviewQueue.vue'
+import ProfileReputationSummary from '@/features/users/components/ProfileReputationSummary.vue'
+import ReputationExplanationPanel from '@/features/users/components/ReputationExplanationPanel.vue'
+import ReputationLedgerList from '@/features/users/components/ReputationLedgerList.vue'
 import AppShellLayout from '@/layouts/AppShellLayout.vue'
 import { formatLongDate } from '@/shared/libs/formatting'
+import AppDialog from '@/shared/ui/AppDialog.vue'
 import InlineFeedbackPanel from '@/shared/ui/InlineFeedbackPanel.vue'
 import SurfacePanel from '@/shared/ui/SurfacePanel.vue'
 
@@ -28,6 +33,7 @@ const route = useRoute()
 const router = useRouter()
 const sessionStore = useSessionStore()
 const profileQuery = useCurrentUserQuery()
+const isReputationDialogOpen = ref(false)
 
 watch(
   () => profileQuery.error.value,
@@ -42,10 +48,45 @@ watch(
 )
 
 const user = computed(() => profileQuery.data.value)
+const reputation = computed(() => user.value?.reputation ?? null)
+const reputationLedger = computed(() => user.value?.reputation_ledger ?? [])
+const reputationErrorMessage = computed(() => {
+  const error = profileQuery.error.value
+
+  if (!error) {
+    return 'Попробуйте открыть вкладку ещё раз чуть позже.'
+  }
+
+  if (isAxiosError(error)) {
+    const detail = error.response?.data
+
+    if (typeof detail === 'string' && detail.trim()) {
+      return detail.trim()
+    }
+
+    if (detail && typeof detail === 'object') {
+      const message = 'detail' in detail ? detail.detail : undefined
+      if (typeof message === 'string' && message.trim()) {
+        return message.trim()
+      }
+    }
+  }
+
+  return 'Попробуйте открыть вкладку ещё раз чуть позже.'
+})
+const showReputationFallback = computed(() => (
+  Boolean(user.value) && profileQuery.isError.value && reputationLedger.value.length === 0
+))
 const activeTab = computed<ProfileTab>(() => {
   const routeTab = String(route.query.tab ?? 'overview').trim()
 
   return isProfileTab(routeTab) ? routeTab : 'overview'
+})
+
+watch(activeTab, (tab) => {
+  if (tab !== 'overview') {
+    isReputationDialogOpen.value = false
+  }
 })
 
 async function setActiveTab(tab: ProfileTab) {
@@ -114,23 +155,20 @@ async function setActiveTab(tab: ProfileTab) {
 
         <SurfacePanel class="profile-page__workspace" padding="lg">
           <section v-if="activeTab === 'overview'" class="profile-page__grid">
-            <article class="profile-page__overview-card">
-              <p class="profile-page__card-eyebrow">Проверка правок</p>
-              <h2 class="profile-page__card-title">Соберите входящие предложения в одном месте</h2>
-              <p class="profile-page__card-copy">
-                Во вкладке проверки скоро появится очередь новых правок к вашим решениям:
-                от свежих предложений до быстрого перехода в сравнение версий.
-              </p>
-            </article>
+            <ProfileReputationSummary
+              v-if="reputation"
+              class="profile-page__reputation-summary"
+              :reputation="reputation"
+              @explain="isReputationDialogOpen = true"
+            />
 
-            <article class="profile-page__overview-card">
-              <p class="profile-page__card-eyebrow">История правок</p>
-              <h2 class="profile-page__card-title">Следите за тем, как менялись ваши решения</h2>
-              <p class="profile-page__card-copy">
-                История будет собирать уже обработанные правки по вашим решениям и показывать,
-                что именно было принято или отклонено.
-              </p>
-            </article>
+            <ReputationLedgerList
+              class="profile-page__ledger"
+              :items="reputationLedger"
+              :is-pending="profileQuery.isPending.value"
+              :is-error="showReputationFallback"
+              :error-message="reputationErrorMessage"
+            />
           </section>
 
           <section v-else-if="activeTab === 'review'" class="profile-page__review-grid" aria-label="Очереди проверки правок">
@@ -140,6 +178,16 @@ async function setActiveTab(tab: ProfileTab) {
 
           <ProfileEditHistoryTab v-else />
         </SurfacePanel>
+
+        <AppDialog
+          :open="isReputationDialogOpen"
+          title="Как работает репутация"
+          description="Коротко о начислениях, уровнях доверия и истории изменений."
+          size="wide"
+          @close="isReputationDialogOpen = false"
+        >
+          <ReputationExplanationPanel :reputation="reputation" />
+        </AppDialog>
       </template>
     </section>
   </AppShellLayout>
@@ -170,17 +218,11 @@ async function setActiveTab(tab: ProfileTab) {
 
 .profile-page__eyebrow,
 .profile-page__title,
-.profile-page__email,
-.profile-page__card-eyebrow,
-.profile-page__card-title,
-.profile-page__card-copy,
-.profile-page__workspace-title,
-.profile-page__workspace-copy {
+.profile-page__email {
   margin: 0;
 }
 
-.profile-page__eyebrow,
-.profile-page__card-eyebrow {
+.profile-page__eyebrow {
   color: var(--color-accent);
   font-size: 13px;
   font-weight: 700;
@@ -194,9 +236,7 @@ async function setActiveTab(tab: ProfileTab) {
   letter-spacing: -0.04em;
 }
 
-.profile-page__email,
-.profile-page__card-copy,
-.profile-page__workspace-copy {
+.profile-page__email {
   color: var(--color-muted);
   line-height: 1.6;
 }
@@ -248,23 +288,16 @@ async function setActiveTab(tab: ProfileTab) {
   gap: var(--space-lg);
 }
 
+.profile-page__reputation-summary {
+  grid-column: 1 / -1;
+}
+
+.profile-page__ledger {
+  grid-column: 1 / -1;
+}
+
 .profile-page__review-grid {
   gap: var(--space-xl);
-}
-
-.profile-page__overview-card {
-  display: grid;
-  gap: var(--space-sm);
-  padding: var(--space-lg);
-  border: 1px solid rgb(207 198 180 / 0.72);
-  border-radius: var(--radius-md);
-  background: rgb(255 255 255 / 0.62);
-}
-
-.profile-page__card-title,
-.profile-page__workspace-title {
-  font-size: 22px;
-  line-height: 1.08;
 }
 
 @media (width <= 900px) {

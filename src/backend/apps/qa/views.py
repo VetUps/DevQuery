@@ -239,6 +239,26 @@ class QuestionViewSet(mixins.ListModelMixin,
         serializer = self.question_edit_proposal_response_serializer(result, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
+    @action(detail=False, methods=['get'], url_path='tags/autocomplete')
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                'q', OpenApiTypes.STR,
+                location='query', required=False,
+                description='Autocomplete query for existing normalized tag names. Requires at least 2 characters.',
+            ),
+        ],
+        responses=TagSerializer(many=True),
+    )
+    def tags_autocomplete(self, request):
+        query = request.query_params.get('q', '').strip().lower()
+        if len(query) < 2:
+            return Response([], status=status.HTTP_200_OK)
+
+        tags = Tag.objects.filter(name__icontains=query).order_by('-questions_count', 'name')[:10]
+        serializer = TagSerializer(tags, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
     @action(detail=False, methods=['patch'], url_path='approve_edit/(?P<question_edit_id>[^/.]+)')
     @extend_schema(responses=QuestionEditApprovalSerializer)
     def approve_edit(self, request, question_edit_id):
@@ -259,14 +279,14 @@ class QuestionViewSet(mixins.ListModelMixin,
         )
         return Response({'approved': False}, status=status.HTTP_200_OK)
 
-    @action(detail=False, methods=['get'], url_path='events/(?P<question_id>[^/.]+)')
+    @action(detail=False, methods=['get'], url_path='history/(?P<question_id>[^/.]+)/events')
     @extend_schema(responses=QuestionEditEventSerializer(many=True))
     def events(self, request, question_id):
         result = QuestionEditService.event_history(question_id)
         serializer = self.question_edit_event_serializer(result, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
-    @action(detail=False, methods=['get'], url_path='revisions/(?P<question_id>[^/.]+)')
+    @action(detail=False, methods=['get'], url_path='history/(?P<question_id>[^/.]+)/revisions')
     @extend_schema(responses=QuestionRevisionSerializer(many=True))
     def revisions(self, request, question_id):
         result = QuestionEditService.revision_history(question_id)

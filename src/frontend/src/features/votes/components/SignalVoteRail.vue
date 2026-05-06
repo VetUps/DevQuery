@@ -16,6 +16,8 @@ interface Props {
   questionId?: string
   isOwnContent?: boolean
   label?: string
+  downvoteBlocked?: boolean
+  blockedNote?: string
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -25,14 +27,21 @@ const props = withDefaults(defineProps<Props>(), {
   questionId: undefined,
   isOwnContent: false,
   label: 'Баланс голосов',
+  downvoteBlocked: false,
+  blockedNote: '',
 })
 
 const voteMutation = useVoteMutation()
 
 const isInteractive = computed(() => props.mode === 'interactive' && !props.isOwnContent)
+const canDownvote = computed(() => !props.downvoteBlocked)
 const currentVoteLabel = computed(() => {
   if (props.isOwnContent) {
     return 'Свой контент нельзя оценивать собственным голосом.'
+  }
+
+  if (props.downvoteBlocked && props.blockedNote) {
+    return props.blockedNote
   }
 
   if (props.userVote === 'up') {
@@ -85,7 +94,7 @@ async function handleVote(requestedVote: VoteType) {
       <strong class="signal-vote-rail__score">{{ score }}</strong>
 
       <button
-        v-if="isInteractive"
+        v-if="isInteractive && canDownvote"
         type="button"
         class="signal-vote-rail__action signal-vote-rail__action--down"
         :class="{ 'signal-vote-rail__action--active': userVote === 'down' }"
@@ -95,6 +104,14 @@ async function handleVote(requestedVote: VoteType) {
       >
         Против
       </button>
+
+      <span
+        v-else-if="isInteractive && downvoteBlocked"
+        class="signal-vote-rail__blocked-pill"
+        data-testid="vote-downvote-blocked"
+      >
+        Даунвоут временно отключён
+      </span>
     </div>
 
     <VoteBalanceMeter :upvotes="upvotes" :downvotes="downvotes" />
@@ -172,6 +189,21 @@ async function handleVote(requestedVote: VoteType) {
 .signal-vote-rail__action--active.signal-vote-rail__action--down {
   border-color: rgb(180 35 24 / 0.24);
   background: rgb(180 35 24 / 0.08);
+}
+
+.signal-vote-rail__blocked-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  width: 100%;
+  padding: 0 10px;
+  border: 1px solid rgb(180 35 24 / 0.2);
+  border-radius: 999px;
+  background: rgb(180 35 24 / 0.08);
+  color: #8F1D14;
+  font-size: 13px;
+  font-weight: 600;
 }
 
 .signal-vote-rail__note {
