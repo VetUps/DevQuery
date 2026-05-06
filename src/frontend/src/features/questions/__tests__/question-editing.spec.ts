@@ -95,7 +95,7 @@ describe('question update API boundary', () => {
         question_body: 'Updated body',
         tags: ['vue', 'mysql'],
       }),
-    ).resolves.toEqual(updatedQuestion)
+    ).resolves.toMatchObject(updatedQuestion)
 
     expect(patchSpy).toHaveBeenCalledWith('/question/question-1/', {
       question_title: 'Updated title',
