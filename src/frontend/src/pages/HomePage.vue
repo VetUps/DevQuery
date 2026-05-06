@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, shallowRef, watch } from 'vue'
-import { storeToRefs } from 'pinia'
 import { useRoute, useRouter } from 'vue-router'
 
 import { useQuestionListQuery } from '@/features/questions/queries/useQuestionListQuery'
@@ -10,11 +9,9 @@ import QuestionCard from '@/features/questions/components/QuestionCard.vue'
 import QuestionListPagination from '@/features/questions/components/QuestionListPagination.vue'
 import QuestionListSkeleton from '@/features/questions/components/QuestionListSkeleton.vue'
 import type { QuestionOrdering } from '@/features/questions/api/questions'
-import { useSessionStore } from '@/features/auth/stores/session'
 import AppShellLayout from '@/layouts/AppShellLayout.vue'
 import InlineFeedbackPanel from '@/shared/ui/InlineFeedbackPanel.vue'
 import SurfacePanel from '@/shared/ui/SurfacePanel.vue'
-import AppButton from '@/shared/ui/AppButton.vue'
 
 function normalizePage(rawPage: unknown) {
   const parsedPage = Number.parseInt(String(rawPage ?? '1'), 10)
@@ -50,8 +47,6 @@ function areTagListsEqual(left: string[], right: string[]) {
 
 const route = useRoute()
 const router = useRouter()
-const sessionStore = useSessionStore()
-const { isAuthenticated } = storeToRefs(sessionStore)
 
 const currentPage = computed(() => normalizePage(route.query.page))
 const activeSearch = computed(() => normalizeSearch(route.query.search))
@@ -92,7 +87,6 @@ const questionListQuery = useQuestionListQuery(computed(() => ({
 const questionList = computed(() => questionListQuery.data.value?.results ?? [])
 const totalQuestions = computed(() => questionListQuery.data.value?.count ?? 0)
 const hasNextPage = computed(() => Boolean(questionListQuery.data.value?.next))
-const askQuestionTarget = computed(() => (isAuthenticated.value ? '/questions/ask' : '/register'))
 const isLoadingList = computed(
   () => questionListQuery.isPending.value && !questionListQuery.data.value,
 )
@@ -287,38 +281,12 @@ onBeforeUnmount(clearSearchDebounceTimer)
           </SurfacePanel>
         </div>
 
-        <aside class="home-page__sidebar" aria-label="Дополнительная информация">
+        <aside
+          class="home-page__sidebar"
+          aria-label="Дополнительная информация"
+          data-testid="home-discovery-sidebar"
+        >
           <PublicDiscoveryIntro :total-questions="totalQuestions" />
-
-          <SurfacePanel class="home-page__sidebar-card">
-            <p class="home-page__eyebrow">Быстрый вход</p>
-            <h2 class="home-page__sidebar-title">
-              {{ isAuthenticated ? 'Сессия активна' : 'Подключайтесь к обсуждениям' }}
-            </h2>
-            <p class="home-page__sidebar-text">
-              <template v-if="isAuthenticated">
-                Задавайте свои вопросы и предлагайте решения
-              </template>
-              <template v-else>
-                Зарегистрируйтесь, чтобы задавать свои вопросы и предлагать
-                решения.
-              </template>
-            </p>
-
-            <div class="home-page__sidebar-actions">
-              <RouterLink :to="askQuestionTarget">
-                <AppButton>Задать вопрос</AppButton>
-              </RouterLink>
-
-              <RouterLink v-if="!isAuthenticated" to="/register">
-                <AppButton variant="secondary">Создать аккаунт</AppButton>
-              </RouterLink>
-
-              <RouterLink v-if="!isAuthenticated" to="/login">
-                <AppButton variant="ghost">Войти</AppButton>
-              </RouterLink>
-            </div>
-          </SurfacePanel>
         </aside>
       </div>
     </section>
@@ -343,8 +311,7 @@ onBeforeUnmount(clearSearchDebounceTimer)
   align-content: start;
 }
 
-.home-page__list-section,
-.home-page__sidebar-card {
+.home-page__list-section {
   display: grid;
   gap: var(--space-lg);
 }
@@ -359,9 +326,7 @@ onBeforeUnmount(clearSearchDebounceTimer)
 
 .home-page__eyebrow,
 .home-page__section-title,
-.home-page__section-meta,
-.home-page__sidebar-title,
-.home-page__sidebar-text {
+.home-page__section-meta {
   margin: 0;
 }
 
@@ -373,42 +338,30 @@ onBeforeUnmount(clearSearchDebounceTimer)
   text-transform: uppercase;
 }
 
-.home-page__section-title,
-.home-page__sidebar-title {
+.home-page__section-title {
   font-size: 28px;
   line-height: 1.1;
   letter-spacing: -0.03em;
 }
 
-.home-page__section-meta,
-.home-page__sidebar-text {
+.home-page__section-meta {
   color: var(--color-muted);
   line-height: 1.6;
 }
 
-.home-page__question-list,
-.home-page__sidebar-actions {
+.home-page__question-list {
   display: grid;
   gap: var(--space-md);
-}
-
-.home-page__sidebar-actions :deep(a) {
-  display: inline-flex;
 }
 
 @media (width <= 980px) {
   .home-page__content {
     grid-template-columns: 1fr;
   }
-
-  .home-page__sidebar-card {
-    position: static;
-  }
 }
 
 @media (width <= 640px) {
-  .home-page__section-title,
-  .home-page__sidebar-title {
+  .home-page__section-title {
     font-size: 24px;
   }
 }

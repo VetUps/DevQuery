@@ -34,7 +34,7 @@ class UserViewSet(viewsets.GenericViewSet):
 
     @extend_schema(
         request=UserRegisterSerializer,
-        responses={201: UserRegisterSerializer}
+        responses={201: UserProfileSerializer}
     )
     @action(detail=False, methods=['post'], permission_classes=[AllowAny])
     def register(self, request):
@@ -42,7 +42,7 @@ class UserViewSet(viewsets.GenericViewSet):
         serializer.is_valid(raise_exception=True)
 
         user = UserService.register_user(serializer.validated_data)
-        response_serializer = UserRegisterSerializer(instance=user)
+        response_serializer = UserProfileSerializer(instance=user)
 
         return Response(response_serializer.data, status=status.HTTP_201_CREATED)
 

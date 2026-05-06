@@ -147,6 +147,16 @@ describe('HomePage discovery tag routing', () => {
     autocompleteState.isFetching = false
   })
 
+  it('keeps the discovery sidebar without the removed quick-entry auth card', async () => {
+    const { wrapper } = await mountHomePage()
+    const sidebar = wrapper.get('[data-testid="home-discovery-sidebar"]')
+
+    expect(sidebar.find('[data-testid="public-discovery-intro"]').exists()).toBe(true)
+    expect(sidebar.text()).not.toContain('Быстрый вход')
+    expect(sidebar.text()).not.toContain('Задать вопрос')
+    expect(sidebar.text()).not.toContain('Создать аккаунт')
+  })
+
   it('hydrates repeated tag params into normalized chips and question-list params', async () => {
     const { wrapper } = await mountHomePage({
       tag: [' Vue ', 'django', '', 'vue'],

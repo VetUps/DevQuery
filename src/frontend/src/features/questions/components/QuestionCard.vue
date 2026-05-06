@@ -1,6 +1,13 @@
 <script setup lang="ts">
-import type { QuestionListItem } from '@/features/questions/api/questions'
+import {
+  getProtectedQuestionAnswerWindowLabel,
+  getProtectedQuestionAnswerWindowSummary,
+  getProtectedQuestionWindowHours,
+  getProtectedQuestionWindowLabel,
+  type QuestionListItem,
+} from '@/features/questions/api/questions'
 import QuestionTagChips from '@/features/questions/components/QuestionTagChips.vue'
+import AuthorReputationBadge from '@/features/users/components/AuthorReputationBadge.vue'
 import { formatLongDate, formatQuestionStatus } from '@/shared/libs/formatting'
 
 const props = defineProps<{
@@ -17,6 +24,17 @@ const props = defineProps<{
       >
         {{ formatQuestionStatus(question.question_status) }}
       </span>
+      <span
+        v-if="question.is_protected"
+        class="question-card__protection"
+        data-testid="question-card-protection"
+      >
+        {{ `Защита ${getProtectedQuestionWindowLabel(getProtectedQuestionWindowHours(question))}` }}
+      </span>
+      <AuthorReputationBadge
+        :reputation="question.reputation"
+        :fallback-score="question.user_reputation_score"
+      />
       <span class="question-card__stamp">
         Создан {{ formatLongDate(question.question_created_at) }}
       </span>
@@ -31,6 +49,33 @@ const props = defineProps<{
     >
       <h2 class="question-card__title">{{ question.question_title }}</h2>
     </RouterLink>
+
+    <div
+      v-if="question.is_protected"
+      class="question-card__protection-panel"
+      data-testid="question-card-protection-panel"
+    >
+      <p class="question-card__protection-title">
+        Защищённый вопрос · {{ getProtectedQuestionAnswerWindowLabel(question) }}
+      </p>
+      <p class="question-card__protection-copy">
+        {{ getProtectedQuestionAnswerWindowSummary(question) }}
+      </p>
+      <p
+        v-if="question.viewer_answer_reason_message"
+        class="question-card__protection-copy"
+        data-testid="question-card-answer-blocked-reason"
+      >
+        {{ question.viewer_answer_reason_message }}
+      </p>
+      <p
+        v-if="question.viewer_downvote_reason_message"
+        class="question-card__protection-copy"
+        data-testid="question-card-downvote-blocked-reason"
+      >
+        {{ question.viewer_downvote_reason_message }}
+      </p>
+    </div>
 
     <QuestionTagChips :tags="question.tags" />
   </article>
@@ -66,7 +111,9 @@ const props = defineProps<{
 }
 
 .question-card__status,
-.question-card__stamp {
+.question-card__stamp,
+.question-card__protection-title,
+.question-card__protection-copy {
   font-size: 14px;
 }
 
@@ -89,6 +136,43 @@ const props = defineProps<{
 .question-card__status--closed {
   background: rgb(180 35 24 / 0.1);
   color: #B42318;
+}
+
+.question-card__protection {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid rgb(180 35 24 / 0.18);
+  border-radius: 999px;
+  background: rgb(180 35 24 / 0.08);
+  color: #B42318;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.question-card__protection-panel {
+  display: grid;
+  gap: var(--space-xs);
+  padding: var(--space-md) var(--space-lg);
+  border: 1px solid rgb(180 35 24 / 0.18);
+  border-radius: var(--radius-lg);
+  background: rgb(180 35 24 / 0.06);
+}
+
+.question-card__protection-title,
+.question-card__protection-copy {
+  margin: 0;
+}
+
+.question-card__protection-title {
+  color: #8F1D14;
+  font-weight: 700;
+}
+
+.question-card__protection-copy {
+  color: #7A5A46;
+  line-height: 1.6;
 }
 
 .question-card__stamp {

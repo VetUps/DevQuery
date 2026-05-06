@@ -49,13 +49,13 @@ async function handleLogout() {
         DevQuery
       </RouterLink>
 
-      <nav class="app-header__nav" aria-label="Основная навигация">
+      <nav class="app-header__nav" aria-label="Основная навигация" data-testid="app-header-nav">
         <template v-if="isSignedIn">
-          <RouterLink class="app-header__button-link" :to="askQuestionTarget">
-            <AppButton>Задать вопрос</AppButton>
+          <RouterLink class="app-header__button-link" data-testid="ask-question-link" :to="askQuestionTarget">
+            <AppButton size="compact">Задать вопрос</AppButton>
           </RouterLink>
 
-          <RouterLink class="app-header__link" to="/">
+          <RouterLink class="app-header__link app-header__link--compact" data-testid="home-link" to="/">
             Главная
           </RouterLink>
 
@@ -68,13 +68,13 @@ async function handleLogout() {
         </template>
 
         <template v-else>
-          <RouterLink class="app-header__button-link" :to="askQuestionTarget">
-            <AppButton>Задать вопрос</AppButton>
+          <RouterLink class="app-header__button-link" data-testid="ask-question-link" :to="askQuestionTarget">
+            <AppButton size="compact">Задать вопрос</AppButton>
           </RouterLink>
-          <RouterLink class="app-header__button-link" to="/register">
-            <AppButton variant="secondary">Создать аккаунт</AppButton>
+          <RouterLink class="app-header__button-link" data-testid="register-link" to="/register">
+            <AppButton variant="secondary" size="compact">Создать аккаунт</AppButton>
           </RouterLink>
-          <RouterLink class="app-header__link" to="/login">
+          <RouterLink class="app-header__link app-header__link--compact" data-testid="login-link" to="/login">
             Войти
           </RouterLink>
         </template>
@@ -88,8 +88,8 @@ async function handleLogout() {
   position: sticky;
   top: 0;
   z-index: 10;
-  border-bottom: 1px solid rgb(207 198 180 / 0.75);
-  background: rgb(228 222 208 / 0.92);
+  border-bottom: 1px solid rgb(207 198 180 / 0.58);
+  background: rgb(228 222 208 / 0.88);
   backdrop-filter: blur(10px);
 }
 
@@ -97,22 +97,23 @@ async function handleLogout() {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--space-lg);
+  gap: var(--space-md);
   max-width: 1120px;
   margin: 0 auto;
-  padding: var(--space-md) var(--space-lg);
+  padding: var(--space-sm) var(--space-lg);
 }
 
 .app-header__wordmark {
-  font-size: 20px;
+  color: color-mix(in srgb, var(--color-text) 82%, transparent);
+  font-size: 18px;
   font-weight: 600;
-  letter-spacing: -0.03em;
+  letter-spacing: -0.035em;
 }
 
 .app-header__nav {
   display: flex;
   align-items: center;
-  gap: var(--space-md);
+  gap: var(--space-sm);
 }
 
 .app-header__link,
@@ -122,10 +123,12 @@ async function handleLogout() {
 }
 
 .app-header__link {
-  min-height: 44px;
-  padding: 0 var(--space-md);
+  min-height: 40px;
+  padding: 0 var(--space-sm);
   border-radius: 999px;
   color: var(--color-text);
+  font-size: 14px;
+  font-weight: 600;
 }
 
 .app-header__link.router-link-active {

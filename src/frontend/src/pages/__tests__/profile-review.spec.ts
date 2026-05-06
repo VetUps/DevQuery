@@ -9,6 +9,7 @@ import ProfilePage from '@/pages/ProfilePage.vue'
 const profileState = {
   data: ref<any>(null),
   isPending: ref(false),
+  isError: ref(false),
   error: ref<unknown>(null),
 }
 
@@ -77,6 +78,7 @@ describe('profile review shell', () => {
       user_created_at: '2026-04-01T09:15:00Z',
     }
     profileState.isPending.value = false
+    profileState.isError.value = false
     profileState.error.value = null
   })
 

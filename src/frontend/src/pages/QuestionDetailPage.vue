@@ -75,6 +75,26 @@ const canProposeQuestionEdit = computed(
 const currentUserSolution = computed(() =>
   (solutionsQuery.data.value ?? []).find((solution) => solution.user === currentUserId.value) ?? null,
 )
+const answerProgressHint = computed(() => {
+  const question = questionDetailQuery.data.value
+  if (!question || question.viewer_can_answer) {
+    return ''
+  }
+
+  const levelLabel = question.viewer_level_label ?? question.viewer_level ?? 'Текущий уровень'
+  const nextLevelLabel = question.viewer_next_level_label ?? question.viewer_next_level
+  const points = question.viewer_points_to_next_level
+
+  if (typeof points === 'number' && points > 0 && nextLevelLabel) {
+    return `${levelLabel}: не хватает ${points} очков до уровня ${nextLevelLabel}.`
+  }
+
+  if (levelLabel) {
+    return `Сейчас ваш уровень: ${levelLabel}.`
+  }
+
+  return ''
+})
 
 async function retryPage() {
   await Promise.allSettled([
@@ -268,9 +288,14 @@ onBeforeUnmount(() => {
 
             <SolutionComposerPrompt
               v-else
-              title="Есть рабочее решение?"
-              description="Откройте короткий модальный редактор и опишите ход мысли, код и технические оговорки."
+              :title="questionDetailQuery.data.value.viewer_can_answer ? 'Есть рабочее решение?' : 'Ответ временно ограничен'"
+              :description="questionDetailQuery.data.value.viewer_can_answer
+                ? 'Откройте короткий модальный редактор и опишите ход мысли, код и технические оговорки.'
+                : 'Вопрос остаётся доступным для чтения, но новые ответы на старте проходят через защиту новичков.'"
               action-label="Написать решение"
+              :blocked="!questionDetailQuery.data.value.viewer_can_answer"
+              :blocked-reason="questionDetailQuery.data.value.viewer_answer_reason_message"
+              :progress-hint="answerProgressHint"
               @action="isComposerOpen = true"
             />
           </template>

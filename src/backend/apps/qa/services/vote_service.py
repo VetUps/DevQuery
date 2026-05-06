@@ -4,16 +4,34 @@ from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import Count, OuterRef, Subquery, CharField, F, IntegerField, Value, QuerySet
 from django.db.models.functions import Coalesce
-from rest_framework.exceptions import PermissionDenied, ValidationError, NotFound
+from rest_framework.exceptions import PermissionDenied, ValidationError, NotFound, ErrorDetail
 
 from ..models import Vote, Question, Solution
-from ...user.models import CustomUser
+from .question_protection_service import QuestionProtectionService
+from ...user.models import CustomUser, ReputationTransaction
+from ...user.services.reputation_service import ReputationService
 
 
 class VoteService:
     """
     Сервис для управления голосами
     """
+
+    PROTECTED_QUESTION_DOWNVOTE_ERROR_CODE = QuestionProtectionService.DOWNVOTE_BLOCKED_PROTECTED
+    PROTECTED_QUESTION_DOWNVOTE_MESSAGE = (
+        'В течение 12 часов после публикации вопросы новичков нельзя минусовать.'
+    )
+
+    REPUTATION_REWARDS = {
+        'question': {
+            'amount': 5,
+            'reason': ReputationTransaction.TransactionReason.QUESTION_UPVOTED,
+        },
+        'solution': {
+            'amount': 10,
+            'reason': ReputationTransaction.TransactionReason.SOLUTION_UPVOTED,
+        },
+    }
 
     @staticmethod
     def get_target_object(target_type: str, target_id: str) -> Question | Solution:
@@ -110,7 +128,22 @@ class VoteService:
         return getattr(obj, 'user_vote_type', None)
 
     @staticmethod
-    def validate_vote_permission(target_object: Question | Solution, user: CustomUser) -> None:
+    def build_protected_question_downvote_error() -> PermissionDenied:
+        permission_error = PermissionDenied(detail=VoteService.PROTECTED_QUESTION_DOWNVOTE_MESSAGE)
+        permission_error.detail = {
+            'detail': ErrorDetail(
+                VoteService.PROTECTED_QUESTION_DOWNVOTE_MESSAGE,
+                code=VoteService.PROTECTED_QUESTION_DOWNVOTE_ERROR_CODE,
+            ),
+            'code': ErrorDetail(
+                VoteService.PROTECTED_QUESTION_DOWNVOTE_ERROR_CODE,
+                code=VoteService.PROTECTED_QUESTION_DOWNVOTE_ERROR_CODE,
+            ),
+        }
+        return permission_error
+
+    @staticmethod
+    def validate_vote_permission(target_object: Question | Solution, user: CustomUser, vote_type: str | None = None) -> None:
         """
         Проверяет, что пользователь не голосует за собственный контент
         :param target_object: Объект вопроса или решения
@@ -119,6 +152,11 @@ class VoteService:
         """
         if target_object.user == user:
             raise PermissionDenied('Нельзя голосовать за собственный контент')
+
+        if isinstance(target_object, Question) and vote_type == Vote.VoteType.DOWNVOTE:
+            decision = QuestionProtectionService.get_question_downvote_eligibility(target_object, user)
+            if not decision.allowed:
+                raise VoteService.build_protected_question_downvote_error()
 
     @staticmethod
     def get_content_type(target_type: str) -> ContentType:
@@ -135,7 +173,69 @@ class VoteService:
             raise ValidationError('Неверный тип цели')
 
     @staticmethod
-    def cast_vote(target_type: str, target_id: str, vote_type: str, user: CustomUser) -> tuple[Vote, bool]:
+    def should_reward_upvote_transition(previous_vote_type: str | None, next_vote_type: str | None) -> bool:
+        """
+        Возвращает True, если переход впервые вводит состояние upvote.
+        M004 v1 начисляет репутацию только за новые upvote-переходы и
+        не выполняет списание при downvote/remove.
+        """
+        return previous_vote_type != Vote.VoteType.UPVOTE and next_vote_type == Vote.VoteType.UPVOTE
+
+    @classmethod
+    def has_existing_upvote_reward(
+        cls,
+        *,
+        target_object: Question | Solution,
+        reason: str,
+        actor: CustomUser,
+    ) -> bool:
+        content_type = ContentType.objects.get_for_model(target_object, for_concrete_model=False)
+        return ReputationTransaction.objects.filter(
+            user=target_object.user,
+            actor=actor,
+            reputation_transaction_reason=reason,
+            content_type=content_type,
+            object_id=target_object.pk,
+        ).exists()
+
+    @classmethod
+    def award_upvote_reputation_if_needed(
+        cls,
+        *,
+        target_type: str,
+        target_object: Question | Solution,
+        previous_vote_type: str | None,
+        next_vote_type: str | None,
+        actor: CustomUser,
+    ) -> None:
+        if not cls.should_reward_upvote_transition(previous_vote_type, next_vote_type):
+            return
+
+        reward = cls.REPUTATION_REWARDS.get(target_type)
+        if reward is None:
+            return
+
+        if cls.has_existing_upvote_reward(
+            target_object=target_object,
+            reason=reward['reason'],
+            actor=actor,
+        ):
+            return
+
+        ReputationService.record_transaction(
+            user=target_object.user,
+            amount=reward['amount'],
+            reason=reward['reason'],
+            actor=actor,
+            source=target_object,
+            note=(
+                f'M004 vote transition reward: {target_type} '
+                f'{previous_vote_type or "none"} -> {next_vote_type}'
+            ),
+        )
+
+    @classmethod
+    def cast_vote(cls, target_type: str, target_id: str, vote_type: str, user: CustomUser) -> tuple[Vote, bool]:
         """
         Поставить или изменить голос за объект.
         :param target_type: Тип цели ('question' или 'solution')
@@ -149,10 +249,10 @@ class VoteService:
         if vote_type not in [Vote.VoteType.UPVOTE, Vote.VoteType.DOWNVOTE]:
             raise ValidationError(f'Неверный тип голоса. Допустимые значения: {Vote.VoteType.UPVOTE}, {Vote.VoteType.DOWNVOTE}')
 
-        target_object = VoteService.get_target_object(target_type, target_id)
-        VoteService.validate_vote_permission(target_object, user)
+        target_object = cls.get_target_object(target_type, target_id)
+        cls.validate_vote_permission(target_object, user, vote_type)
 
-        content_type = VoteService.get_content_type(target_type)
+        content_type = cls.get_content_type(target_type)
 
         # Проверяем существующий голос
         existing_vote = Vote.objects.filter(
@@ -161,10 +261,19 @@ class VoteService:
             object_id=target_id
         ).first()
 
+        previous_vote_type = existing_vote.vote_type if existing_vote else None
+
         if existing_vote:
             if existing_vote.vote_type != vote_type:
                 existing_vote.vote_type = vote_type
                 existing_vote.save(update_fields=['vote_type', 'updated_at'])
+            cls.award_upvote_reputation_if_needed(
+                target_type=target_type,
+                target_object=target_object,
+                previous_vote_type=previous_vote_type,
+                next_vote_type=existing_vote.vote_type,
+                actor=user,
+            )
             return existing_vote, False
 
         vote = Vote.objects.create(
@@ -172,6 +281,13 @@ class VoteService:
             content_type=content_type,
             object_id=target_id,
             vote_type=vote_type
+        )
+        cls.award_upvote_reputation_if_needed(
+            target_type=target_type,
+            target_object=target_object,
+            previous_vote_type=previous_vote_type,
+            next_vote_type=vote.vote_type,
+            actor=user,
         )
         return vote, True
 

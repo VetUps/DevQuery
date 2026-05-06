@@ -1,5 +1,6 @@
 from rest_framework import serializers
-from .models import CustomUser
+from .models import CustomUser, ReputationTransaction
+from .services.reputation_service import ReputationService
 from .services.user_service import UserService
 
 class UserRegisterSerializer(serializers.ModelSerializer):
@@ -33,7 +34,25 @@ class UserRegisterSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         return UserService.register_user(validated_data)
 
+class ReputationLedgerEntrySerializer(serializers.ModelSerializer):
+    id = serializers.UUIDField(source='reputation_transaction_id', read_only=True)
+    amount = serializers.IntegerField(source='reputation_transaction_amount', read_only=True)
+    reason = serializers.CharField(source='reputation_transaction_reason', read_only=True)
+    actor_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ReputationTransaction
+        fields = ('id', 'amount', 'reason', 'note', 'actor_name', 'created_at')
+        read_only_fields = fields
+
+    def get_actor_name(self, obj) -> str | None:
+        return obj.actor.user_name if obj.actor else None
+
+
 class UserProfileSerializer(serializers.ModelSerializer):
+    reputation = serializers.SerializerMethodField()
+    reputation_ledger = serializers.SerializerMethodField()
+
     class Meta:
         model = CustomUser
         fields = (
@@ -44,10 +63,22 @@ class UserProfileSerializer(serializers.ModelSerializer):
             'user_avatar_url',
             'user_bio',
             'user_created_at',
+            'reputation',
+            'reputation_ledger',
         )
+
+    def get_reputation(self, obj) -> dict:
+        return ReputationService.get_progress(obj)
+
+    def get_reputation_ledger(self, obj) -> list:
+        limit = self.context.get('reputation_ledger_limit', 10)
+        transactions = obj.reputation_transactions.select_related('actor').order_by('-created_at')[:limit]
+        return ReputationLedgerEntrySerializer(transactions, many=True).data
 
 
 class PublicUserProfileSerializer(serializers.ModelSerializer):
+    reputation = serializers.SerializerMethodField()
+
     class Meta:
         model = CustomUser
         fields = (
@@ -58,7 +89,18 @@ class PublicUserProfileSerializer(serializers.ModelSerializer):
             'user_avatar_url',
             'user_bio',
             'user_created_at',
+            'reputation',
         )
+
+    def get_reputation(self, obj) -> dict:
+        progress = ReputationService.get_progress(obj)
+        return {
+            'score': progress['score'],
+            'level': progress['level'],
+            'level_label': progress['level_label'],
+            'next_level': progress['next_level'],
+            'points_to_next_level': progress['points_to_next_level'],
+        }
 
 class UserLoginSerializer(serializers.Serializer):
     user_email = serializers.CharField(max_length=255, required=True)

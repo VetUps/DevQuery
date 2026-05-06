@@ -6,6 +6,7 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 import { VueQueryPlugin } from '@tanstack/vue-query'
 
 import { queryClient } from '@/app/query-client'
+import { useSessionStore } from '@/features/auth/stores/session'
 import QuestionDetailPage from '@/pages/QuestionDetailPage.vue'
 import type { QuestionDetail } from '@/features/questions/api/questions'
 import VoteBalanceMeter from '@/features/questions/components/VoteBalanceMeter.vue'
@@ -117,13 +118,38 @@ function buildQuestionDetail(overrides: Partial<QuestionDetail> = {}): QuestionD
     downvotes: 3,
     score: 9,
     user_vote: null,
+    is_protected: false,
+    protection_reason_code: 'question_not_protected',
+    protected_until: null,
+    author_level: null,
+    author_points_to_next_level: null,
+    author_next_level: null,
+    author_next_level_label: null,
+    viewer_can_answer: true,
+    viewer_answer_reason_code: 'answer_allowed',
+    viewer_answer_reason_message: '',
+    viewer_answer_required_level: null,
+    viewer_answer_required_level_label: null,
+    viewer_level: null,
+    viewer_level_label: null,
+    viewer_points_to_next_level: null,
+    viewer_next_level: null,
+    viewer_next_level_label: null,
+    viewer_can_downvote: true,
+    viewer_downvote_reason_code: 'question_downvote_allowed',
+    viewer_downvote_reason_message: '',
     ...overrides,
   }
 }
 
-async function mountQuestionDetailPage() {
+async function mountQuestionDetailPage(authenticated = false) {
   const pinia = createPinia()
   setActivePinia(pinia)
+
+  if (authenticated) {
+    const sessionStore = useSessionStore()
+    sessionStore.setSession({ access: 'access-token', refresh: 'refresh-token' })
+  }
 
   const router = createRouter({
     history: createMemoryHistory(),
@@ -228,6 +254,26 @@ describe('question detail page', () => {
       downvotes: 3,
       score: 9,
       user_vote: null,
+      is_protected: false,
+      protection_reason_code: 'question_not_protected',
+      protected_until: null,
+      author_level: null,
+      author_points_to_next_level: null,
+      author_next_level: null,
+      author_next_level_label: null,
+      viewer_can_answer: true,
+      viewer_answer_reason_code: 'answer_allowed',
+      viewer_answer_reason_message: '',
+      viewer_answer_required_level: null,
+      viewer_answer_required_level_label: null,
+      viewer_level: null,
+      viewer_level_label: null,
+      viewer_points_to_next_level: null,
+      viewer_next_level: null,
+      viewer_next_level_label: null,
+      viewer_can_downvote: true,
+      viewer_downvote_reason_code: 'question_downvote_allowed',
+      viewer_downvote_reason_message: '',
     }
 
     const { wrapper } = await mountQuestionDetailPage()
@@ -238,6 +284,64 @@ describe('question detail page', () => {
     expect(wrapper.text()).toContain('Чтобы голосовать, войдите в аккаунт.')
   })
 
+  it('renders protected newcomer state with badge, answer block, and vote explanation', async () => {
+    questionDetailState.data.value = buildQuestionDetail({
+      is_protected: true,
+      protection_reason_code: 'question_protected_newcomer',
+      protected_until: '2026-03-01T23:59:00Z',
+      author_level: 'newcomer',
+      author_points_to_next_level: 30,
+      author_next_level: 'participant',
+      author_next_level_label: 'Участник',
+      viewer_can_answer: false,
+      viewer_answer_reason_code: 'answer_blocked_insufficient_level',
+      viewer_answer_reason_message: 'Этот вопрос новичка защищён на первые 12 часов. Отвечать сейчас могут только участники уровня Эксперт или Мастер.',
+      viewer_answer_required_level: 'expert',
+      viewer_answer_required_level_label: 'Эксперт',
+      viewer_level: 'participant',
+      viewer_level_label: 'Участник',
+      viewer_points_to_next_level: 70,
+      viewer_next_level: 'expert',
+      viewer_next_level_label: 'Эксперт',
+      viewer_can_downvote: false,
+      viewer_downvote_reason_code: 'question_downvote_blocked_protected',
+      viewer_downvote_reason_message: 'В первые 12 часов после публикации у вопросов новичков отключены даунвоуты, чтобы обсуждение начиналось с содержательной обратной связи.',
+    })
+    currentUserState.data.value = { user_id: 'viewer-1', user_name: 'Viewer' }
+
+    const { wrapper } = await mountQuestionDetailPage(true)
+
+    expect(wrapper.get('[data-testid="question-protection-badge"]').text()).toContain('Защищённый вопрос')
+    expect(wrapper.get('[data-testid="question-protection-panel"]').text()).toContain('Защита новых авторов включена')
+    expect(wrapper.get('[data-testid="solution-composer-blocked-reason"]').text()).toContain('Отвечать сейчас могут только участники уровня Эксперт или Мастер')
+    expect(wrapper.get('[data-testid="solution-composer-progress-hint"]').text()).toContain('не хватает 70 очков до уровня Эксперт')
+    expect(wrapper.find('[data-testid="vote-downvote-blocked"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain('даунвоуты, чтобы обсуждение начиналось с содержательной обратной связи')
+    expect(wrapper.text()).not.toContain('Написать решение')
+  })
+
+  it('keeps legacy payloads readable by falling back to default protection state', async () => {
+    questionDetailState.data.value = {
+      question_id: 'question-1',
+      user: 'user-1',
+      question_title: 'Legacy payload without protection metadata',
+      question_body: 'Старые ответы API не должны ломать detail page.',
+      question_status: 'open',
+      question_created_at: '2026-03-01T12:00:00Z',
+      question_updated_at: '2026-03-02T12:00:00Z',
+      tags: [],
+      upvotes: 1,
+      downvotes: 0,
+      score: 1,
+      user_vote: null,
+    }
+
+    const { wrapper } = await mountQuestionDetailPage()
+
+    expect(wrapper.text()).toContain('Legacy payload without protection metadata')
+    expect(wrapper.find('[data-testid="question-protection-badge"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="question-protection-panel"]').exists()).toBe(false)
+  })
   it('renders linked public tag chips on the question detail hero', async () => {
     questionDetailState.data.value = {
       question_id: 'question-1',
@@ -292,6 +396,54 @@ describe('question detail page', () => {
 
     expect(wrapper.text()).toContain('Legacy detail question remains readable')
     expect(wrapper.find('[data-testid="question-tag-chips"]').exists()).toBe(false)
+  })
+
+  it('renders compact master reputation for the question author profile', async () => {
+    questionDetailState.data.value = buildQuestionDetail()
+    profileState.data.value = {
+      user_id: 'user-1',
+      user_name: 'Master Alice',
+      user_role: 'user',
+      user_reputation_score: 510,
+      user_avatar_url: null,
+      user_bio: null,
+      user_created_at: '2026-03-01T12:00:00Z',
+      reputation: {
+        score: 510,
+        level: 'master',
+        level_label: 'Master',
+        next_level: null,
+        points_to_next_level: 0,
+      },
+    }
+
+    const { wrapper } = await mountQuestionDetailPage()
+
+    expect(wrapper.text()).toContain('Master Alice')
+    const badge = wrapper.get('[data-testid="author-reputation-badge"]')
+    expect(badge.text()).toContain('Master')
+    expect(badge.text()).toContain('510')
+    expect(wrapper.text()).not.toContain('manual_level')
+  })
+
+  it('keeps legacy public author fixtures readable when only reputation score is present', async () => {
+    questionDetailState.data.value = buildQuestionDetail({
+      question_title: 'Legacy detail author reputation remains readable',
+    })
+    profileState.data.value = {
+      user_name: 'Legacy Author',
+      user_role: 'user',
+      user_reputation_score: 37,
+      user_created_at: '2026-03-01T12:00:00Z',
+    }
+
+    const { wrapper } = await mountQuestionDetailPage()
+
+    expect(wrapper.text()).toContain('Legacy detail author reputation remains readable')
+    expect(wrapper.text()).toContain('Legacy Author')
+    const badge = wrapper.get('[data-testid="author-reputation-badge"]')
+    expect(badge.text()).toContain('Репутация')
+    expect(badge.text()).toContain('37')
   })
 
   it('hides the edit and proposal actions for guests, authorship mismatches, and unresolved current-user state', async () => {
