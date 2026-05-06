@@ -27,6 +27,7 @@ from apps.qa.serializers import (
     TagSerializer,
 )
 from apps.qa.services.question_edit_service import QuestionChangePayload, QuestionEditService
+from apps.qa.services.question_protection_service import QuestionProtectionService
 from apps.qa.services.solution_edits_service import SolutionEditService
 from apps.qa.services.solution_service import BEST_SOLUTION_REPUTATION_AWARD, SolutionService
 from apps.qa.services.vote_service import VoteService
@@ -423,6 +424,71 @@ class QuestionTagResponseSerializerTests(APITestCase):
         )
         self.assertEqual(response_by_id[str(untagged_question.question_id)]['tags'], [])
 
+    def test_question_serializers_expose_protection_metadata_with_safe_defaults(self):
+        Question.objects.filter(pk=self.question.pk).update(
+            question_created_at=timezone.now() - timedelta(hours=13)
+        )
+        self.question.refresh_from_db()
+
+        list_data = QuestionListSerializer(self.question).data
+        detail_data = QuestionGetSerializer(self.question).data
+
+        for payload in [list_data, detail_data]:
+            self.assertFalse(payload['is_protected'])
+            self.assertEqual(payload['protection_reason_code'], QuestionProtectionService.NOT_PROTECTED)
+            self.assertIsNone(payload['protected_until'])
+            self.assertTrue(payload['viewer_can_answer'])
+            self.assertEqual(payload['viewer_answer_reason_code'], QuestionProtectionService.ANSWER_ALLOWED)
+            self.assertEqual(payload['viewer_answer_reason_message'], '')
+            self.assertEqual(payload['viewer_answer_required_level'], CustomUser.ReputationLevel.EXPERT)
+            self.assertEqual(payload['viewer_answer_required_level_label'], CustomUser.ReputationLevel.EXPERT.label)
+            self.assertTrue(payload['viewer_can_downvote'])
+            self.assertEqual(payload['viewer_downvote_reason_code'], QuestionProtectionService.DOWNVOTE_ALLOWED)
+            self.assertEqual(payload['viewer_downvote_reason_message'], '')
+
+    def test_question_detail_response_exposes_protected_metadata_for_blocked_viewer(self):
+        protected_author = CustomUser.objects.create_user(
+            user_email='protected-author@example.com',
+            user_name='protected-author',
+            password='password',
+        )
+        participant_viewer = CustomUser.objects.create_user(
+            user_email='participant-viewer-response@example.com',
+            user_name='participant-viewer-response',
+            password='password',
+        )
+        participant_viewer.user_reputation_score = 30
+        participant_viewer.save(update_fields=['user_reputation_score'])
+
+        protected_question = Question.objects.create(
+            user=protected_author,
+            question_title='Protected newcomer question',
+            question_body='Need safe metadata for the frontend.',
+        )
+
+        self.client.force_authenticate(participant_viewer)
+        response = self.client.get(f'/question/{protected_question.question_id}/')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data['is_protected'])
+        self.assertEqual(response.data['protection_reason_code'], QuestionProtectionService.PROTECTED_NEWCOMER)
+        self.assertEqual(response.data['author_level'], CustomUser.ReputationLevel.NEWCOMER)
+        self.assertFalse(response.data['viewer_can_answer'])
+        self.assertEqual(
+            response.data['viewer_answer_reason_code'],
+            QuestionProtectionService.ANSWER_BLOCKED_INSUFFICIENT_LEVEL,
+        )
+        self.assertEqual(response.data['viewer_answer_required_level'], CustomUser.ReputationLevel.EXPERT)
+        self.assertEqual(response.data['viewer_level'], CustomUser.ReputationLevel.PARTICIPANT)
+        self.assertFalse(response.data['viewer_can_downvote'])
+        self.assertEqual(
+            response.data['viewer_downvote_reason_code'],
+            QuestionProtectionService.DOWNVOTE_BLOCKED_PROTECTED,
+        )
+        self.assertTrue(response.data['viewer_answer_reason_message'])
+        self.assertTrue(response.data['viewer_downvote_reason_message'])
+        self.assertIsNotNone(response.data['protected_until'])
+
 
 class TagAutocompleteApiTests(APITestCase):
     def setUp(self):
@@ -643,14 +709,96 @@ class ReputationVoteServiceTests(APITestCase):
             question_body='Should reject downvotes during the protected window.',
         )
 
-        with self.assertRaisesMessage(PermissionDenied, QuestionProtectionService.DOWNVOTE_BLOCKED_PROTECTED):
+        with self.assertRaises(PermissionDenied) as context:
             VoteService.cast_vote('question', str(protected_question.question_id), Vote.VoteType.DOWNVOTE, self.voter)
 
+        self.assertEqual(str(context.exception.detail['detail']), VoteService.PROTECTED_QUESTION_DOWNVOTE_MESSAGE)
+        self.assertEqual(str(context.exception.detail['code']), VoteService.PROTECTED_QUESTION_DOWNVOTE_ERROR_CODE)
         self.assertFalse(Vote.objects.filter(object_id=protected_question.question_id).exists())
         protected_question_author.refresh_from_db()
         self.assertEqual(protected_question_author.user_reputation_score, 0)
 
-    def test_should_reward_upvote_transition_matches_m004_rules(self):
+    def test_question_downvote_is_rejected_for_expert_during_protected_newcomer_window(self):
+        protected_question_author = CustomUser.objects.create_user(
+            user_email='protected-expert-window-author@example.com',
+            user_name='protected-expert-window-author',
+            password='password',
+        )
+        expert_voter = CustomUser.objects.create_user(
+            user_email='protected-expert-voter@example.com',
+            user_name='protected-expert-voter',
+            password='password',
+            user_reputation_score=100,
+        )
+        protected_question = Question.objects.create(
+            user=protected_question_author,
+            question_title='Protected newcomer question for expert voter',
+            question_body='Expert downvotes must stay blocked during the protected window.',
+        )
+
+        with self.assertRaises(PermissionDenied) as context:
+            VoteService.cast_vote('question', str(protected_question.question_id), Vote.VoteType.DOWNVOTE, expert_voter)
+
+        self.assertEqual(str(context.exception.detail['detail']), VoteService.PROTECTED_QUESTION_DOWNVOTE_MESSAGE)
+        self.assertEqual(str(context.exception.detail['code']), VoteService.PROTECTED_QUESTION_DOWNVOTE_ERROR_CODE)
+        self.assertFalse(Vote.objects.filter(object_id=protected_question.question_id).exists())
+
+    def test_question_upvote_remains_allowed_during_protected_window(self):
+        protected_question_author = CustomUser.objects.create_user(
+            user_email='protected-question-upvote-author@example.com',
+            user_name='protected-question-upvote-author',
+            password='password',
+        )
+        protected_question = Question.objects.create(
+            user=protected_question_author,
+            question_title='Protected newcomer question for upvote',
+            question_body='Question upvotes should remain available during the protected window.',
+        )
+
+        vote, created = VoteService.cast_vote(
+            'question',
+            str(protected_question.question_id),
+            Vote.VoteType.UPVOTE,
+            self.voter,
+        )
+
+        self.assertTrue(created)
+        self.assertEqual(vote.vote_type, Vote.VoteType.UPVOTE)
+        self.assertEqual(
+            VoteService.get_vote_stats('question', str(protected_question.question_id)),
+            {'upvotes': 1, 'downvotes': 0, 'score': 1},
+        )
+
+    def test_question_downvote_is_allowed_after_protected_window_expires(self):
+        protected_question_author = CustomUser.objects.create_user(
+            user_email='protected-question-expired-author@example.com',
+            user_name='protected-question-expired-author',
+            password='password',
+        )
+        protected_question = Question.objects.create(
+            user=protected_question_author,
+            question_title='Expired protected newcomer question',
+            question_body='Question downvotes should resume after the protected window.',
+        )
+        Question.objects.filter(pk=protected_question.pk).update(
+            question_created_at=timezone.now() - timedelta(hours=13)
+        )
+        protected_question.refresh_from_db()
+
+        vote, created = VoteService.cast_vote(
+            'question',
+            str(protected_question.question_id),
+            Vote.VoteType.DOWNVOTE,
+            self.voter,
+        )
+
+        self.assertTrue(created)
+        self.assertEqual(vote.vote_type, Vote.VoteType.DOWNVOTE)
+        self.assertEqual(
+            VoteService.get_vote_stats('question', str(protected_question.question_id)),
+            {'upvotes': 0, 'downvotes': 1, 'score': -1},
+        )
+
         cases = [
             (None, Vote.VoteType.UPVOTE, True),
             (None, Vote.VoteType.DOWNVOTE, False),
@@ -670,6 +818,10 @@ class ReputationVoteServiceTests(APITestCase):
 
     def test_question_reputation_transitions_follow_m004_upvote_rules(self):
         reward = VoteService.REPUTATION_REWARDS['question']
+        Question.objects.filter(pk=self.question.pk).update(
+            question_created_at=timezone.now() - timedelta(hours=13)
+        )
+        self.question.refresh_from_db()
         cases = [
             ('no_vote_to_up', None, Vote.VoteType.UPVOTE, reward['amount'], 1),
             ('no_vote_to_down', None, Vote.VoteType.DOWNVOTE, 0, 0),
@@ -754,6 +906,11 @@ class ReputationVoteServiceTests(APITestCase):
         self.assertFalse(Vote.objects.exists())
 
     def test_vote_statistics_and_annotations_remain_correct_after_reputation_side_effects(self):
+        Question.objects.filter(pk=self.question.pk).update(
+            question_created_at=timezone.now() - timedelta(hours=13)
+        )
+        self.question.refresh_from_db()
+
         VoteService.cast_vote('question', str(self.question.question_id), Vote.VoteType.UPVOTE, self.voter)
         other_voter = CustomUser.objects.create_user(
             user_email='other-voter@example.com',

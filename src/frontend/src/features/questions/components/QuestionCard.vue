@@ -18,6 +18,13 @@ const props = defineProps<{
       >
         {{ formatQuestionStatus(question.question_status) }}
       </span>
+      <span
+        v-if="question.is_protected"
+        class="question-card__protection"
+        data-testid="question-card-protection"
+      >
+        Защита 12ч
+      </span>
       <AuthorReputationBadge
         :reputation="question.reputation"
         :fallback-score="question.user_reputation_score"
@@ -94,6 +101,19 @@ const props = defineProps<{
 .question-card__status--closed {
   background: rgb(180 35 24 / 0.1);
   color: #B42318;
+}
+
+.question-card__protection {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid rgb(180 35 24 / 0.18);
+  border-radius: 999px;
+  background: rgb(180 35 24 / 0.08);
+  color: #B42318;
+  font-size: 14px;
+  font-weight: 600;
 }
 
 .question-card__stamp {
