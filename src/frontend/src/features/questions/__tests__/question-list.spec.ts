@@ -138,11 +138,58 @@ describe('question list home page', () => {
 
     const { wrapper } = await mountHomePage()
 
-    expect(wrapper.get('[data-testid="question-card-protection"]').text()).toContain('Защита 12ч')
+    expect(wrapper.get('[data-testid="question-card-protection"]').text()).toContain('Защита 12 часов')
     expect(wrapper.get('[data-testid="question-card-protection-panel"]').text()).toContain('Защищённый вопрос · Эксперт+ отвечают первые 12 часов')
     expect(wrapper.get('[data-testid="question-card-protection-panel"]').text()).toContain('В течение первых 12 часов после публикации отвечать могут только эксперты и мастера.')
     expect(wrapper.get('[data-testid="question-card-answer-blocked-reason"]').text()).toContain('Отвечать сейчас могут только участники уровня Эксперт или Мастер')
     expect(wrapper.get('[data-testid="question-card-downvote-blocked-reason"]').text()).toContain('даунвоуты, чтобы обсуждение начиналось с содержательной обратной связи')
+  })
+
+  it('updates list protection copy when the backend window duration changes', async () => {
+    queryState.data.value = {
+      count: 1,
+      next: null,
+      previous: null,
+      results: [
+        {
+          question_id: 'question-protected-24h',
+          user: 'user-protected',
+          question_title: 'Как пережить первые 24 часа вопроса новичка?',
+          question_status: 'open',
+          question_created_at: '2026-03-01T12:00:00Z',
+          question_updated_at: '2026-03-02T12:00:00Z',
+          is_protected: true,
+          protection_reason_code: 'question_protected_newcomer',
+          protected_until: '2026-03-02T12:00:00Z',
+          author_level: 'newcomer',
+          author_points_to_next_level: 30,
+          author_next_level: 'participant',
+          author_next_level_label: 'Участник',
+          viewer_can_answer: false,
+          viewer_answer_reason_code: 'answer_blocked_insufficient_level',
+          viewer_answer_reason_message: 'Этот вопрос новичка защищён на первые 24 часа. Отвечать сейчас могут только участники уровня Эксперт или Мастер.',
+          viewer_answer_required_level: 'expert',
+          viewer_answer_required_level_label: 'Эксперт',
+          viewer_level: 'participant',
+          viewer_level_label: 'Участник',
+          viewer_points_to_next_level: 70,
+          viewer_next_level: 'expert',
+          viewer_next_level_label: 'Эксперт',
+          viewer_can_downvote: false,
+          viewer_downvote_reason_code: 'question_downvote_blocked_protected',
+          viewer_downvote_reason_message: 'В первые 24 часа после публикации у вопросов новичков отключены даунвоуты, чтобы обсуждение начиналось с содержательной обратной связи.',
+          tags: [{ name: 'django', questions_count: 6 }],
+        },
+      ],
+    }
+
+    const { wrapper } = await mountHomePage()
+
+    expect(wrapper.get('[data-testid="question-card-protection"]').text()).toContain('Защита 24 часов')
+    expect(wrapper.get('[data-testid="question-card-protection-panel"]').text()).toContain('Защищённый вопрос · Эксперт+ отвечают первые 24 часов')
+    expect(wrapper.get('[data-testid="question-card-protection-panel"]').text()).toContain('В течение первых 24 часов после публикации отвечать могут только эксперты и мастера.')
+    expect(wrapper.get('[data-testid="question-card-answer-blocked-reason"]').text()).toContain('первые 24 часа')
+    expect(wrapper.get('[data-testid="question-card-downvote-blocked-reason"]').text()).toContain('В первые 24 часа после публикации')
   })
 
   it('renders linked public tag chips and compact expert reputation on tagged question cards', async () => {

@@ -2,6 +2,8 @@
 import {
   getProtectedQuestionAnswerWindowLabel,
   getProtectedQuestionAnswerWindowSummary,
+  getProtectedQuestionWindowHours,
+  getProtectedQuestionWindowLabel,
   type QuestionListItem,
 } from '@/features/questions/api/questions'
 import QuestionTagChips from '@/features/questions/components/QuestionTagChips.vue'
@@ -27,7 +29,7 @@ const props = defineProps<{
         class="question-card__protection"
         data-testid="question-card-protection"
       >
-        Защита 12ч
+        {{ `Защита ${getProtectedQuestionWindowLabel(getProtectedQuestionWindowHours(question))}` }}
       </span>
       <AuthorReputationBadge
         :reputation="question.reputation"

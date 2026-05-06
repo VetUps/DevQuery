@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  getProtectedQuestionAnswerWindowLabel,
+  getProtectedQuestionAnswerWindowSummary,
+  getProtectedQuestionWindowHours,
+  getProtectedQuestionWindowLabel,
+} from '@/features/questions/api/questions'
+import {
   buildReputationProgress,
   formatReputationDelta,
   formatReputationReason,
@@ -75,5 +81,31 @@ describe('profile reputation helpers', () => {
     expect(formatReputationDelta(15)).toBe('+15')
     expect(formatReputationDelta(-2)).toBe('-2')
     expect(formatReputationDelta(0)).toBe('0')
+  })
+
+  it('derives protected-question labels from backend-shaped timestamps instead of a hardcoded 12-hour window', () => {
+    const twentyFourHourQuestion = {
+      question_created_at: '2026-04-01T12:00:00Z',
+      protected_until: '2026-04-02T12:00:00Z',
+      viewer_answer_required_level_label: 'Участник',
+    }
+
+    expect(getProtectedQuestionWindowHours(twentyFourHourQuestion)).toBe(24)
+    expect(getProtectedQuestionWindowLabel(24)).toBe('24 часов')
+    expect(getProtectedQuestionAnswerWindowLabel(twentyFourHourQuestion)).toBe('Участник+ отвечают первые 24 часов')
+    expect(getProtectedQuestionAnswerWindowSummary(twentyFourHourQuestion)).toBe(
+      'В течение первых 24 часов после публикации отвечать могут только участники и мастера.',
+    )
+  })
+
+  it('falls back to the default 12-hour copy when legacy payloads omit the protection window timestamps', () => {
+    const legacyQuestion = {
+      question_created_at: '2026-04-01T12:00:00Z',
+      protected_until: null,
+      viewer_answer_required_level_label: 'Эксперт',
+    }
+
+    expect(getProtectedQuestionWindowHours(legacyQuestion)).toBe(12)
+    expect(getProtectedQuestionAnswerWindowLabel(legacyQuestion)).toBe('Эксперт+ отвечают первые 12 часов')
   })
 })

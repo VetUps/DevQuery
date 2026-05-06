@@ -1337,6 +1337,10 @@ class ReputationPolicyIntegrationTests(APITestCase):
             self.policy_question,
             self.reputation_user,
         )
+        initial_downvote = QuestionProtectionService.get_question_downvote_eligibility(
+            self.policy_question,
+            self.reputation_user,
+        )
         self.assertFalse(initial_decision.allowed)
         self.assertEqual(
             initial_decision.reason_code,
@@ -1344,6 +1348,13 @@ class ReputationPolicyIntegrationTests(APITestCase):
         )
         self.assertEqual(initial_decision.viewer_level, CustomUser.ReputationLevel.PARTICIPANT)
         self.assertEqual(initial_decision.points_to_next_level, 68)
+        self.assertFalse(initial_downvote.allowed)
+        self.assertEqual(
+            initial_downvote.reason_code,
+            QuestionProtectionService.DOWNVOTE_BLOCKED_PROTECTED,
+        )
+        self.assertEqual(initial_downvote.viewer_level, CustomUser.ReputationLevel.PARTICIPANT)
+        self.assertEqual(initial_downvote.points_to_next_level, 68)
 
         expert_threshold = ReputationLevelThreshold.objects.get(level=CustomUser.ReputationLevel.EXPERT)
         expert_threshold.minimum_score = 32
@@ -1358,8 +1369,18 @@ class ReputationPolicyIntegrationTests(APITestCase):
             self.policy_question,
             self.reputation_user,
         )
+        threshold_downvote = QuestionProtectionService.get_question_downvote_eligibility(
+            self.policy_question,
+            self.reputation_user,
+        )
         self.assertTrue(threshold_decision.allowed)
         self.assertEqual(threshold_decision.viewer_level, CustomUser.ReputationLevel.EXPERT)
+        self.assertFalse(threshold_downvote.allowed)
+        self.assertEqual(
+            threshold_downvote.reason_code,
+            QuestionProtectionService.DOWNVOTE_BLOCKED_PROTECTED,
+        )
+        self.assertEqual(threshold_downvote.viewer_level, CustomUser.ReputationLevel.EXPERT)
 
         overridden_user = ReputationService.set_manual_level_override(
             user=self.reputation_user,
@@ -1376,9 +1397,20 @@ class ReputationPolicyIntegrationTests(APITestCase):
             self.policy_question,
             overridden_user,
         )
+        override_downvote = QuestionProtectionService.get_question_downvote_eligibility(
+            self.policy_question,
+            overridden_user,
+        )
         self.assertFalse(override_decision.allowed)
         self.assertEqual(override_decision.viewer_level, CustomUser.ReputationLevel.NEWCOMER)
         self.assertEqual(override_decision.points_to_next_level, 268)
+        self.assertFalse(override_downvote.allowed)
+        self.assertEqual(
+            override_downvote.reason_code,
+            QuestionProtectionService.DOWNVOTE_BLOCKED_PROTECTED,
+        )
+        self.assertEqual(override_downvote.viewer_level, CustomUser.ReputationLevel.NEWCOMER)
+        self.assertEqual(override_downvote.points_to_next_level, 268)
 
         override_transaction = ReputationTransaction.objects.filter(
             user=self.reputation_user,
