@@ -1317,6 +1317,145 @@ class ProtectedQuestionAnswerApiTests(APITestCase):
         self.assertEqual(Solution.objects.filter(user=self.participant, question=self.question).count(), 1)
 
 
+class ProtectedNewcomerQuestionIntegratedPolicyTests(APITestCase):
+    def setUp(self):
+        self.newcomer_author = CustomUser.objects.create_user(
+            user_email='integrated-newcomer-author@example.com',
+            user_name='integrated-newcomer-author',
+            password='password',
+        )
+        self.participant = CustomUser.objects.create_user(
+            user_email='integrated-participant@example.com',
+            user_name='integrated-participant',
+            password='password',
+            user_reputation_score=30,
+        )
+        self.expert = CustomUser.objects.create_user(
+            user_email='integrated-expert@example.com',
+            user_name='integrated-expert',
+            password='password',
+            user_reputation_score=100,
+        )
+        self.question = Question.objects.create(
+            user=self.newcomer_author,
+            question_title='Integrated protected newcomer question',
+            question_body='Question content must stay readable while answer and downvote actions are gated.',
+        )
+
+    def _get_question(self, viewer: CustomUser):
+        self.client.force_authenticate(viewer)
+        return self.client.get(f'/question/{self.question.question_id}/')
+
+    def _create_solution(self, actor: CustomUser, body: str):
+        self.client.force_authenticate(actor)
+        return self.client.post(
+            '/solution/',
+            {
+                'question': str(self.question.question_id),
+                'solution_body': body,
+            },
+            format='json',
+        )
+
+    def _cast_question_vote(self, actor: CustomUser, vote_type: str):
+        self.client.force_authenticate(actor)
+        return self.client.post(
+            '/vote/cast/',
+            {
+                'target_type': 'question',
+                'target_id': str(self.question.question_id),
+                'vote_type': vote_type,
+            },
+            format='json',
+        )
+
+    def test_protected_newcomer_policy_spans_service_api_actions_and_expiry(self):
+        protected_state = QuestionProtectionService.get_protection_state(self.question)
+        participant_answer = QuestionProtectionService.get_answer_eligibility(self.question, self.participant)
+        expert_answer = QuestionProtectionService.get_answer_eligibility(self.question, self.expert)
+        participant_downvote = QuestionProtectionService.get_question_downvote_eligibility(self.question, self.participant)
+
+        self.assertTrue(protected_state.is_protected)
+        self.assertEqual(protected_state.author_level, CustomUser.ReputationLevel.NEWCOMER)
+        self.assertFalse(participant_answer.allowed)
+        self.assertEqual(participant_answer.reason_code, QuestionProtectionService.ANSWER_BLOCKED_INSUFFICIENT_LEVEL)
+        self.assertTrue(expert_answer.allowed)
+        self.assertFalse(participant_downvote.allowed)
+        self.assertEqual(participant_downvote.reason_code, QuestionProtectionService.DOWNVOTE_BLOCKED_PROTECTED)
+
+        participant_detail = self._get_question(self.participant)
+
+        self.assertEqual(participant_detail.status_code, status.HTTP_200_OK, participant_detail.data)
+        self.assertEqual(participant_detail.data['question_title'], 'Integrated protected newcomer question')
+        self.assertIn('must stay readable', participant_detail.data['question_body'])
+        self.assertTrue(participant_detail.data['is_protected'])
+        self.assertEqual(participant_detail.data['protection_reason_code'], QuestionProtectionService.PROTECTED_NEWCOMER)
+        self.assertFalse(participant_detail.data['viewer_can_answer'])
+        self.assertEqual(
+            participant_detail.data['viewer_answer_reason_code'],
+            QuestionProtectionService.ANSWER_BLOCKED_INSUFFICIENT_LEVEL,
+        )
+        self.assertEqual(participant_detail.data['viewer_level'], CustomUser.ReputationLevel.PARTICIPANT)
+        self.assertEqual(participant_detail.data['viewer_points_to_next_level'], 70)
+        self.assertFalse(participant_detail.data['viewer_can_downvote'])
+        self.assertEqual(
+            participant_detail.data['viewer_downvote_reason_code'],
+            QuestionProtectionService.DOWNVOTE_BLOCKED_PROTECTED,
+        )
+        self.assertIsNotNone(participant_detail.data['protected_until'])
+
+        blocked_solution = self._create_solution(self.participant, 'Participant answer should be blocked.')
+        self.assertEqual(blocked_solution.status_code, status.HTTP_403_FORBIDDEN, blocked_solution.data)
+        self.assertEqual(blocked_solution.data['code'], 'protected_newcomer_answer_required')
+        self.assertFalse(Solution.objects.filter(user=self.participant, question=self.question).exists())
+
+        expert_solution = self._create_solution(self.expert, 'Expert answer should be accepted during protection.')
+        self.assertEqual(expert_solution.status_code, status.HTTP_201_CREATED, expert_solution.data)
+        self.assertTrue(Solution.objects.filter(user=self.expert, question=self.question).exists())
+
+        blocked_downvote = self._cast_question_vote(self.participant, Vote.VoteType.DOWNVOTE)
+        self.assertEqual(blocked_downvote.status_code, status.HTTP_403_FORBIDDEN, blocked_downvote.data)
+        self.assertEqual(blocked_downvote.data['code'], QuestionProtectionService.DOWNVOTE_BLOCKED_PROTECTED)
+        self.assertEqual(VoteService.get_vote_stats('question', str(self.question.question_id))['downvotes'], 0)
+
+        allowed_upvote = self._cast_question_vote(self.participant, Vote.VoteType.UPVOTE)
+        self.assertEqual(allowed_upvote.status_code, status.HTTP_201_CREATED, allowed_upvote.data)
+        self.assertEqual(VoteService.get_vote_stats('question', str(self.question.question_id))['upvotes'], 1)
+
+        Question.objects.filter(pk=self.question.pk).update(
+            question_created_at=timezone.now() - timedelta(hours=13)
+        )
+        self.question.refresh_from_db()
+
+        expired_state = QuestionProtectionService.get_protection_state(self.question)
+        expired_answer = QuestionProtectionService.get_answer_eligibility(self.question, self.participant)
+        expired_downvote = QuestionProtectionService.get_question_downvote_eligibility(self.question, self.participant)
+
+        self.assertFalse(expired_state.is_protected)
+        self.assertTrue(expired_answer.allowed)
+        self.assertTrue(expired_downvote.allowed)
+
+        expired_detail = self._get_question(self.participant)
+        self.assertEqual(expired_detail.status_code, status.HTTP_200_OK, expired_detail.data)
+        self.assertEqual(expired_detail.data['question_title'], 'Integrated protected newcomer question')
+        self.assertIn('must stay readable', expired_detail.data['question_body'])
+        self.assertFalse(expired_detail.data['is_protected'])
+        self.assertTrue(expired_detail.data['viewer_can_answer'])
+        self.assertTrue(expired_detail.data['viewer_can_downvote'])
+        self.assertIsNone(expired_detail.data['protected_until'])
+
+        participant_solution = self._create_solution(self.participant, 'Participant answer should be accepted after expiry.')
+        self.assertEqual(participant_solution.status_code, status.HTTP_201_CREATED, participant_solution.data)
+        self.assertTrue(Solution.objects.filter(user=self.participant, question=self.question).exists())
+
+        allowed_downvote = self._cast_question_vote(self.participant, Vote.VoteType.DOWNVOTE)
+        self.assertEqual(allowed_downvote.status_code, status.HTTP_200_OK, allowed_downvote.data)
+        self.assertEqual(
+            VoteService.get_vote_stats('question', str(self.question.question_id)),
+            {'upvotes': 0, 'downvotes': 1, 'score': -1},
+        )
+
+
 class SolutionEditLifecycleTests(APITestCase):
     def setUp(self):
         self.question_author = CustomUser.objects.create_user(
