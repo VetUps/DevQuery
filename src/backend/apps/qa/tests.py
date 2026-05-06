@@ -828,6 +828,7 @@ class ReputationVoteServiceTests(APITestCase):
             {'upvotes': 0, 'downvotes': 1, 'score': -1},
         )
 
+    def test_should_reward_upvote_transition_only_when_upvote_is_newly_introduced(self):
         cases = [
             (None, Vote.VoteType.UPVOTE, True),
             (None, Vote.VoteType.DOWNVOTE, False),

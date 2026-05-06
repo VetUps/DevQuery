@@ -1,7 +1,11 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 
-import type { QuestionDetail } from '@/features/questions/api/questions'
+import {
+  getProtectedQuestionAnswerWindowLabel,
+  getProtectedQuestionAnswerWindowSummary,
+  type QuestionDetail,
+} from '@/features/questions/api/questions'
 import type { PublicUserProfile } from '@/features/users/api/publicProfiles'
 import QuestionTagChips from '@/features/questions/components/QuestionTagChips.vue'
 import AuthorReputationBadge from '@/features/users/components/AuthorReputationBadge.vue'
@@ -29,8 +33,7 @@ const protectionBadgeLabel = computed(() => {
     return ''
   }
 
-  const requiredLabel = props.question.viewer_answer_required_level_label ?? 'Эксперт'
-  return `Защищённый вопрос · ${requiredLabel}+ отвечают первые 12 часов`
+  return `Защищённый вопрос · ${getProtectedQuestionAnswerWindowLabel(props.question)}`
 })
 
 const protectionSummary = computed(() => {
@@ -38,12 +41,7 @@ const protectionSummary = computed(() => {
     return ''
   }
 
-  const requiredLabel = props.question.viewer_answer_required_level_label ?? 'Эксперт'
-  const responderGroup = requiredLabel === 'Участник'
-    ? 'участники и мастера'
-    : `${requiredLabel.toLowerCase()}ы и мастера`
-
-  return `В течение первых 12 часов после публикации отвечать могут только ${responderGroup}.`
+  return getProtectedQuestionAnswerWindowSummary(props.question)
 })
 
 const protectionWindowNote = computed(() => {
