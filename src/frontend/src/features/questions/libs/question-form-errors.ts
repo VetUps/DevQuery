@@ -38,13 +38,16 @@ export function extractQuestionFieldErrors(error: unknown): QuestionFieldErrors 
   return fieldErrors
 }
 
-export function normalizeQuestionSubmitError(error: unknown) {
+export function normalizeQuestionSubmitError(
+  error: unknown,
+  fallbackMessage = 'Не удалось опубликовать вопрос. Попробуйте ещё раз.',
+) {
   if (!axios.isAxiosError(error) || !error.response?.data || typeof error.response.data !== 'object') {
-    return 'Не удалось опубликовать вопрос. Попробуйте ещё раз.'
+    return fallbackMessage
   }
 
   const data = error.response.data as Record<string, unknown>
   const nonFieldError = getFirstErrorMessage(data.non_field_errors) || getFirstErrorMessage(data.detail)
 
-  return nonFieldError || 'Не удалось опубликовать вопрос. Попробуйте ещё раз.'
+  return nonFieldError || fallbackMessage
 }

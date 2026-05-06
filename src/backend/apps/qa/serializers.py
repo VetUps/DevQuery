@@ -4,7 +4,18 @@ from django.contrib.contenttypes.models import ContentType
 from django.db import transaction
 from django.db.models import TextChoices
 from rest_framework import serializers
-from .models import Question, Solution, SolutionEdits, Comment, Vote, Tag
+from .models import (
+    Question,
+    QuestionEditEvent,
+    QuestionEditProposal,
+    QuestionRevision,
+    Solution,
+    SolutionEdits,
+    Comment,
+    Vote,
+    Tag,
+)
+from .services.question_edit_service import QuestionChangePayload, QuestionEditService
 from .services.question_tag_service import QuestionTagService
 
 
@@ -80,6 +91,22 @@ class QuestionUpdateCreateSerializer(serializers.ModelSerializer):
         model = Question
         fields = ['question_title', 'question_body', 'tags']
 
+    def validate_question_title(self, value):
+        normalized_value = value.strip()
+
+        if not normalized_value:
+            raise serializers.ValidationError('Заголовок вопроса не может быть пустым.')
+
+        return normalized_value
+
+    def validate_question_body(self, value):
+        normalized_value = value.strip()
+
+        if not normalized_value:
+            raise serializers.ValidationError('Текст вопроса не может быть пустым.')
+
+        return normalized_value
+
     def validate_tags(self, value):
         return normalize_question_tags(value)
 
@@ -93,8 +120,98 @@ class QuestionUpdateCreateSerializer(serializers.ModelSerializer):
         return question
 
     def update(self, instance, validated_data):
-        validated_data.pop('tags', None)
-        return super().update(instance, validated_data)
+        tag_names = validated_data.pop('tags', None)
+        instance = super().update(instance, validated_data)
+
+        if tag_names is not None:
+            QuestionEditService._replace_question_tags(instance, tag_names)
+            instance.refresh_from_db()
+
+        return instance
+
+
+class QuestionEditCreateSerializer(serializers.Serializer):
+    question = serializers.PrimaryKeyRelatedField(
+        queryset=Question.objects.select_related('user').prefetch_related('tags'),
+        write_only=True,
+    )
+    question_edit_title_after = serializers.CharField(max_length=300, required=False, write_only=True)
+    question_edit_body_after = serializers.CharField(required=False, write_only=True)
+    question_title = serializers.CharField(max_length=300, required=False, write_only=True)
+    question_body = serializers.CharField(required=False, write_only=True)
+    tags = serializers.ListField(child=QuestionTagNameField(), required=True, write_only=True)
+
+    def validate_question_edit_title_after(self, value):
+        normalized_value = value.strip()
+
+        if not normalized_value:
+            raise serializers.ValidationError('Заголовок вопроса не может быть пустым.')
+
+        return normalized_value
+
+    def validate_question_edit_body_after(self, value):
+        normalized_value = value.strip()
+
+        if not normalized_value:
+            raise serializers.ValidationError('Текст вопроса не может быть пустым.')
+
+        return normalized_value
+
+    def validate_tags(self, value):
+        return normalize_question_tags(value)
+
+    def validate(self, data):
+        question = data['question']
+        user = self.context.get('request').user
+        title_after = data.get('question_edit_title_after') or data.get('question_title')
+        body_after = data.get('question_edit_body_after') or data.get('question_body')
+
+        if title_after is None:
+            raise serializers.ValidationError({'question_edit_title_after': 'Заголовок вопроса обязателен.'})
+
+        if body_after is None:
+            raise serializers.ValidationError({'question_edit_body_after': 'Текст вопроса обязателен.'})
+
+        data['question_edit_title_after'] = self.validate_question_edit_title_after(title_after)
+        data['question_edit_body_after'] = self.validate_question_edit_body_after(body_after)
+        current_tags = list(question.tags.order_by('name').values_list('name', flat=True))
+        next_tags = sorted(data.get('tags', []))
+
+        if question.user == user:
+            raise serializers.ValidationError('Автор вопроса может редактировать вопрос напрямую.')
+
+        if (
+            question.question_title == data['question_edit_title_after']
+            and question.question_body == data['question_edit_body_after']
+            and current_tags == next_tags
+        ):
+            raise serializers.ValidationError('Предложение должно изменять заголовок, текст или теги вопроса.')
+
+        if QuestionEditProposal.objects.filter(
+            question=question,
+            author=user,
+            question_edit_is_approved__isnull=True,
+        ).exists():
+            raise serializers.ValidationError(
+                'Пользователь уже предложил ожидающую рассмотрения правку для этого вопроса.'
+            )
+
+        return data
+
+    def create(self, validated_data):
+        question = validated_data.pop('question')
+        validated_data.pop('question_title', None)
+        validated_data.pop('question_body', None)
+        payload = QuestionChangePayload(
+            title=validated_data['question_edit_title_after'],
+            body=validated_data['question_edit_body_after'],
+            tags=validated_data.get('tags', []),
+        )
+        return QuestionEditService.create_proposal(
+            question=question,
+            actor=self.context['request'].user,
+            payload=payload,
+        )
 
 
 class QuestionCreateResponseSerializer(serializers.ModelSerializer):
@@ -112,6 +229,96 @@ class QuestionCreateResponseSerializer(serializers.ModelSerializer):
             'question_updated_at',
             'tags',
         ]
+
+
+class QuestionEditProposalResponseSerializer(serializers.ModelSerializer):
+    question_title = serializers.CharField(source='question.question_title', read_only=True)
+    question_author_id = serializers.UUIDField(source='question.user.user_id', read_only=True, allow_null=True)
+    question_author_name = serializers.SerializerMethodField()
+    user = serializers.UUIDField(source='author.user_id', read_only=True, allow_null=True)
+    edit_author_id = serializers.UUIDField(source='author.user_id', read_only=True, allow_null=True)
+    edit_author_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = QuestionEditProposal
+        fields = [
+            'question_edit_id',
+            'question',
+            'question_title',
+            'question_author_id',
+            'question_author_name',
+            'user',
+            'edit_author_id',
+            'edit_author_name',
+            'author',
+            'reviewed_by',
+            'question_edit_title_before',
+            'question_edit_body_before',
+            'question_edit_tags_before',
+            'question_edit_title_after',
+            'question_edit_body_after',
+            'question_edit_tags_after',
+            'question_edit_is_approved',
+            'question_edit_edited_at',
+            'reviewed_at',
+        ]
+
+    def get_question_author_name(self, obj: QuestionEditProposal) -> str:
+        return obj.question.user.user_name if obj.question.user else 'Автор вопроса'
+
+    def get_edit_author_name(self, obj: QuestionEditProposal) -> str:
+        return obj.author.user_name if obj.author else 'Пользователь удалён'
+
+
+class QuestionEditApprovalSerializer(serializers.Serializer):
+    approved = serializers.BooleanField()
+
+
+class QuestionRevisionSerializer(serializers.ModelSerializer):
+    actor_name = serializers.SerializerMethodField()
+    tags = TagSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = QuestionRevision
+        fields = [
+            'revision_id',
+            'question',
+            'proposal',
+            'source',
+            'actor',
+            'actor_name',
+            'title_before',
+            'body_before',
+            'tags_before',
+            'title_after',
+            'body_after',
+            'tags_after',
+            'tags',
+            'created_at',
+        ]
+
+    def get_actor_name(self, obj: QuestionRevision) -> str:
+        return obj.actor.user_name if obj.actor else 'Пользователь удалён'
+
+
+class QuestionEditEventSerializer(serializers.ModelSerializer):
+    actor_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = QuestionEditEvent
+        fields = [
+            'event_id',
+            'question',
+            'proposal',
+            'revision',
+            'event_type',
+            'actor',
+            'actor_name',
+            'created_at',
+        ]
+
+    def get_actor_name(self, obj: QuestionEditEvent) -> str:
+        return obj.actor.user_name if obj.actor else 'Пользователь удалён'
 
 class SolutionListSerializer(serializers.ModelSerializer):
     question_id = serializers.UUIDField(source='question.question_id', read_only=True)

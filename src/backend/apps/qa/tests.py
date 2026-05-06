@@ -6,7 +6,14 @@ from drf_spectacular.generators import SchemaGenerator
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from apps.qa.models import Question, Solution, Tag
+from apps.qa.models import (
+    Question,
+    QuestionEditEvent,
+    QuestionEditProposal,
+    QuestionRevision,
+    Solution,
+    Tag,
+)
 from apps.qa.serializers import (
     MAX_QUESTION_TAGS,
     QuestionCreateResponseSerializer,
@@ -15,6 +22,7 @@ from apps.qa.serializers import (
     QuestionUpdateCreateSerializer,
     TagSerializer,
 )
+from apps.qa.services.question_edit_service import QuestionChangePayload, QuestionEditService
 from apps.user.models import CustomUser
 
 
@@ -452,8 +460,12 @@ class QuestionDiscoveryTests(APITestCase):
     def test_question_list_orders_by_creation_date(self):
         newest_date = timezone.now()
         newer_date = newest_date - timedelta(days=1)
-        older_date = newest_date - timedelta(days=2)
-        Question.objects.filter(question_id=self.django_question.question_id).update(question_created_at=older_date)
+        middle_date = newest_date - timedelta(days=2)
+        older_date = newest_date - timedelta(days=3)
+        oldest_date = newest_date - timedelta(days=4)
+        Question.objects.filter(question_id=self.django_question.question_id).update(question_created_at=oldest_date)
+        Question.objects.filter(question_id=self.django_only_question.question_id).update(question_created_at=older_date)
+        Question.objects.filter(question_id=self.serializer_only_question.question_id).update(question_created_at=middle_date)
         Question.objects.filter(question_id=self.vue_question.question_id).update(question_created_at=newer_date)
         Question.objects.filter(question_id=self.untagged_question.question_id).update(question_created_at=newest_date)
 
@@ -548,6 +560,283 @@ class QuestionDiscoveryTests(APITestCase):
             paginated_schema['properties']['results']['items']['$ref'],
             '#/components/schemas/QuestionList',
         )
+
+
+class QuestionEditLifecycleTests(APITestCase):
+    def setUp(self):
+        self.author = CustomUser.objects.create_user(
+            user_email='question-owner@example.com',
+            user_name='question-owner',
+            password='password',
+        )
+        self.editor = CustomUser.objects.create_user(
+            user_email='question-editor@example.com',
+            user_name='question-editor',
+            password='password',
+        )
+        self.other_user = CustomUser.objects.create_user(
+            user_email='question-other@example.com',
+            user_name='question-other',
+            password='password',
+        )
+        self.django_tag = Tag.objects.create(name='django', questions_count=0)
+        self.rest_tag = Tag.objects.create(name='rest', questions_count=0)
+        self.question = Question.objects.create(
+            user=self.author,
+            question_title='Original title',
+            question_body='Original body',
+        )
+        self.question.tags.add(self.django_tag)
+        Tag.objects.filter(name='django').update(questions_count=1)
+
+    def test_author_direct_edit_updates_question_tags_revision_and_event(self):
+        self.client.force_authenticate(self.author)
+
+        response = self.client.put(
+            f'/question/{self.question.question_id}/',
+            {
+                'question_title': 'Updated title',
+                'question_body': 'Updated body',
+                'tags': ['rest', 'python-api'],
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual(response.data['question_title'], 'Updated title')
+        self.assertEqual(response.data['question_body'], 'Updated body')
+        self.assertEqual(response.data['tags'], [
+            {'name': 'rest', 'questions_count': 1},
+            {'name': 'python-api', 'questions_count': 1},
+        ])
+        self.assertEqual(response.data['upvotes'], 0)
+        self.assertEqual(response.data['downvotes'], 0)
+        self.assertEqual(response.data['score'], 0)
+        self.assertIsNone(response.data['user_vote'])
+        self.question.refresh_from_db()
+        self.assertEqual(self.question.question_title, 'Updated title')
+        self.assertEqual(self.question.question_body, 'Updated body')
+        self.assertEqual(set(self.question.tags.values_list('name', flat=True)), {'rest', 'python-api'})
+
+        revision = QuestionRevision.objects.get(question=self.question)
+        self.assertEqual(revision.source, QuestionRevision.Source.DIRECT_EDIT)
+        self.assertEqual(revision.title_before, 'Original title')
+        self.assertEqual(revision.title_after, 'Updated title')
+        self.assertEqual(revision.tags_before, ['django'])
+        self.assertEqual(revision.tags_after, ['rest', 'python-api'])
+
+        event = QuestionEditEvent.objects.get(question=self.question)
+        self.assertEqual(event.event_type, QuestionEditEvent.EventType.DIRECT_EDITED)
+        self.assertEqual(Tag.objects.get(name='django').questions_count, 0)
+        self.assertEqual(Tag.objects.get(name='rest').questions_count, 1)
+        self.assertEqual(Tag.objects.get(name='python-api').questions_count, 1)
+
+    def test_non_author_can_submit_proposal_and_author_can_approve_atomically(self):
+        self.client.force_authenticate(self.editor)
+        propose_response = self.client.post(
+            '/question/propose_edit/',
+            {
+                'question': str(self.question.question_id),
+                'question_title': 'Proposed title',
+                'question_body': 'Proposed body',
+                'tags': ['django', 'drf'],
+            },
+            format='json',
+        )
+
+        self.assertEqual(propose_response.status_code, status.HTTP_201_CREATED, propose_response.data)
+        proposal_id = propose_response.data['question_edit_id']
+        proposal = QuestionEditProposal.objects.get(question_edit_id=proposal_id)
+        self.assertIsNone(proposal.question_edit_is_approved)
+        self.assertEqual(proposal.question_edit_tags_before, ['django'])
+        self.assertEqual(proposal.question_edit_tags_after, ['django', 'drf'])
+
+        self.client.force_authenticate(self.author)
+        approve_response = self.client.patch(f'/question/approve_edit/{proposal_id}/')
+
+        self.assertEqual(approve_response.status_code, status.HTTP_200_OK, approve_response.data)
+        self.question.refresh_from_db()
+        proposal.refresh_from_db()
+        self.assertTrue(proposal.question_edit_is_approved)
+        self.assertEqual(self.question.question_title, 'Proposed title')
+        self.assertEqual(self.question.question_body, 'Proposed body')
+        self.assertEqual(set(self.question.tags.values_list('name', flat=True)), {'django', 'drf'})
+
+        revision = QuestionRevision.objects.get(proposal=proposal)
+        self.assertEqual(revision.source, QuestionRevision.Source.APPROVED_PROPOSAL)
+        self.assertEqual(revision.tags_after, ['django', 'drf'])
+        self.assertEqual(
+            list(QuestionEditEvent.objects.filter(question=self.question).order_by('created_at').values_list('event_type', flat=True)),
+            [QuestionEditEvent.EventType.PROPOSED, QuestionEditEvent.EventType.APPROVED],
+        )
+
+    def test_frontend_question_edits_routes_match_browser_contract(self):
+        self.client.force_authenticate(self.editor)
+        propose_response = self.client.post(
+            '/question_edits/',
+            {
+                'question': str(self.question.question_id),
+                'question_edit_title_after': 'Frontend proposed title',
+                'question_edit_body_after': 'Frontend proposed body',
+                'tags': ['django', 'frontend'],
+            },
+            format='json',
+        )
+
+        self.assertEqual(propose_response.status_code, status.HTTP_201_CREATED, propose_response.data)
+        self.assertEqual(propose_response.data['question_title'], 'Original title')
+        self.assertEqual(propose_response.data['question_author_id'], str(self.author.user_id))
+        self.assertEqual(propose_response.data['question_author_name'], self.author.user_name)
+        self.assertEqual(propose_response.data['user'], str(self.editor.user_id))
+        self.assertEqual(propose_response.data['edit_author_id'], str(self.editor.user_id))
+        self.assertEqual(propose_response.data['edit_author_name'], self.editor.user_name)
+        self.assertEqual(propose_response.data['question_edit_title_after'], 'Frontend proposed title')
+        self.assertEqual(propose_response.data['question_edit_tags_after'], ['django', 'frontend'])
+        proposal_id = propose_response.data['question_edit_id']
+
+        self.client.force_authenticate(self.author)
+        review_response = self.client.get('/question_edits/review_queue/')
+        approve_response = self.client.patch(f'/question_edits/approve/{proposal_id}/')
+
+        self.assertEqual(review_response.status_code, status.HTTP_200_OK, review_response.data)
+        self.assertEqual(review_response.data[0]['question_edit_id'], proposal_id)
+        self.assertEqual(approve_response.status_code, status.HTTP_200_OK, approve_response.data)
+        self.assertEqual(approve_response.data, {'approved': True})
+        self.question.refresh_from_db()
+        self.assertEqual(self.question.question_title, 'Frontend proposed title')
+        self.assertEqual(set(self.question.tags.values_list('name', flat=True)), {'django', 'frontend'})
+
+    def test_author_can_reject_proposal_without_mutating_question(self):
+        proposal = QuestionEditService.create_proposal(
+            question=self.question,
+            actor=self.editor,
+            payload=QuestionChangePayload(
+                title='Rejected title',
+                body='Rejected body',
+                tags=['rest'],
+            ),
+        )
+
+        self.client.force_authenticate(self.author)
+        response = self.client.patch(f'/question/reject_edit/{proposal.question_edit_id}/')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        proposal.refresh_from_db()
+        self.question.refresh_from_db()
+        self.assertFalse(proposal.question_edit_is_approved)
+        self.assertEqual(self.question.question_title, 'Original title')
+        self.assertEqual(set(self.question.tags.values_list('name', flat=True)), {'django'})
+        self.assertFalse(QuestionRevision.objects.filter(proposal=proposal).exists())
+        self.assertEqual(
+            list(QuestionEditEvent.objects.filter(question=self.question).order_by('created_at').values_list('event_type', flat=True)),
+            [QuestionEditEvent.EventType.PROPOSED, QuestionEditEvent.EventType.REJECTED],
+        )
+
+    def test_non_author_cannot_direct_edit_question(self):
+        self.client.force_authenticate(self.editor)
+
+        response = self.client.put(
+            f'/question/{self.question.question_id}/',
+            {
+                'question_title': 'Hack title',
+                'question_body': 'Hack body',
+                'tags': ['django'],
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_author_cannot_create_proposal_for_own_question(self):
+        self.client.force_authenticate(self.author)
+
+        response = self.client.post(
+            '/question/propose_edit/',
+            {
+                'question': str(self.question.question_id),
+                'question_title': 'Self proposal',
+                'question_body': 'Self proposal body',
+                'tags': ['django'],
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_pending_proposal_cannot_be_reviewed_twice(self):
+        proposal = QuestionEditService.create_proposal(
+            question=self.question,
+            actor=self.editor,
+            payload=QuestionChangePayload(
+                title='Review once',
+                body='Review once body',
+                tags=['rest'],
+            ),
+        )
+        QuestionEditService.change_proposal_approval(
+            proposal_id=str(proposal.question_edit_id),
+            actor=self.author,
+            approved=True,
+        )
+
+        self.client.force_authenticate(self.author)
+        response = self.client.patch(f'/question/reject_edit/{proposal.question_edit_id}/')
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_invalid_tags_reject_direct_edit_without_partial_apply(self):
+        self.client.force_authenticate(self.author)
+
+        response = self.client.put(
+            f'/question/{self.question.question_id}/',
+            {
+                'question_title': 'Still original title?',
+                'question_body': 'Still original body?',
+                'tags': ['bad tag'],
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.question.refresh_from_db()
+        self.assertEqual(self.question.question_title, 'Original title')
+        self.assertEqual(self.question.question_body, 'Original body')
+        self.assertEqual(set(self.question.tags.values_list('name', flat=True)), {'django'})
+
+    def test_history_endpoints_expose_event_and_revision_records(self):
+        QuestionEditService.direct_edit(
+            question=self.question,
+            actor=self.author,
+            payload=QuestionChangePayload(
+                title='Direct title',
+                body='Direct body',
+                tags=['rest'],
+            ),
+        )
+        proposal = QuestionEditService.create_proposal(
+            question=self.question,
+            actor=self.editor,
+            payload=QuestionChangePayload(
+                title='Approved title',
+                body='Approved body',
+                tags=['rest', 'drf'],
+            ),
+        )
+        QuestionEditService.change_proposal_approval(
+            proposal_id=str(proposal.question_edit_id),
+            actor=self.author,
+            approved=True,
+        )
+
+        events_response = self.client.get(f'/question/events/{self.question.question_id}/')
+        revisions_response = self.client.get(f'/question/revisions/{self.question.question_id}/')
+        pending_response = self.client.get(f'/question/pending_edits/{self.question.question_id}/')
+
+        self.assertEqual(events_response.status_code, status.HTTP_200_OK, events_response.data)
+        self.assertEqual(revisions_response.status_code, status.HTTP_200_OK, revisions_response.data)
+        self.assertEqual(len(events_response.data), 3)
+        self.assertEqual(len(revisions_response.data), 2)
+        self.assertEqual(pending_response.status_code, status.HTTP_401_UNAUTHORIZED)
 
 
 class BestSolutionTests(APITestCase):

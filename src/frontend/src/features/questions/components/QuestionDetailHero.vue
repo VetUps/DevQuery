@@ -4,6 +4,7 @@ import type { PublicUserProfile } from '@/features/users/api/publicProfiles'
 import QuestionTagChips from '@/features/questions/components/QuestionTagChips.vue'
 import SignalVoteRail from '@/features/votes/components/SignalVoteRail.vue'
 import { formatLongDate, formatQuestionStatus } from '@/shared/libs/formatting'
+import AppButton from '@/shared/ui/AppButton.vue'
 import MarkdownContent from '@/shared/ui/MarkdownContent.vue'
 
 const props = defineProps<{
@@ -11,6 +12,13 @@ const props = defineProps<{
   author: PublicUserProfile | null | undefined
   currentUserId?: string
   canVote?: boolean
+  canEdit?: boolean
+  canProposeEdit?: boolean
+}>()
+
+const emit = defineEmits<{
+  requestEdit: []
+  requestProposal: []
 }>()
 </script>
 
@@ -29,6 +37,14 @@ const props = defineProps<{
 
       <h1 class="question-detail-hero__title">{{ question.question_title }}</h1>
       <QuestionTagChips :tags="question.tags" variant="large" />
+      <div v-if="canEdit || canProposeEdit" class="question-detail-hero__actions">
+        <AppButton v-if="canEdit" type="button" variant="secondary" @click="emit('requestEdit')">
+          Редактировать вопрос
+        </AppButton>
+        <AppButton v-else-if="canProposeEdit" type="button" variant="secondary" @click="emit('requestProposal')">
+          Предложить правку
+        </AppButton>
+      </div>
       <div class="question-detail-hero__body">
         <MarkdownContent :source="question.question_body" />
       </div>
@@ -141,6 +157,27 @@ const props = defineProps<{
 .question-detail-hero__body {
   min-width: 0;
   font-size: 17px;
+}
+
+.question-detail-hero__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+.question-detail-hero__actions :deep(.app-button) {
+  box-shadow: 0 10px 24px rgb(14 116 144 / 0.12);
+  transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease,
+    opacity 0.2s ease,
+    transform 0.16s ease,
+    box-shadow 0.2s ease;
+}
+
+.question-detail-hero__actions :deep(.app-button:active:enabled) {
+  transform: scale(0.96);
 }
 
 .question-detail-hero__author {
