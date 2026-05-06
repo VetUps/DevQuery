@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 
 import { useCurrentUserQuery } from '@/features/auth/queries/useCurrentUserQuery'
 import { useSessionStore } from '@/features/auth/stores/session'
+import ProfileQuestionEditReviewQueue from '@/features/questions/components/ProfileQuestionEditReviewQueue.vue'
 import ProfileEditHistoryTab from '@/features/solutions/components/ProfileEditHistoryTab.vue'
 import ProfileEditReviewQueue from '@/features/solutions/components/ProfileEditReviewQueue.vue'
 import AppShellLayout from '@/layouts/AppShellLayout.vue'
@@ -132,7 +133,10 @@ async function setActiveTab(tab: ProfileTab) {
             </article>
           </section>
 
-          <ProfileEditReviewQueue v-else-if="activeTab === 'review'" />
+          <section v-else-if="activeTab === 'review'" class="profile-page__review-grid" aria-label="Очереди проверки правок">
+            <ProfileEditReviewQueue />
+            <ProfileQuestionEditReviewQueue />
+          </section>
 
           <ProfileEditHistoryTab v-else />
         </SurfacePanel>
@@ -155,7 +159,8 @@ async function setActiveTab(tab: ProfileTab) {
 .profile-page__summary-copy,
 .profile-page__facts,
 .profile-page__fact,
-.profile-page__grid {
+.profile-page__grid,
+.profile-page__review-grid {
   display: grid;
 }
 
@@ -241,6 +246,10 @@ async function setActiveTab(tab: ProfileTab) {
 .profile-page__grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-lg);
+}
+
+.profile-page__review-grid {
+  gap: var(--space-xl);
 }
 
 .profile-page__overview-card {

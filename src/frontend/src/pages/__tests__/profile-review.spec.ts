@@ -18,7 +18,13 @@ vi.mock('@/features/auth/queries/useCurrentUserQuery', () => ({
 
 vi.mock('@/features/solutions/components/ProfileEditReviewQueue.vue', () => ({
   default: {
-    template: '<div data-testid="review-workspace">Здесь появится очередь правок к вашим решениям.</div>',
+    template: '<div data-testid="solution-review-workspace">Здесь появится очередь правок к вашим решениям.</div>',
+  },
+}))
+
+vi.mock('@/features/questions/components/ProfileQuestionEditReviewQueue.vue', () => ({
+  default: {
+    template: '<div data-testid="question-review-workspace">Здесь появится очередь правок к вашим вопросам.</div>',
   },
 }))
 
@@ -90,6 +96,7 @@ describe('profile review shell', () => {
 
     expect(router.currentRoute.value.query.tab).toBe('review')
     expect(wrapper.text()).toContain('Здесь появится очередь правок к вашим решениям.')
+    expect(wrapper.text()).toContain('Здесь появится очередь правок к вашим вопросам.')
   })
 
   it('updates the route when switching tabs from the shell', async () => {

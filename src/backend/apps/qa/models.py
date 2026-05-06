@@ -94,6 +94,121 @@ class SolutionEdits(models.Model):
         return f'{self.solution_edit_id}'
 
 
+class QuestionEditProposal(models.Model):
+    question_edit_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False, blank=False,
+                                        help_text='Уникальный идентификатор правки вопроса')
+    question = models.ForeignKey(Question, blank=False, on_delete=models.CASCADE,
+                                 related_name='edit_proposals', help_text='Вопрос, к которому относится правка')
+    author = models.ForeignKey(CustomUser, blank=False, null=True, on_delete=models.SET_NULL,
+                               related_name='question_edit_proposals', help_text='Автор предложенной правки')
+    reviewed_by = models.ForeignKey(CustomUser, blank=True, null=True, on_delete=models.SET_NULL,
+                                    related_name='question_edit_reviews', help_text='Кто рассмотрел правку')
+    question_edit_title_before = models.CharField(max_length=300, blank=False,
+                                                  help_text='Заголовок вопроса до правок')
+    question_edit_body_before = models.TextField(blank=False,
+                                                 help_text='Текст вопроса до правок')
+    question_edit_tags_before = models.JSONField(default=list, blank=True,
+                                                 help_text='Нормализованные теги вопроса до правок')
+    question_edit_title_after = models.CharField(max_length=300, blank=False,
+                                                 help_text='Заголовок вопроса после правок')
+    question_edit_body_after = models.TextField(blank=False,
+                                                help_text='Текст вопроса после правок')
+    question_edit_tags_after = models.JSONField(default=list, blank=True,
+                                                help_text='Нормализованные теги вопроса после правок')
+    question_edit_is_approved = models.BooleanField(blank=True, null=True,
+                                                    help_text='Была ли одобрена правка вопроса')
+    question_edit_edited_at = models.DateTimeField(auto_now_add=True, blank=False,
+                                                   help_text='Дата и время создания предложенной правки')
+    reviewed_at = models.DateTimeField(blank=True, null=True,
+                                       help_text='Дата и время рассмотрения правки')
+
+    class Meta:
+        db_table = 'question_edit_proposals'
+        indexes = [
+            models.Index(fields=['question', 'question_edit_is_approved']),
+            models.Index(fields=['author']),
+        ]
+
+    def __str__(self):
+        return f'{self.question_edit_id}'
+
+
+class QuestionRevision(models.Model):
+    class Source(models.TextChoices):
+        DIRECT_EDIT = 'direct_edit', 'Direct edit'
+        APPROVED_PROPOSAL = 'approved_proposal', 'Approved proposal'
+
+    revision_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False, blank=False,
+                                   help_text='Уникальный идентификатор ревизии вопроса')
+    question = models.ForeignKey(Question, blank=False, on_delete=models.CASCADE,
+                                 related_name='revisions', help_text='Вопрос, для которого сохранена ревизия')
+    actor = models.ForeignKey(CustomUser, blank=False, null=True, on_delete=models.SET_NULL,
+                              related_name='question_revisions', help_text='Пользователь, инициировавший ревизию')
+    proposal = models.ForeignKey(QuestionEditProposal, blank=True, null=True, on_delete=models.SET_NULL,
+                                 related_name='revisions', help_text='Предложенная правка, если ревизия возникла из approval flow')
+    source = models.CharField(max_length=30, choices=Source.choices, blank=False,
+                              help_text='Источник ревизии вопроса')
+    title_before = models.CharField(max_length=300, blank=False,
+                                    help_text='Заголовок вопроса до применения изменений')
+    body_before = models.TextField(blank=False,
+                                   help_text='Текст вопроса до применения изменений')
+    tags_before = models.JSONField(default=list, blank=True,
+                                   help_text='Нормализованные теги до применения изменений')
+    title_after = models.CharField(max_length=300, blank=False,
+                                   help_text='Заголовок вопроса после применения изменений')
+    body_after = models.TextField(blank=False,
+                                  help_text='Текст вопроса после применения изменений')
+    tags_after = models.JSONField(default=list, blank=True,
+                                  help_text='Нормализованные теги после применения изменений')
+    tags = models.ManyToManyField(Tag, related_name='question_revisions', blank=True,
+                                  help_text='Финальный набор тегов после ревизии')
+    created_at = models.DateTimeField(auto_now_add=True, blank=False,
+                                      help_text='Дата создания ревизии')
+
+    class Meta:
+        db_table = 'question_revisions'
+        indexes = [
+            models.Index(fields=['question', 'created_at']),
+            models.Index(fields=['source']),
+        ]
+
+    def __str__(self):
+        return f'{self.revision_id}'
+
+
+class QuestionEditEvent(models.Model):
+    class EventType(models.TextChoices):
+        DIRECT_EDITED = 'direct_edited', 'Direct edited'
+        PROPOSED = 'proposed', 'Proposed'
+        APPROVED = 'approved', 'Approved'
+        REJECTED = 'rejected', 'Rejected'
+
+    event_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False, blank=False,
+                                help_text='Уникальный идентификатор события жизненного цикла вопроса')
+    question = models.ForeignKey(Question, blank=False, on_delete=models.CASCADE,
+                                 related_name='edit_events', help_text='Вопрос, к которому относится событие')
+    actor = models.ForeignKey(CustomUser, blank=False, null=True, on_delete=models.SET_NULL,
+                              related_name='question_edit_events', help_text='Пользователь, вызвавший событие')
+    proposal = models.ForeignKey(QuestionEditProposal, blank=True, null=True, on_delete=models.SET_NULL,
+                                 related_name='events', help_text='Связанная предложенная правка вопроса')
+    revision = models.ForeignKey(QuestionRevision, blank=True, null=True, on_delete=models.SET_NULL,
+                                 related_name='events', help_text='Связанная ревизия вопроса')
+    event_type = models.CharField(max_length=30, choices=EventType.choices, blank=False,
+                                  help_text='Тип события жизненного цикла вопроса')
+    created_at = models.DateTimeField(auto_now_add=True, blank=False,
+                                      help_text='Дата создания события')
+
+    class Meta:
+        db_table = 'question_edit_events'
+        indexes = [
+            models.Index(fields=['question', 'created_at']),
+            models.Index(fields=['event_type']),
+        ]
+
+    def __str__(self):
+        return f'{self.event_id}'
+
+
 class Comment(models.Model):
     comment_id =        models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False, blank=False,
                                         help_text='Уникальный идентификатор комментария')
