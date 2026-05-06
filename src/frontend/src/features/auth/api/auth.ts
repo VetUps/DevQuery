@@ -1,5 +1,11 @@
 import axios from 'axios'
 
+import {
+  parseReputationLedger,
+  parseReputationSummary,
+  type ReputationLedgerEntry,
+  type ReputationSummary,
+} from '@/features/users/api/reputation'
 import { apiBaseUrl } from '@/shared/api/config'
 
 export interface UserProfile {
@@ -10,6 +16,8 @@ export interface UserProfile {
   user_avatar_url: string | null
   user_bio: string | null
   user_created_at: string
+  reputation: ReputationSummary
+  reputation_ledger: ReputationLedgerEntry[]
 }
 
 export interface AuthTokens {
@@ -37,6 +45,64 @@ export interface LogoutPayload {
   refresh: string
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function assertString(value: unknown, fieldName: string): string {
+  if (typeof value !== 'string' || !value) {
+    throw new Error(`Malformed auth response: ${fieldName}`)
+  }
+
+  return value
+}
+
+function assertNullableString(value: unknown, fieldName: string): string | null {
+  if (value === null || value === undefined) {
+    return null
+  }
+
+  return assertString(value, fieldName)
+}
+
+function assertNumber(value: unknown, fieldName: string): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw new Error(`Malformed auth response: ${fieldName}`)
+  }
+
+  return value
+}
+
+function parseUserProfile(value: unknown): UserProfile {
+  if (!isRecord(value)) {
+    throw new Error('Malformed auth response: expected profile object')
+  }
+
+  return {
+    user_id: assertString(value.user_id, 'user_id'),
+    user_name: assertString(value.user_name, 'user_name'),
+    user_email: assertString(value.user_email, 'user_email'),
+    user_reputation_score: assertNumber(value.user_reputation_score, 'user_reputation_score'),
+    user_avatar_url: assertNullableString(value.user_avatar_url, 'user_avatar_url'),
+    user_bio: assertNullableString(value.user_bio, 'user_bio'),
+    user_created_at: assertString(value.user_created_at, 'user_created_at'),
+    reputation: parseReputationSummary(value.reputation),
+    reputation_ledger: parseReputationLedger(value.reputation_ledger),
+  }
+}
+
+function parseLoginResponse(value: unknown): LoginResponse {
+  if (!isRecord(value)) {
+    throw new Error('Malformed auth response: expected login object')
+  }
+
+  return {
+    access: assertString(value.access, 'access'),
+    refresh: assertString(value.refresh, 'refresh'),
+    user: parseUserProfile(value.user),
+  }
+}
+
 const authTransport = axios.create({
   baseURL: apiBaseUrl,
   timeout: 10000,
@@ -56,13 +122,13 @@ function createAuthHeaders(accessToken?: string | null) {
 }
 
 export async function registerUser(payload: RegisterPayload) {
-  const response = await authTransport.post<UserProfile>('/user/register/', payload)
-  return response.data
+  const response = await authTransport.post<unknown>('/user/register/', payload)
+  return parseUserProfile(response.data)
 }
 
 export async function loginUser(payload: LoginPayload) {
-  const response = await authTransport.post<LoginResponse>('/user/login/', payload)
-  return response.data
+  const response = await authTransport.post<unknown>('/user/login/', payload)
+  return parseLoginResponse(response.data)
 }
 
 export async function logoutUser(payload: LogoutPayload, accessToken: string) {
@@ -72,10 +138,10 @@ export async function logoutUser(payload: LogoutPayload, accessToken: string) {
 }
 
 export async function fetchProfile(accessToken: string) {
-  const response = await authTransport.get<UserProfile>('/user/profile/', {
+  const response = await authTransport.get<unknown>('/user/profile/', {
     headers: createAuthHeaders(accessToken),
   })
-  return response.data
+  return parseUserProfile(response.data)
 }
 
 export async function requestTokenRefresh(refresh: string) {
