@@ -4,6 +4,7 @@ import {
   buildReputationProgress,
   formatReputationDelta,
   formatReputationReason,
+  parseReputationSummary,
   type ReputationSummary,
 } from '@/features/users/api/reputation'
 
@@ -26,6 +27,25 @@ describe('profile reputation helpers', () => {
       percent: 14,
       earnedSinceLevel: 28,
       levelSpan: 200,
+    })
+  })
+
+  it('builds progress metadata from backend-shaped threshold fixtures when score bands change', () => {
+    const shiftedThresholds = parseReputationSummary({
+      score: 165,
+      level: 'expert',
+      level_label: 'Эксперт',
+      level_minimum_score: 150,
+      next_level: 'master',
+      next_level_label: 'Мастер',
+      next_level_minimum_score: 450,
+      points_to_next_level: 285,
+    })
+
+    expect(buildReputationProgress(shiftedThresholds)).toEqual({
+      percent: 5,
+      earnedSinceLevel: 15,
+      levelSpan: 300,
     })
   })
 

@@ -1,5 +1,12 @@
 <script setup lang="ts">
+import { computed } from 'vue'
+
+import type { ReputationSummary } from '@/features/users/api/reputation'
 import SurfacePanel from '@/shared/ui/SurfacePanel.vue'
+
+const props = defineProps<{
+  reputation?: ReputationSummary | null
+}>()
 
 const scoringRules = [
   { label: 'Лучшее решение', value: '+15' },
@@ -8,12 +15,49 @@ const scoringRules = [
   { label: 'Одобренная правка', value: '+2' },
 ]
 
-const levelThresholds = [
+const defaultLevelThresholds = [
   { label: 'Новичок', range: '0–29' },
   { label: 'Участник', range: '30–99' },
   { label: 'Эксперт', range: '100–299' },
   { label: 'Мастер', range: '300+' },
 ]
+
+function formatThresholdRange(minimumScore: number, nextMinimumScore?: number | null) {
+  if (nextMinimumScore === null || nextMinimumScore === undefined) {
+    return `${minimumScore}+`
+  }
+
+  return `${minimumScore}–${Math.max(nextMinimumScore - 1, minimumScore)}`
+}
+
+const levelThresholds = computed(() => {
+  const reputation = props.reputation
+
+  if (
+    !reputation
+    || reputation.level_minimum_score === undefined
+    || reputation.next_level_label === undefined
+    || reputation.next_level_minimum_score === undefined
+  ) {
+    return defaultLevelThresholds
+  }
+
+  const levels = [
+    {
+      label: reputation.level_label,
+      range: formatThresholdRange(reputation.level_minimum_score, reputation.next_level_minimum_score),
+    },
+  ]
+
+  if (reputation.next_level_label) {
+    levels.push({
+      label: reputation.next_level_label,
+      range: formatThresholdRange(reputation.next_level_minimum_score ?? 0, null),
+    })
+  }
+
+  return levels
+})
 </script>
 
 <template>

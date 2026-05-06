@@ -130,14 +130,40 @@ describe('profile reputation surfaces', () => {
     expect(text).toContain('Голос за решение+10')
     expect(text).toContain('Голос за вопрос+5')
     expect(text).toContain('Одобренная правка+2')
-    expect(text).toContain('Новичок0–29')
-    expect(text).toContain('Участник30–99')
     expect(text).toContain('Эксперт100–299')
     expect(text).toContain('Мастер300+')
+    expect(text).not.toContain('Новичок0–29')
+    expect(text).not.toContain('Участник30–99')
     expect(text).toContain('Достижения и бейджи появятся позже')
     expect(text).toContain('Лучшее решение')
     expect(text).toContain('+15')
     expect(text).toContain('Ваш ответ выбрали лучшим решением.')
+  })
+
+  it('renders backend-provided threshold bands in the explanation panel when profile fixtures change', async () => {
+    profileState.data.value = buildProfile({
+      user_reputation_score: 165,
+      reputation: {
+        score: 165,
+        level: 'expert',
+        level_label: 'Эксперт',
+        level_minimum_score: 150,
+        is_manual_override: false,
+        manual_level: null,
+        next_level: 'master',
+        next_level_label: 'Мастер',
+        next_level_minimum_score: 450,
+        points_to_next_level: 285,
+      },
+    })
+
+    const { wrapper } = await mountProfilePage()
+    const explanation = wrapper.get('[data-testid="reputation-explanation-panel"]').text()
+
+    expect(explanation).toContain('Эксперт150–449')
+    expect(explanation).toContain('Мастер450+')
+    expect(explanation).not.toContain('Эксперт100–299')
+    expect(explanation).not.toContain('Мастер300+')
   })
 
   it('renders a localized loading state for the full profile shell', async () => {

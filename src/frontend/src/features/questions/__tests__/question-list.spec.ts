@@ -114,7 +114,7 @@ describe('question list home page', () => {
           reputation: {
             score: 260,
             level: 'expert',
-            level_label: 'Expert',
+            level_label: 'Backend Expert',
             next_level: 'master',
             points_to_next_level: 90,
           },
@@ -129,9 +129,9 @@ describe('question list home page', () => {
     const { wrapper } = await mountHomePage()
 
     const badge = wrapper.get('[data-testid="author-reputation-badge"]')
-    expect(badge.text()).toContain('Expert')
+    expect(badge.text()).toContain('Backend Expert')
     expect(badge.text()).toContain('260')
-    expect(badge.attributes('aria-label')).toBe('Репутация автора: Expert, 260 очк.')
+    expect(badge.attributes('aria-label')).toBe('Репутация автора: Backend Expert, 260 очк.')
 
     const chips = wrapper.find('[data-testid="question-tag-chips"]')
     expect(chips.exists()).toBe(true)
