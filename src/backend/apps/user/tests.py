@@ -48,6 +48,47 @@ class UserRegisterSerializerTests(TestCase):
         self.assertIn('Пользователь с такой почтой уже существует', str(serializer.errors['user_email']))
 
 
+class UserRegisterEndpointTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+
+    def test_register_returns_full_profile_contract_after_creating_user(self):
+        response = self.client.post(
+            '/user/register/',
+            {
+                'user_name': 'new_user',
+                'user_email': 'new@example.com',
+                'password': 'password123',
+                'password_confirm': 'password123',
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertTrue(CustomUser.objects.filter(user_email='new@example.com').exists())
+        self.assertEqual(
+            set(response.data.keys()),
+            {
+                'user_id',
+                'user_name',
+                'user_email',
+                'user_reputation_score',
+                'user_avatar_url',
+                'user_bio',
+                'user_created_at',
+                'reputation',
+                'reputation_ledger',
+            },
+        )
+        self.assertEqual(response.data['user_name'], 'new_user')
+        self.assertEqual(response.data['user_email'], 'new@example.com')
+        self.assertEqual(response.data['user_reputation_score'], 0)
+        self.assertEqual(response.data['reputation']['level'], CustomUser.ReputationLevel.NEWCOMER)
+        self.assertEqual(response.data['reputation_ledger'], [])
+        self.assertNotIn('password', response.data)
+        self.assertNotIn('password_confirm', response.data)
+
+
 class TokenRefreshTests(TestCase):
     def setUp(self):
         self.client = APIClient()
