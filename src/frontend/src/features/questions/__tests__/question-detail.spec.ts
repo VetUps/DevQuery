@@ -294,6 +294,54 @@ describe('question detail page', () => {
     expect(wrapper.find('[data-testid="question-tag-chips"]').exists()).toBe(false)
   })
 
+  it('renders compact master reputation for the question author profile', async () => {
+    questionDetailState.data.value = buildQuestionDetail()
+    profileState.data.value = {
+      user_id: 'user-1',
+      user_name: 'Master Alice',
+      user_role: 'user',
+      user_reputation_score: 510,
+      user_avatar_url: null,
+      user_bio: null,
+      user_created_at: '2026-03-01T12:00:00Z',
+      reputation: {
+        score: 510,
+        level: 'master',
+        level_label: 'Master',
+        next_level: null,
+        points_to_next_level: 0,
+      },
+    }
+
+    const { wrapper } = await mountQuestionDetailPage()
+
+    expect(wrapper.text()).toContain('Master Alice')
+    const badge = wrapper.get('[data-testid="author-reputation-badge"]')
+    expect(badge.text()).toContain('Master')
+    expect(badge.text()).toContain('510')
+    expect(wrapper.text()).not.toContain('manual_level')
+  })
+
+  it('keeps legacy public author fixtures readable when only reputation score is present', async () => {
+    questionDetailState.data.value = buildQuestionDetail({
+      question_title: 'Legacy detail author reputation remains readable',
+    })
+    profileState.data.value = {
+      user_name: 'Legacy Author',
+      user_role: 'user',
+      user_reputation_score: 37,
+      user_created_at: '2026-03-01T12:00:00Z',
+    }
+
+    const { wrapper } = await mountQuestionDetailPage()
+
+    expect(wrapper.text()).toContain('Legacy detail author reputation remains readable')
+    expect(wrapper.text()).toContain('Legacy Author')
+    const badge = wrapper.get('[data-testid="author-reputation-badge"]')
+    expect(badge.text()).toContain('Репутация')
+    expect(badge.text()).toContain('37')
+  })
+
   it('hides the edit and proposal actions for guests, authorship mismatches, and unresolved current-user state', async () => {
     questionDetailState.data.value = buildQuestionDetail({ user: 'author-1' })
 

@@ -203,6 +203,43 @@ describe('solution authoring flow', () => {
     expect(registerLink?.attributes('href')).toBe('/register')
   })
 
+  it('renders compact newcomer reputation on solution author metadata', async () => {
+    solutionsState.data.value = [
+      buildSolution({
+        user_name: 'Newcomer Nina',
+        reputation: {
+          score: 8,
+          level: 'newcomer',
+          level_label: 'Newcomer',
+          next_level: 'participant',
+          points_to_next_level: 42,
+        },
+      }),
+    ]
+
+    const { wrapper } = await mountQuestionDetailPage(false)
+
+    expect(wrapper.text()).toContain('Newcomer Nina')
+    const badgeTexts = wrapper.findAll('[data-testid="author-reputation-badge"]').map((badge) => badge.text())
+    expect(badgeTexts.some((text) => text.includes('Newcomer') && text.includes('8'))).toBe(true)
+    expect(wrapper.text()).not.toContain('points_to_next_level')
+  })
+
+  it('renders solution author legacy score-only reputation without crashing', async () => {
+    solutionsState.data.value = [
+      buildSolution({
+        user_name: 'Legacy Solver',
+        user_reputation_score: 64,
+      }),
+    ]
+
+    const { wrapper } = await mountQuestionDetailPage(false)
+
+    expect(wrapper.text()).toContain('Legacy Solver')
+    const badgeTexts = wrapper.findAll('[data-testid="author-reputation-badge"]').map((badge) => badge.text())
+    expect(badgeTexts.some((text) => text.includes('Репутация') && text.includes('64'))).toBe(true)
+  })
+
   it('renders the existing-solution notice for the current author', async () => {
     currentUserState.data.value = {
       user_id: 'user-own',
