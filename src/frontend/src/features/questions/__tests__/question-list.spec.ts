@@ -98,7 +98,7 @@ describe('question list home page', () => {
     expect(queryState.refetch).toHaveBeenCalled()
   })
 
-  it('renders linked public tag chips on tagged question cards', async () => {
+  it('renders linked public tag chips and compact expert reputation on tagged question cards', async () => {
     queryState.data.value = {
       count: 1,
       next: null,
@@ -111,6 +111,13 @@ describe('question list home page', () => {
           question_status: 'open',
           question_created_at: '2026-03-01T12:00:00Z',
           question_updated_at: '2026-03-02T12:00:00Z',
+          reputation: {
+            score: 260,
+            level: 'expert',
+            level_label: 'Expert',
+            next_level: 'master',
+            points_to_next_level: 90,
+          },
           tags: [
             { name: 'vue', questions_count: 12 },
             { name: 'django-rest-framework', questions_count: 8 },
@@ -120,6 +127,11 @@ describe('question list home page', () => {
     }
 
     const { wrapper } = await mountHomePage()
+
+    const badge = wrapper.get('[data-testid="author-reputation-badge"]')
+    expect(badge.text()).toContain('Expert')
+    expect(badge.text()).toContain('260')
+    expect(badge.attributes('aria-label')).toBe('Репутация автора: Expert, 260 очк.')
 
     const chips = wrapper.find('[data-testid="question-tag-chips"]')
     expect(chips.exists()).toBe(true)
@@ -132,6 +144,33 @@ describe('question list home page', () => {
     expect(tagLinks[0].attributes('href')).toBe('/?tag=vue')
     expect(tagLinks[0].attributes('aria-label')).toBe('Фильтровать вопросы по тегу vue')
     expect(tagLinks[1].attributes('href')).toBe('/?tag=django-rest-framework')
+  })
+
+  it('renders a legacy score-only reputation badge without requiring summary metadata', async () => {
+    queryState.data.value = {
+      count: 1,
+      next: null,
+      previous: null,
+      results: [
+        {
+          question_id: 'question-legacy-reputation',
+          user: 'user-legacy',
+          question_title: 'Legacy question with score-only reputation remains readable',
+          question_status: 'open',
+          question_created_at: '2026-03-01T12:00:00Z',
+          question_updated_at: '2026-03-02T12:00:00Z',
+          user_reputation_score: 42,
+          tags: [],
+        },
+      ],
+    }
+
+    const { wrapper } = await mountHomePage()
+
+    expect(wrapper.text()).toContain('Legacy question with score-only reputation remains readable')
+    const badge = wrapper.get('[data-testid="author-reputation-badge"]')
+    expect(badge.text()).toContain('Репутация')
+    expect(badge.text()).toContain('42')
   })
 
   it('does not render an empty tag chip container for untagged question cards', async () => {

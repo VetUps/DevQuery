@@ -2,6 +2,7 @@
 import type { QuestionDetail } from '@/features/questions/api/questions'
 import type { PublicUserProfile } from '@/features/users/api/publicProfiles'
 import QuestionTagChips from '@/features/questions/components/QuestionTagChips.vue'
+import AuthorReputationBadge from '@/features/users/components/AuthorReputationBadge.vue'
 import SignalVoteRail from '@/features/votes/components/SignalVoteRail.vue'
 import { formatLongDate, formatQuestionStatus } from '@/shared/libs/formatting'
 import AppButton from '@/shared/ui/AppButton.vue'
@@ -55,6 +56,11 @@ const emit = defineEmits<{
           <p class="question-detail-hero__author-name">
             {{ author?.user_name ?? 'Профиль автора загружается' }}
           </p>
+          <AuthorReputationBadge
+            v-if="author"
+            :reputation="author.reputation"
+            :fallback-score="author.user_reputation_score"
+          />
         </div>
 
         <dl v-if="author" class="question-detail-hero__author-stats">
@@ -64,7 +70,7 @@ const emit = defineEmits<{
           </div>
           <div>
             <dt>Репутация</dt>
-            <dd>{{ author.user_reputation_score }}</dd>
+            <dd>{{ author.reputation?.score ?? author.user_reputation_score }}</dd>
           </div>
           <div>
             <dt>С нами с</dt>

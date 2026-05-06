@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { QuestionListItem } from '@/features/questions/api/questions'
 import QuestionTagChips from '@/features/questions/components/QuestionTagChips.vue'
+import AuthorReputationBadge from '@/features/users/components/AuthorReputationBadge.vue'
 import { formatLongDate, formatQuestionStatus } from '@/shared/libs/formatting'
 
 const props = defineProps<{
@@ -17,6 +18,10 @@ const props = defineProps<{
       >
         {{ formatQuestionStatus(question.question_status) }}
       </span>
+      <AuthorReputationBadge
+        :reputation="question.reputation"
+        :fallback-score="question.user_reputation_score"
+      />
       <span class="question-card__stamp">
         Создан {{ formatLongDate(question.question_created_at) }}
       </span>

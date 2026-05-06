@@ -9,6 +9,7 @@ import type { CreateSolutionEditResponse } from '@/features/solutions/api/soluti
 import PublicSolutionEditHistoryButton from '@/features/solutions/components/PublicSolutionEditHistoryButton.vue'
 import SolutionEditProposalModal from '@/features/solutions/components/SolutionEditProposalModal.vue'
 import { useBestSolutionMutation } from '@/features/solutions/mutations/useBestSolutionMutation'
+import AuthorReputationBadge from '@/features/users/components/AuthorReputationBadge.vue'
 import SignalVoteRail from '@/features/votes/components/SignalVoteRail.vue'
 import { formatLongDate } from '@/shared/libs/formatting'
 import AppButton from '@/shared/ui/AppButton.vue'
@@ -103,6 +104,10 @@ async function handleBestAction() {
           <strong class="solution-read-card__author">
             {{ solution.user_name || 'Автор решения' }}
           </strong>
+          <AuthorReputationBadge
+            :reputation="solution.reputation"
+            :fallback-score="solution.user_reputation_score"
+          />
           <span class="solution-read-card__meta-separator" aria-hidden="true">•</span>
           <p class="solution-read-card__stamp">
             Обновлено {{ formatLongDate(solution.solution_updated_at) }}
