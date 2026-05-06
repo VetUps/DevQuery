@@ -36,20 +36,53 @@ export interface QuestionProtectionSnapshot {
   viewer_downvote_reason_message: string
 }
 
-export function getProtectedQuestionAnswerWindowLabel(question: Pick<QuestionProtectionSnapshot, 'viewer_answer_required_level_label'>) {
+function parseDateValue(value: string | null | undefined) {
+  if (!value) {
+    return null
+  }
+
+  const timestamp = Date.parse(value)
+  return Number.isNaN(timestamp) ? null : timestamp
+}
+
+export function getProtectedQuestionWindowHours(
+  question: Pick<QuestionListItem, 'question_created_at' | 'protected_until'>,
+) {
+  const createdAt = parseDateValue(question.question_created_at)
+  const protectedUntil = parseDateValue(question.protected_until)
+
+  if (createdAt === null || protectedUntil === null || protectedUntil <= createdAt) {
+    return 12
+  }
+
+  const windowHours = Math.round((protectedUntil - createdAt) / (1000 * 60 * 60))
+
+  return windowHours > 0 ? windowHours : 12
+}
+
+export function getProtectedQuestionWindowLabel(windowHours: number) {
+  return `${windowHours} ${windowHours % 10 === 1 && windowHours % 100 !== 11 ? 'час' : 'часов'}`
+}
+
+export function getProtectedQuestionAnswerWindowLabel(
+  question: Pick<QuestionListItem, 'question_created_at' | 'protected_until' | 'viewer_answer_required_level_label'>,
+) {
   const requiredLabel = question.viewer_answer_required_level_label ?? 'Эксперт'
-  return `${requiredLabel}+ отвечают первые 12 часов`
+  const windowLabel = getProtectedQuestionWindowLabel(getProtectedQuestionWindowHours(question))
+
+  return `${requiredLabel}+ отвечают первые ${windowLabel}`
 }
 
 export function getProtectedQuestionAnswerWindowSummary(
-  question: Pick<QuestionProtectionSnapshot, 'viewer_answer_required_level_label'>,
+  question: Pick<QuestionListItem, 'question_created_at' | 'protected_until' | 'viewer_answer_required_level_label'>,
 ) {
   const requiredLabel = question.viewer_answer_required_level_label ?? 'Эксперт'
   const responderGroup = requiredLabel === 'Участник'
     ? 'участники и мастера'
     : `${requiredLabel.toLowerCase()}ы и мастера`
+  const windowLabel = getProtectedQuestionWindowLabel(getProtectedQuestionWindowHours(question))
 
-  return `В течение первых 12 часов после публикации отвечать могут только ${responderGroup}.`
+  return `В течение первых ${windowLabel} после публикации отвечать могут только ${responderGroup}.`
 }
 
 export interface QuestionListItem extends QuestionProtectionSnapshot {
