@@ -212,3 +212,7 @@ vendor/
 coverage/
 .cache/
 tmp/
+
+# Local project-only artifacts
+M004-reputation-notes.md
+Постановка задачи.docx
