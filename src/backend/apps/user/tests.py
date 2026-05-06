@@ -223,6 +223,20 @@ class ReputationConfigurationTests(TestCase):
         self.assertEqual(progress['next_level'], CustomUser.ReputationLevel.MASTER)
         self.assertEqual(progress['points_to_next_level'], 220)
 
+    def test_threshold_model_rejects_non_default_score_for_level(self):
+        threshold = ReputationLevelThreshold(
+            level=CustomUser.ReputationLevel.EXPERT,
+            minimum_score=90,
+            is_active=True,
+        )
+
+        with self.assertRaises(DjangoValidationError) as context:
+            threshold.full_clean()
+
+        self.assertIn('minimum_score', context.exception.message_dict)
+        self.assertIn('expert', context.exception.message_dict['minimum_score'][0])
+        self.assertIn('100', context.exception.message_dict['minimum_score'][0])
+
     def test_threshold_admin_form_rejects_missing_required_levels(self):
         ReputationLevelThreshold.objects.filter(level=CustomUser.ReputationLevel.MASTER).delete()
         instance = ReputationLevelThreshold.objects.get(level=CustomUser.ReputationLevel.EXPERT)
@@ -260,6 +274,15 @@ class ReputationConfigurationTests(TestCase):
         with self.assertRaises(DjangoValidationError):
             config.full_clean()
 
+    def test_policy_config_model_rejects_excessive_window(self):
+        config = ReputationPolicyConfig(protected_newcomer_window_hours=73)
+
+        with self.assertRaises(DjangoValidationError) as context:
+            config.full_clean()
+
+        self.assertIn('protected_newcomer_window_hours', context.exception.message_dict)
+        self.assertIn('72', context.exception.message_dict['protected_newcomer_window_hours'][0])
+
     def test_policy_config_form_rejects_invalid_window_without_partial_mutation(self):
         config = ReputationPolicyConfig.objects.create(protected_newcomer_window_hours=12)
         form = ReputationPolicyConfigAdminForm(
@@ -268,6 +291,19 @@ class ReputationConfigurationTests(TestCase):
         )
 
         self.assertFalse(form.is_valid())
+        config.refresh_from_db()
+        self.assertEqual(config.protected_newcomer_window_hours, 12)
+        self.assertEqual(ReputationService.get_protected_newcomer_window_hours(), 12)
+
+    def test_policy_config_form_rejects_excessive_window_without_partial_mutation(self):
+        config = ReputationPolicyConfig.objects.create(protected_newcomer_window_hours=12)
+        form = ReputationPolicyConfigAdminForm(
+            data={'singleton_key': 'default', 'protected_newcomer_window_hours': 96},
+            instance=config,
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn('protected_newcomer_window_hours', form.errors)
         config.refresh_from_db()
         self.assertEqual(config.protected_newcomer_window_hours, 12)
         self.assertEqual(ReputationService.get_protected_newcomer_window_hours(), 12)

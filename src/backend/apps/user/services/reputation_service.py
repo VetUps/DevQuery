@@ -194,6 +194,7 @@ class ReputationService:
 
             locked_user.manual_reputation_level = normalized_level
             locked_user.save(update_fields=['manual_reputation_level'])
+            user.manual_reputation_level = normalized_level
 
             note_lines = []
             if previous_manual_level:

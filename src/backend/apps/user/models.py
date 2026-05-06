@@ -6,6 +6,7 @@ from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.utils.translation import gettext_lazy as _
 
 class CustomUserManager(BaseUserManager):
     def create_user(self, user_email, user_name, password, **extra_fields):
@@ -135,6 +136,13 @@ class UserAchievement(models.Model):
         ]
 
 class ReputationLevelThreshold(models.Model):
+    DEFAULT_THRESHOLDS = {
+        CustomUser.ReputationLevel.NEWCOMER: 0,
+        CustomUser.ReputationLevel.PARTICIPANT: 30,
+        CustomUser.ReputationLevel.EXPERT: 100,
+        CustomUser.ReputationLevel.MASTER: 300,
+    }
+
     reputation_level_threshold_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False, blank=False,
                                                      help_text='Уникальный идентификатор порога репутации')
     level = models.CharField(max_length=32, choices=CustomUser.ReputationLevel.choices, unique=True,
@@ -153,17 +161,29 @@ class ReputationLevelThreshold(models.Model):
         ]
 
     def clean(self):
-        if self.level == CustomUser.ReputationLevel.NEWCOMER and self.minimum_score != 0:
-            raise ValidationError({'minimum_score': 'Порог уровня newcomer должен начинаться с 0.'})
+        errors = {}
+        default_score = self.DEFAULT_THRESHOLDS.get(self.level)
+        if default_score is None:
+            errors['level'] = _('Некорректный уровень репутации.')
+        elif self.minimum_score != default_score:
+            errors['minimum_score'] = _(
+                'Порог уровня %(level)s должен быть равен %(score)s.'
+            ) % {'level': self.level, 'score': default_score}
+
+        if errors:
+            raise ValidationError(errors)
 
     def __str__(self):
         return f'{self.get_level_display()} ({self.minimum_score})'
 
 
 class ReputationPolicyConfig(models.Model):
+    DEFAULT_PROTECTED_NEWCOMER_WINDOW_HOURS = 12
+    MAX_PROTECTED_NEWCOMER_WINDOW_HOURS = 72
+
     singleton_key = models.CharField(max_length=32, default='default', unique=True, editable=False)
     protected_newcomer_window_hours = models.PositiveIntegerField(
-        default=12,
+        default=DEFAULT_PROTECTED_NEWCOMER_WINDOW_HOURS,
         help_text='Длительность protected-window для вопросов новичков в часах.',
     )
     created_at = models.DateTimeField(auto_now_add=True)
@@ -178,6 +198,15 @@ class ReputationPolicyConfig(models.Model):
         if self.protected_newcomer_window_hours <= 0:
             raise ValidationError(
                 {'protected_newcomer_window_hours': 'Защитное окно должно быть положительным количеством часов.'}
+            )
+        if self.protected_newcomer_window_hours > self.MAX_PROTECTED_NEWCOMER_WINDOW_HOURS:
+            raise ValidationError(
+                {
+                    'protected_newcomer_window_hours': (
+                        'Защитное окно не должно превышать 72 часа, чтобы новичковые вопросы '
+                        'не оставались закрытыми слишком долго.'
+                    )
+                }
             )
 
     @property
