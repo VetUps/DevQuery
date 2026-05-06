@@ -131,6 +131,27 @@ function buildQuestionDetail() {
     downvotes: 1,
     score: 7,
     user_vote: null,
+    tags: [],
+    is_protected: false,
+    protection_reason_code: 'question_not_protected',
+    protected_until: null,
+    author_level: null,
+    author_points_to_next_level: null,
+    author_next_level: null,
+    author_next_level_label: null,
+    viewer_can_answer: true,
+    viewer_answer_reason_code: 'answer_allowed',
+    viewer_answer_reason_message: '',
+    viewer_answer_required_level: null,
+    viewer_answer_required_level_label: null,
+    viewer_level: null,
+    viewer_level_label: null,
+    viewer_points_to_next_level: null,
+    viewer_next_level: null,
+    viewer_next_level_label: null,
+    viewer_can_downvote: true,
+    viewer_downvote_reason_code: 'question_downvote_allowed',
+    viewer_downvote_reason_message: '',
   }
 }
 
@@ -238,6 +259,102 @@ describe('solution authoring flow', () => {
     expect(wrapper.text()).toContain('Legacy Solver')
     const badgeTexts = wrapper.findAll('[data-testid="author-reputation-badge"]').map((badge) => badge.text())
     expect(badgeTexts.some((text) => text.includes('Репутация') && text.includes('64'))).toBe(true)
+  })
+
+  it('shows a protected-question block for participants during the expert-only answer window', async () => {
+    currentUserState.data.value = {
+      user_id: 'participant-1',
+      user_name: 'Participant',
+    }
+    questionDetailState.data.value = {
+      ...buildQuestionDetail(),
+      is_protected: true,
+      protection_reason_code: 'question_protected_newcomer',
+      protected_until: '2026-04-01T23:59:00Z',
+      author_level: 'newcomer',
+      author_points_to_next_level: 30,
+      author_next_level: 'participant',
+      author_next_level_label: 'Участник',
+      viewer_can_answer: false,
+      viewer_answer_reason_code: 'answer_blocked_insufficient_level',
+      viewer_answer_reason_message: 'Этот вопрос новичка защищён на первые 12 часов. Отвечать сейчас могут только участники уровня Эксперт или Мастер.',
+      viewer_answer_required_level: 'expert',
+      viewer_answer_required_level_label: 'Эксперт',
+      viewer_level: 'participant',
+      viewer_level_label: 'Участник',
+      viewer_points_to_next_level: 70,
+      viewer_next_level: 'expert',
+      viewer_next_level_label: 'Эксперт',
+      viewer_can_downvote: false,
+      viewer_downvote_reason_code: 'question_downvote_blocked_protected',
+      viewer_downvote_reason_message: 'В первые 12 часов после публикации у вопросов новичков отключены даунвоуты, чтобы обсуждение начиналось с содержательной обратной связи.',
+    }
+
+    const { wrapper } = await mountQuestionDetailPage(true)
+
+    expect(wrapper.text()).toContain('Ответ временно ограничен')
+    expect(wrapper.get('[data-testid="solution-composer-blocked-reason"]').text()).toContain('Отвечать сейчас могут только участники уровня Эксперт или Мастер')
+    expect(wrapper.get('[data-testid="solution-composer-progress-hint"]').text()).toContain('не хватает 70 очков до уровня Эксперт')
+    expect(wrapper.findAll('button').some((button) => button.text().trim() === 'Написать решение')).toBe(false)
+  })
+
+  it('keeps answer authoring available for experts on protected newcomer questions', async () => {
+    currentUserState.data.value = {
+      user_id: 'expert-1',
+      user_name: 'Expert',
+    }
+    questionDetailState.data.value = {
+      ...buildQuestionDetail(),
+      is_protected: true,
+      protection_reason_code: 'question_protected_newcomer',
+      protected_until: '2026-04-01T23:59:00Z',
+      author_level: 'newcomer',
+      viewer_can_answer: true,
+      viewer_answer_reason_code: 'answer_allowed',
+      viewer_answer_reason_message: '',
+      viewer_answer_required_level: 'expert',
+      viewer_answer_required_level_label: 'Эксперт',
+      viewer_level: 'expert',
+      viewer_level_label: 'Эксперт',
+      viewer_points_to_next_level: 200,
+      viewer_next_level: 'master',
+      viewer_next_level_label: 'Мастер',
+      viewer_can_downvote: false,
+      viewer_downvote_reason_code: 'question_downvote_blocked_protected',
+      viewer_downvote_reason_message: 'В первые 12 часов после публикации у вопросов новичков отключены даунвоуты, чтобы обсуждение начиналось с содержательной обратной связи.',
+    }
+
+    const { wrapper } = await mountQuestionDetailPage(true)
+
+    expect(wrapper.text()).toContain('Есть рабочее решение?')
+    const openComposerButton = wrapper.findAll('button').find((button) => button.text().trim() === 'Написать решение')
+    expect(openComposerButton).toBeDefined()
+  })
+
+  it('returns to the regular composer after the protected window expires', async () => {
+    currentUserState.data.value = {
+      user_id: 'participant-1',
+      user_name: 'Participant',
+    }
+    questionDetailState.data.value = {
+      ...buildQuestionDetail(),
+      is_protected: false,
+      protection_reason_code: 'question_not_protected',
+      protected_until: null,
+      viewer_can_answer: true,
+      viewer_answer_reason_code: 'answer_allowed',
+      viewer_answer_reason_message: '',
+      viewer_can_downvote: true,
+      viewer_downvote_reason_code: 'question_downvote_allowed',
+      viewer_downvote_reason_message: '',
+    }
+
+    const { wrapper } = await mountQuestionDetailPage(true)
+
+    expect(wrapper.text()).toContain('Есть рабочее решение?')
+    expect(wrapper.find('[data-testid="solution-composer-blocked-reason"]').exists()).toBe(false)
+    const openComposerButton = wrapper.findAll('button').find((button) => button.text().trim() === 'Написать решение')
+    expect(openComposerButton).toBeDefined()
   })
 
   it('renders the existing-solution notice for the current author', async () => {

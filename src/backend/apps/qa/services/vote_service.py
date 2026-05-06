@@ -4,7 +4,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import Count, OuterRef, Subquery, CharField, F, IntegerField, Value, QuerySet
 from django.db.models.functions import Coalesce
-from rest_framework.exceptions import PermissionDenied, ValidationError, NotFound
+from rest_framework.exceptions import PermissionDenied, ValidationError, NotFound, ErrorDetail
 
 from ..models import Vote, Question, Solution
 from .question_protection_service import QuestionProtectionService
@@ -16,6 +16,11 @@ class VoteService:
     """
     Сервис для управления голосами
     """
+
+    PROTECTED_QUESTION_DOWNVOTE_ERROR_CODE = QuestionProtectionService.DOWNVOTE_BLOCKED_PROTECTED
+    PROTECTED_QUESTION_DOWNVOTE_MESSAGE = (
+        'В течение 12 часов после публикации вопросы новичков нельзя минусовать.'
+    )
 
     REPUTATION_REWARDS = {
         'question': {
@@ -123,6 +128,21 @@ class VoteService:
         return getattr(obj, 'user_vote_type', None)
 
     @staticmethod
+    def build_protected_question_downvote_error() -> PermissionDenied:
+        permission_error = PermissionDenied(detail=VoteService.PROTECTED_QUESTION_DOWNVOTE_MESSAGE)
+        permission_error.detail = {
+            'detail': ErrorDetail(
+                VoteService.PROTECTED_QUESTION_DOWNVOTE_MESSAGE,
+                code=VoteService.PROTECTED_QUESTION_DOWNVOTE_ERROR_CODE,
+            ),
+            'code': ErrorDetail(
+                VoteService.PROTECTED_QUESTION_DOWNVOTE_ERROR_CODE,
+                code=VoteService.PROTECTED_QUESTION_DOWNVOTE_ERROR_CODE,
+            ),
+        }
+        return permission_error
+
+    @staticmethod
     def validate_vote_permission(target_object: Question | Solution, user: CustomUser, vote_type: str | None = None) -> None:
         """
         Проверяет, что пользователь не голосует за собственный контент
@@ -136,7 +156,7 @@ class VoteService:
         if isinstance(target_object, Question) and vote_type == Vote.VoteType.DOWNVOTE:
             decision = QuestionProtectionService.get_question_downvote_eligibility(target_object, user)
             if not decision.allowed:
-                raise PermissionDenied(decision.reason_code)
+                raise VoteService.build_protected_question_downvote_error()
 
     @staticmethod
     def get_content_type(target_type: str) -> ContentType:

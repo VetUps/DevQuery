@@ -55,6 +55,30 @@ describe('vote actions', () => {
     expect(wrapper.findAll('button')).toHaveLength(0)
   })
 
+  it('replaces the downvote action with an explanation for protected questions', () => {
+    const wrapper = mount(SignalVoteRail, {
+      global: {
+        plugins: [[VueQueryPlugin, { queryClient }]],
+      },
+      props: {
+        mode: 'interactive',
+        score: 3,
+        upvotes: 4,
+        downvotes: 1,
+        userVote: null,
+        targetType: 'question',
+        targetId: 'question-1',
+        downvoteBlocked: true,
+        blockedNote: 'В первые 12 часов после публикации у вопросов новичков отключены даунвоуты.',
+      },
+    })
+
+    expect(wrapper.text()).toContain('Даунвоут временно отключён')
+    expect(wrapper.text()).toContain('у вопросов новичков отключены даунвоуты')
+    expect(wrapper.find('[data-testid="vote-downvote-blocked"]').exists()).toBe(true)
+    expect(wrapper.findAll('button').map((button) => button.text())).toEqual(['Поддержать'])
+  })
+
   it('hides controls for own content even in interactive mode', () => {
     const wrapper = mount(SignalVoteRail, {
       global: {
