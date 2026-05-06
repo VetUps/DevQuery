@@ -182,6 +182,23 @@ class VoteService:
         return previous_vote_type != Vote.VoteType.UPVOTE and next_vote_type == Vote.VoteType.UPVOTE
 
     @classmethod
+    def has_existing_upvote_reward(
+        cls,
+        *,
+        target_object: Question | Solution,
+        reason: str,
+        actor: CustomUser,
+    ) -> bool:
+        content_type = ContentType.objects.get_for_model(target_object, for_concrete_model=False)
+        return ReputationTransaction.objects.filter(
+            user=target_object.user,
+            actor=actor,
+            reputation_transaction_reason=reason,
+            content_type=content_type,
+            object_id=target_object.pk,
+        ).exists()
+
+    @classmethod
     def award_upvote_reputation_if_needed(
         cls,
         *,
@@ -196,6 +213,13 @@ class VoteService:
 
         reward = cls.REPUTATION_REWARDS.get(target_type)
         if reward is None:
+            return
+
+        if cls.has_existing_upvote_reward(
+            target_object=target_object,
+            reason=reward['reason'],
+            actor=actor,
+        ):
             return
 
         ReputationService.record_transaction(

@@ -888,6 +888,24 @@ class ReputationVoteServiceTests(APITestCase):
         )
         self.assertFalse(Vote.objects.filter(user=self.voter).exists())
 
+    def test_question_reputation_is_not_awarded_twice_after_upvote_delete_and_reupvote(self):
+        reward = VoteService.REPUTATION_REWARDS['question']
+
+        VoteService.cast_vote('question', str(self.question.question_id), Vote.VoteType.UPVOTE, self.voter)
+        VoteService.remove_vote('question', str(self.question.question_id), self.voter)
+        VoteService.cast_vote('question', str(self.question.question_id), Vote.VoteType.UPVOTE, self.voter)
+
+        self._assert_reward_state(
+            target_type='question',
+            score=reward['amount'],
+            tx_count=1,
+            reason=reward['reason'],
+        )
+        self.assertEqual(
+            VoteService.get_vote_stats('question', str(self.question.question_id)),
+            {'upvotes': 1, 'downvotes': 0, 'score': 1},
+        )
+
     def test_solution_reputation_transitions_follow_m004_upvote_rules(self):
         reward = VoteService.REPUTATION_REWARDS['solution']
         cases = [
@@ -925,6 +943,24 @@ class ReputationVoteServiceTests(APITestCase):
             reason=reward['reason'],
         )
         self.assertFalse(Vote.objects.filter(user=self.voter).exists())
+
+    def test_solution_reputation_is_not_awarded_twice_after_upvote_delete_and_reupvote(self):
+        reward = VoteService.REPUTATION_REWARDS['solution']
+
+        VoteService.cast_vote('solution', str(self.solution.solution_id), Vote.VoteType.UPVOTE, self.voter)
+        VoteService.remove_vote('solution', str(self.solution.solution_id), self.voter)
+        VoteService.cast_vote('solution', str(self.solution.solution_id), Vote.VoteType.UPVOTE, self.voter)
+
+        self._assert_reward_state(
+            target_type='solution',
+            score=reward['amount'],
+            tx_count=1,
+            reason=reward['reason'],
+        )
+        self.assertEqual(
+            VoteService.get_vote_stats('solution', str(self.solution.solution_id)),
+            {'upvotes': 1, 'downvotes': 0, 'score': 1},
+        )
 
     def test_self_vote_is_rejected_before_reputation_changes(self):
         with self.assertRaisesMessage(Exception, 'Нельзя голосовать за собственный контент'):
