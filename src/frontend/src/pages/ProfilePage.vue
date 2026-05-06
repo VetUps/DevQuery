@@ -152,7 +152,7 @@ async function setActiveTab(tab: ProfileTab) {
               :reputation="reputation"
             />
 
-            <ReputationExplanationPanel />
+            <ReputationExplanationPanel :reputation="reputation" />
 
             <ReputationLedgerList
               class="profile-page__ledger"

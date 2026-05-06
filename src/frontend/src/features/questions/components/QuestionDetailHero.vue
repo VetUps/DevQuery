@@ -39,7 +39,11 @@ const protectionSummary = computed(() => {
   }
 
   const requiredLabel = props.question.viewer_answer_required_level_label ?? 'Эксперт'
-  return `В течение первых 12 часов после публикации отвечать могут только ${requiredLabel.toLowerCase()}ы и мастера.`
+  const responderGroup = requiredLabel === 'Участник'
+    ? 'участники и мастера'
+    : `${requiredLabel.toLowerCase()}ы и мастера`
+
+  return `В течение первых 12 часов после публикации отвечать могут только ${responderGroup}.`
 })
 
 const protectionWindowNote = computed(() => {

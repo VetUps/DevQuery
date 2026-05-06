@@ -224,13 +224,33 @@ describe('protected newcomer question integrated policy proof', () => {
     expect(wrapper.text()).toContain('Как защитить вопрос новичка от ранних минусов?')
     expect(wrapper.text()).toContain('Читаемый текст вопроса должен оставаться доступным')
     expect(wrapper.get('[data-testid="question-protection-badge"]').text()).toContain('Защищённый вопрос')
+    expect(wrapper.get('[data-testid="question-protection-badge"]').text()).toContain('Эксперт+ отвечают первые 12 часов')
     expect(wrapper.get('[data-testid="question-protection-panel"]').text()).toContain('Защита новых авторов включена')
+    expect(wrapper.get('[data-testid="question-protection-panel"]').text()).toContain('В течение первых 12 часов после публикации отвечать могут только эксперты и мастера.')
     expect(wrapper.get('[data-testid="solution-composer-blocked-reason"]').text()).toContain('Отвечать сейчас могут только участники уровня Эксперт или Мастер')
     expect(wrapper.get('[data-testid="solution-composer-progress-hint"]').text()).toContain('не хватает 70 очков до уровня Эксперт')
     expect(wrapper.find('[data-testid="vote-downvote-blocked"]').exists()).toBe(true)
     expect(wrapper.text()).toContain('даунвоуты, чтобы обсуждение начиналось с содержательной обратной связи')
     expect(wrapper.findAll('button').some((button) => button.text() === 'Против')).toBe(false)
     expect(wrapper.text()).not.toContain('Написать решение')
+  })
+
+  it('uses backend-provided required level labels for non-default protected newcomer fixtures', async () => {
+    const wrapper = await mountProtectedQuestion(buildBackendQuestion({
+      viewer_answer_reason_message: 'Этот вопрос новичка защищён на первые 12 часов. Отвечать сейчас могут только участники уровня Участник или Мастер.',
+      viewer_answer_required_level: 'participant',
+      viewer_answer_required_level_label: 'Участник',
+      viewer_level: 'newcomer',
+      viewer_level_label: 'Новичок',
+      viewer_points_to_next_level: 12,
+      viewer_next_level: 'participant',
+      viewer_next_level_label: 'Участник',
+    }))
+
+    expect(wrapper.get('[data-testid="question-protection-badge"]').text()).toContain('Участник+ отвечают первые 12 часов')
+    expect(wrapper.get('[data-testid="question-protection-panel"]').text()).toContain('В течение первых 12 часов после публикации отвечать могут только участники и мастера.')
+    expect(wrapper.get('[data-testid="solution-composer-blocked-reason"]').text()).toContain('Отвечать сейчас могут только участники уровня Участник или Мастер')
+    expect(wrapper.get('[data-testid="solution-composer-progress-hint"]').text()).toContain('не хватает 12 очков до уровня Участник')
   })
 
   it('keeps answer authoring available for experts while downvote protection remains visible', async () => {

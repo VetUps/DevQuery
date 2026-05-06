@@ -32,7 +32,7 @@ from apps.qa.services.solution_edits_service import SolutionEditService
 from apps.qa.services.solution_service import BEST_SOLUTION_REPUTATION_AWARD, SolutionService
 from apps.qa.services.vote_service import VoteService
 from apps.qa.services.question_protection_service import QuestionProtectionService
-from apps.user.models import CustomUser, ReputationPolicyConfig, ReputationTransaction
+from apps.user.models import CustomUser, ReputationLevelThreshold, ReputationPolicyConfig, ReputationTransaction
 from apps.user.services.reputation_service import ReputationService
 
 
@@ -1198,6 +1198,218 @@ class ReputationIntegratedScoringRegressionTests(APITestCase):
         self.receiver.refresh_from_db()
         self.assertEqual(self.receiver.user_reputation_score, expected_score)
         self.assertEqual(ReputationTransaction.objects.filter(user=self.receiver).count(), transaction_count)
+
+
+class ReputationPolicyIntegrationTests(APITestCase):
+    def setUp(self):
+        self.admin_user = CustomUser.objects.create_user(
+            user_email='policy-admin@example.com',
+            user_name='policy-admin',
+            password='password',
+            is_staff=True,
+        )
+        self.question_owner = CustomUser.objects.create_user(
+            user_email='policy-question-owner@example.com',
+            user_name='policy-question-owner',
+            password='password',
+        )
+        self.reputation_user = CustomUser.objects.create_user(
+            user_email='policy-reputation-user@example.com',
+            user_name='policy-reputation-user',
+            password='password',
+        )
+        self.newcomer_question_author = CustomUser.objects.create_user(
+            user_email='policy-newcomer-author@example.com',
+            user_name='policy-newcomer-author',
+            password='password',
+        )
+        self.participant_viewer = CustomUser.objects.create_user(
+            user_email='policy-participant-viewer@example.com',
+            user_name='policy-participant-viewer',
+            password='password',
+            user_reputation_score=30,
+        )
+        self.vote_actor = CustomUser.objects.create_user(
+            user_email='policy-vote-actor@example.com',
+            user_name='policy-vote-actor',
+            password='password',
+        )
+        self.reputation_question = Question.objects.create(
+            user=self.reputation_user,
+            question_title='Integrated reputation question',
+            question_body='Question used to collect integrated reputation events.',
+        )
+        self.best_solution_target_question = Question.objects.create(
+            user=self.question_owner,
+            question_title='Question selecting the integrated best solution',
+            question_body='Question owned by the selector for best-solution reputation proof.',
+        )
+        self.best_solution = Solution.objects.create(
+            user=self.reputation_user,
+            question=self.best_solution_target_question,
+            solution_body='Solution used to collect best-solution and vote rewards.',
+        )
+        self.edit_target_question = Question.objects.create(
+            user=self.question_owner,
+            question_title='Question requiring an approved edit',
+            question_body='Question body before approved edit.',
+        )
+        self.policy_question = Question.objects.create(
+            user=self.newcomer_question_author,
+            question_title='Protected newcomer question for integrated policy proof',
+            question_body='Policy gating should react to score, override, and config changes.',
+        )
+
+    def _award_integrated_reputation(self):
+        proposal = QuestionEditService.create_proposal(
+            question=self.edit_target_question,
+            actor=self.reputation_user,
+            payload=QuestionChangePayload(
+                title='Question requiring an approved edit (updated)',
+                body='Question body after approved edit.',
+                tags=[],
+            ),
+        )
+
+        SolutionService.set_best_solution(self.best_solution, True, self.question_owner)
+        VoteService.cast_vote('solution', str(self.best_solution.solution_id), Vote.VoteType.UPVOTE, self.vote_actor)
+        VoteService.cast_vote(
+            'question',
+            str(self.reputation_question.question_id),
+            Vote.VoteType.UPVOTE,
+            self.vote_actor,
+        )
+        QuestionEditService.change_proposal_approval(
+            proposal_id=str(proposal.question_edit_id),
+            actor=self.question_owner,
+            approved=True,
+        )
+        return proposal
+
+    def test_reputation_policy_stack_integrates_events_thresholds_override_and_window_config(self):
+        proposal = self._award_integrated_reputation()
+
+        self.reputation_user.refresh_from_db()
+        self.assertEqual(self.reputation_user.user_reputation_score, 32)
+
+        progress = ReputationService.get_progress(self.reputation_user)
+        self.assertEqual(progress['level'], CustomUser.ReputationLevel.PARTICIPANT)
+        self.assertEqual(progress['next_level'], CustomUser.ReputationLevel.EXPERT)
+        self.assertEqual(progress['points_to_next_level'], 68)
+        self.assertFalse(progress['is_manual_override'])
+
+        transactions = list(
+            ReputationTransaction.objects.filter(user=self.reputation_user).order_by('created_at')
+        )
+        self.assertEqual(
+            [transaction.reputation_transaction_reason for transaction in transactions],
+            [
+                ReputationTransaction.TransactionReason.BEST_SOLUTION,
+                ReputationTransaction.TransactionReason.SOLUTION_UPVOTED,
+                ReputationTransaction.TransactionReason.QUESTION_UPVOTED,
+                ReputationTransaction.TransactionReason.APPROVED_EDIT,
+            ],
+        )
+        self.assertEqual(transactions[0].object_id, self.best_solution.pk)
+        self.assertEqual(transactions[1].object_id, self.best_solution.pk)
+        self.assertEqual(transactions[2].object_id, self.reputation_question.pk)
+        self.assertEqual(transactions[3].object_id, proposal.pk)
+
+        initial_decision = QuestionProtectionService.get_answer_eligibility(
+            self.policy_question,
+            self.reputation_user,
+        )
+        self.assertFalse(initial_decision.allowed)
+        self.assertEqual(
+            initial_decision.reason_code,
+            QuestionProtectionService.ANSWER_BLOCKED_INSUFFICIENT_LEVEL,
+        )
+        self.assertEqual(initial_decision.viewer_level, CustomUser.ReputationLevel.PARTICIPANT)
+        self.assertEqual(initial_decision.points_to_next_level, 68)
+
+        expert_threshold = ReputationLevelThreshold.objects.get(level=CustomUser.ReputationLevel.EXPERT)
+        expert_threshold.minimum_score = 32
+        expert_threshold.save()
+
+        threshold_progress = ReputationService.get_progress(self.reputation_user)
+        self.assertEqual(threshold_progress['level'], CustomUser.ReputationLevel.EXPERT)
+        self.assertEqual(threshold_progress['next_level'], CustomUser.ReputationLevel.MASTER)
+        self.assertEqual(threshold_progress['points_to_next_level'], 268)
+
+        threshold_decision = QuestionProtectionService.get_answer_eligibility(
+            self.policy_question,
+            self.reputation_user,
+        )
+        self.assertTrue(threshold_decision.allowed)
+        self.assertEqual(threshold_decision.viewer_level, CustomUser.ReputationLevel.EXPERT)
+
+        overridden_user = ReputationService.set_manual_level_override(
+            user=self.reputation_user,
+            manual_level=CustomUser.ReputationLevel.NEWCOMER,
+            actor=self.admin_user,
+            note='Integrated policy regression override.',
+        )
+        override_progress = ReputationService.get_progress(overridden_user)
+        self.assertTrue(override_progress['is_manual_override'])
+        self.assertEqual(override_progress['level'], CustomUser.ReputationLevel.NEWCOMER)
+        self.assertEqual(override_progress['derived_level'], CustomUser.ReputationLevel.EXPERT)
+
+        override_decision = QuestionProtectionService.get_answer_eligibility(
+            self.policy_question,
+            overridden_user,
+        )
+        self.assertFalse(override_decision.allowed)
+        self.assertEqual(override_decision.viewer_level, CustomUser.ReputationLevel.NEWCOMER)
+        self.assertEqual(override_decision.points_to_next_level, 268)
+
+        override_transaction = ReputationTransaction.objects.filter(
+            user=self.reputation_user,
+            reputation_transaction_reason=ReputationTransaction.TransactionReason.MANUAL_LEVEL_OVERRIDE,
+        ).latest('created_at')
+        self.assertEqual(override_transaction.reputation_transaction_amount, 0)
+        self.assertEqual(override_transaction.actor, self.admin_user)
+        self.assertIn('Integrated policy regression override.', override_transaction.note)
+
+        cleared_user = ReputationService.set_manual_level_override(
+            user=self.reputation_user,
+            manual_level=None,
+            actor=self.admin_user,
+            note='Integrated policy regression clear.',
+        )
+        cleared_decision = QuestionProtectionService.get_answer_eligibility(self.policy_question, cleared_user)
+        self.assertTrue(cleared_decision.allowed)
+        self.assertEqual(cleared_decision.viewer_level, CustomUser.ReputationLevel.EXPERT)
+
+        ReputationPolicyConfig.objects.create(protected_newcomer_window_hours=24)
+        Question.objects.filter(pk=self.policy_question.pk).update(
+            question_created_at=timezone.now() - timedelta(hours=23)
+        )
+        self.policy_question.refresh_from_db()
+
+        extended_window_state = QuestionProtectionService.get_protection_state(self.policy_question)
+        self.assertTrue(extended_window_state.is_protected)
+        self.assertIsNotNone(extended_window_state.protected_until)
+
+        Question.objects.filter(pk=self.policy_question.pk).update(
+            question_created_at=timezone.now() - timedelta(hours=25)
+        )
+        self.policy_question.refresh_from_db()
+
+        expired_window_state = QuestionProtectionService.get_protection_state(self.policy_question)
+        expired_answer = QuestionProtectionService.get_answer_eligibility(
+            self.policy_question,
+            self.participant_viewer,
+        )
+        expired_downvote = QuestionProtectionService.get_question_downvote_eligibility(
+            self.policy_question,
+            self.participant_viewer,
+        )
+
+        self.assertFalse(expired_window_state.is_protected)
+        self.assertTrue(expired_answer.allowed)
+        self.assertEqual(expired_answer.reason_code, QuestionProtectionService.ANSWER_ALLOWED)
+        self.assertTrue(expired_downvote.allowed)
+        self.assertEqual(expired_downvote.reason_code, QuestionProtectionService.DOWNVOTE_ALLOWED)
 
 
 class ProtectedQuestionAnswerApiTests(APITestCase):

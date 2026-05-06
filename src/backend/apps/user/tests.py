@@ -260,6 +260,18 @@ class ReputationConfigurationTests(TestCase):
         with self.assertRaises(DjangoValidationError):
             config.full_clean()
 
+    def test_policy_config_form_rejects_invalid_window_without_partial_mutation(self):
+        config = ReputationPolicyConfig.objects.create(protected_newcomer_window_hours=12)
+        form = ReputationPolicyConfigAdminForm(
+            data={'singleton_key': 'default', 'protected_newcomer_window_hours': 0},
+            instance=config,
+        )
+
+        self.assertFalse(form.is_valid())
+        config.refresh_from_db()
+        self.assertEqual(config.protected_newcomer_window_hours, 12)
+        self.assertEqual(ReputationService.get_protected_newcomer_window_hours(), 12)
+
     def test_policy_config_form_accepts_valid_window_update(self):
         config = ReputationPolicyConfig.objects.create(protected_newcomer_window_hours=12)
         form = ReputationPolicyConfigAdminForm(
