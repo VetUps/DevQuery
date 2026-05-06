@@ -157,19 +157,10 @@ async function setActiveTab(tab: ProfileTab) {
           <section v-if="activeTab === 'overview'" class="profile-page__grid">
             <ProfileReputationSummary
               v-if="reputation"
+              class="profile-page__reputation-summary"
               :reputation="reputation"
+              @explain="isReputationDialogOpen = true"
             />
-
-            <div class="profile-page__reputation-actions">
-              <button
-                type="button"
-                class="profile-page__reputation-trigger"
-                data-testid="reputation-explanation-trigger"
-                @click="isReputationDialogOpen = true"
-              >
-                Как работает репутация
-              </button>
-            </div>
 
             <ReputationLedgerList
               class="profile-page__ledger"
@@ -297,26 +288,8 @@ async function setActiveTab(tab: ProfileTab) {
   gap: var(--space-lg);
 }
 
-.profile-page__reputation-actions {
-  display: flex;
-  align-items: start;
-  justify-content: flex-start;
-}
-
-.profile-page__reputation-trigger {
-  min-height: 42px;
-  padding: 0 16px;
-  border: 1px solid rgb(14 116 144 / 0.22);
-  border-radius: 999px;
-  background: rgb(14 116 144 / 0.08);
-  color: var(--color-accent);
-  font-weight: 700;
-}
-
-.profile-page__reputation-trigger:hover,
-.profile-page__reputation-trigger:focus-visible {
-  border-color: rgb(14 116 144 / 0.38);
-  background: rgb(14 116 144 / 0.12);
+.profile-page__reputation-summary {
+  grid-column: 1 / -1;
 }
 
 .profile-page__ledger {

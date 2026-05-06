@@ -11,6 +11,10 @@ const props = defineProps<{
   reputation: ReputationSummary
 }>()
 
+const emit = defineEmits<{
+  explain: []
+}>()
+
 const progress = computed(() => buildReputationProgress(props.reputation))
 const progressLabel = computed(() => {
   if (!props.reputation.next_level_label) {
@@ -34,7 +38,17 @@ const statusLabel = computed(() => (
   <SurfacePanel class="profile-reputation-summary" variant="accent" padding="lg">
     <header class="profile-reputation-summary__header">
       <div>
-        <p class="profile-reputation-summary__eyebrow">Репутация</p>
+        <div class="profile-reputation-summary__label-row">
+          <p class="profile-reputation-summary__eyebrow">Репутация</p>
+          <button
+            type="button"
+            class="profile-reputation-summary__explain"
+            data-testid="reputation-explanation-trigger"
+            @click="emit('explain')"
+          >
+            Как работает репутация
+          </button>
+        </div>
         <h2 class="profile-reputation-summary__title">{{ reputation.level_label }}</h2>
       </div>
       <div class="profile-reputation-summary__score-block">
@@ -102,6 +116,13 @@ const statusLabel = computed(() => (
   margin: 0;
 }
 
+.profile-reputation-summary__label-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
 .profile-reputation-summary__eyebrow,
 .profile-reputation-summary__progress-label {
   color: var(--color-accent);
@@ -109,6 +130,27 @@ const statusLabel = computed(() => (
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+.profile-reputation-summary__explain {
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid rgb(14 116 144 / 0.18);
+  border-radius: 999px;
+  background: rgb(14 116 144 / 0.07);
+  color: var(--color-accent);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.profile-reputation-summary__explain:hover,
+.profile-reputation-summary__explain:focus-visible {
+  border-color: rgb(14 116 144 / 0.34);
+  background: rgb(14 116 144 / 0.12);
+  outline: none;
 }
 
 .profile-reputation-summary__title {
