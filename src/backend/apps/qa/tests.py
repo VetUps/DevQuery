@@ -111,6 +111,7 @@ class QuestionProtectionServiceTests(APITestCase):
 
         self.assertTrue(state.is_protected)
         self.assertEqual(state.author_level, CustomUser.ReputationLevel.NEWCOMER)
+        self.assertEqual(state.author_level_label, CustomUser.ReputationLevel.NEWCOMER.label)
         self.assertEqual(state.reason_code, QuestionProtectionService.PROTECTED_NEWCOMER)
         self.assertEqual(state.progress.points_to_next_level, 30)
         self.assertEqual(state.progress.next_level, CustomUser.ReputationLevel.PARTICIPANT)
@@ -157,6 +158,7 @@ class QuestionProtectionServiceTests(APITestCase):
                 self.assertFalse(state.is_protected)
                 self.assertEqual(state.reason_code, QuestionProtectionService.NOT_PROTECTED)
                 self.assertEqual(state.author_level, ReputationService.get_progress(author)['level'])
+                self.assertEqual(state.author_level_label, ReputationService.resolve_level(user=author).label)
 
     def test_question_without_author_is_not_protected(self):
         question = self.create_question(author=None, created_at=timezone.now() - timedelta(hours=1))
@@ -166,6 +168,7 @@ class QuestionProtectionServiceTests(APITestCase):
         self.assertFalse(state.is_protected)
         self.assertEqual(state.reason_code, QuestionProtectionService.PROTECTED_MISSING_AUTHOR)
         self.assertIsNone(state.author_level)
+        self.assertIsNone(state.author_level_label)
         self.assertIsNone(state.protected_until)
 
     def test_answer_eligibility_blocks_anonymous_newcomer_and_participant_viewers_during_window(self):
@@ -178,18 +181,22 @@ class QuestionProtectionServiceTests(APITestCase):
         self.assertFalse(anonymous_decision.allowed)
         self.assertEqual(anonymous_decision.reason_code, QuestionProtectionService.ANSWER_BLOCKED_ANONYMOUS)
         self.assertEqual(anonymous_decision.required_level, CustomUser.ReputationLevel.EXPERT)
+        self.assertEqual(anonymous_decision.required_level_label, CustomUser.ReputationLevel.EXPERT.label)
         self.assertIsNone(anonymous_decision.viewer_level)
+        self.assertIsNone(anonymous_decision.viewer_level_label)
         self.assertIsNotNone(anonymous_decision.protected_until)
 
         self.assertFalse(newcomer_decision.allowed)
         self.assertEqual(newcomer_decision.reason_code, QuestionProtectionService.ANSWER_BLOCKED_INSUFFICIENT_LEVEL)
         self.assertEqual(newcomer_decision.viewer_level, CustomUser.ReputationLevel.NEWCOMER)
+        self.assertEqual(newcomer_decision.viewer_level_label, CustomUser.ReputationLevel.NEWCOMER.label)
         self.assertEqual(newcomer_decision.points_to_next_level, 30)
         self.assertEqual(newcomer_decision.next_level, CustomUser.ReputationLevel.PARTICIPANT)
 
         self.assertFalse(participant_decision.allowed)
         self.assertEqual(participant_decision.reason_code, QuestionProtectionService.ANSWER_BLOCKED_INSUFFICIENT_LEVEL)
         self.assertEqual(participant_decision.viewer_level, CustomUser.ReputationLevel.PARTICIPANT)
+        self.assertEqual(participant_decision.viewer_level_label, CustomUser.ReputationLevel.PARTICIPANT.label)
         self.assertEqual(participant_decision.points_to_next_level, 70)
         self.assertEqual(participant_decision.next_level, CustomUser.ReputationLevel.EXPERT)
 
@@ -202,12 +209,14 @@ class QuestionProtectionServiceTests(APITestCase):
         self.assertTrue(expert_decision.allowed)
         self.assertEqual(expert_decision.reason_code, QuestionProtectionService.ANSWER_ALLOWED)
         self.assertEqual(expert_decision.viewer_level, CustomUser.ReputationLevel.EXPERT)
+        self.assertEqual(expert_decision.viewer_level_label, CustomUser.ReputationLevel.EXPERT.label)
         self.assertEqual(expert_decision.required_level, CustomUser.ReputationLevel.EXPERT)
         self.assertEqual(expert_decision.points_to_next_level, 200)
 
         self.assertTrue(master_decision.allowed)
         self.assertEqual(master_decision.reason_code, QuestionProtectionService.ANSWER_ALLOWED)
         self.assertEqual(master_decision.viewer_level, CustomUser.ReputationLevel.MASTER)
+        self.assertEqual(master_decision.viewer_level_label, CustomUser.ReputationLevel.MASTER.label)
         self.assertEqual(master_decision.points_to_next_level, 0)
         self.assertIsNone(master_decision.next_level)
 
@@ -218,6 +227,9 @@ class QuestionProtectionServiceTests(APITestCase):
 
         self.assertTrue(decision.allowed)
         self.assertEqual(decision.reason_code, QuestionProtectionService.ANSWER_ALLOWED)
+        self.assertEqual(decision.required_level, CustomUser.ReputationLevel.EXPERT)
+        self.assertEqual(decision.required_level_label, CustomUser.ReputationLevel.EXPERT.label)
+        self.assertIsNone(decision.viewer_level)
         self.assertIsNone(decision.protected_until)
 
     def test_question_downvote_eligibility_blocks_all_viewers_during_window(self):
@@ -230,16 +242,19 @@ class QuestionProtectionServiceTests(APITestCase):
         self.assertFalse(anonymous_decision.allowed)
         self.assertEqual(anonymous_decision.reason_code, QuestionProtectionService.DOWNVOTE_BLOCKED_PROTECTED)
         self.assertIsNone(anonymous_decision.required_level)
+        self.assertIsNone(anonymous_decision.required_level_label)
         self.assertIsNone(anonymous_decision.viewer_level)
 
         self.assertFalse(participant_decision.allowed)
         self.assertEqual(participant_decision.reason_code, QuestionProtectionService.DOWNVOTE_BLOCKED_PROTECTED)
         self.assertEqual(participant_decision.viewer_level, CustomUser.ReputationLevel.PARTICIPANT)
+        self.assertEqual(participant_decision.viewer_level_label, CustomUser.ReputationLevel.PARTICIPANT.label)
         self.assertEqual(participant_decision.points_to_next_level, 70)
 
         self.assertFalse(expert_decision.allowed)
         self.assertEqual(expert_decision.reason_code, QuestionProtectionService.DOWNVOTE_BLOCKED_PROTECTED)
         self.assertEqual(expert_decision.viewer_level, CustomUser.ReputationLevel.EXPERT)
+        self.assertEqual(expert_decision.viewer_level_label, CustomUser.ReputationLevel.EXPERT.label)
 
     def test_question_downvote_eligibility_returns_allowed_after_window(self):
         question = self.create_question(author=self.newcomer_author, created_at=timezone.now() - timedelta(hours=12, seconds=1))
@@ -249,6 +264,8 @@ class QuestionProtectionServiceTests(APITestCase):
         self.assertTrue(decision.allowed)
         self.assertEqual(decision.reason_code, QuestionProtectionService.DOWNVOTE_ALLOWED)
         self.assertIsNone(decision.required_level)
+        self.assertIsNone(decision.required_level_label)
+        self.assertIsNone(decision.viewer_level)
         self.assertIsNone(decision.protected_until)
 
 
@@ -1516,6 +1533,35 @@ class ProtectedQuestionAnswerApiTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
         self.assertTrue(Solution.objects.filter(user=self.participant, question=self.question).exists())
+
+    def test_answer_creation_uses_admin_configured_protected_window_via_shared_policy_service(self):
+        ReputationPolicyConfig.objects.create(protected_newcomer_window_hours=24)
+        Question.objects.filter(pk=self.question.pk).update(
+            question_created_at=timezone.now() - timedelta(hours=13)
+        )
+        self.question.refresh_from_db()
+
+        participant_decision = QuestionProtectionService.get_answer_eligibility(self.question, self.participant)
+        protection_state = QuestionProtectionService.get_protection_state(self.question)
+        downvote_decision = QuestionProtectionService.get_question_downvote_eligibility(self.question, self.participant)
+
+        self.assertTrue(protection_state.is_protected)
+        self.assertFalse(participant_decision.allowed)
+        self.assertFalse(downvote_decision.allowed)
+
+        response = self._create_solution(self.participant)
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.data)
+        self.assertEqual(
+            response.data,
+            {
+                'detail': 'В течение 12 часов после публикации на вопросы новичков могут отвечать только эксперты и мастера.',
+                'code': 'protected_newcomer_answer_required',
+            },
+        )
+        self.assertFalse(Solution.objects.filter(user=self.participant, question=self.question).exists())
+        self.assertEqual(Solution.objects.count(), 0)
+        self.assertEqual(ReputationTransaction.objects.count(), 0)
 
     def test_existing_self_answer_validation_remains_deterministic_for_newcomer_author(self):
         response = self._create_solution(self.newcomer_author)

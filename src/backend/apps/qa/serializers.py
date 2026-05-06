@@ -1,15 +1,12 @@
 import re
-from datetime import timedelta
 
 from django.contrib.contenttypes.models import ContentType
 from django.db import transaction
 from django.db.models import TextChoices
-from django.utils import timezone
 from rest_framework import serializers
 from rest_framework.exceptions import PermissionDenied
 
 from apps.user.models import CustomUser
-from apps.user.services.reputation_service import ReputationService
 from .models import (
     Question,
     QuestionEditEvent,
@@ -29,7 +26,6 @@ from .services.vote_service import VoteService
 
 MAX_QUESTION_TAGS = 5
 TAG_NAME_PATTERN = re.compile(r'^[a-z0-9-]+$')
-PROTECTED_NEWCOMER_ANSWER_WINDOW = timedelta(hours=12)
 PROTECTED_NEWCOMER_ANSWER_ERROR_CODE = 'protected_newcomer_answer_required'
 PROTECTED_NEWCOMER_ANSWER_MESSAGE = (
     'В течение 12 часов после публикации на вопросы новичков могут отвечать только эксперты и мастера.'
@@ -542,25 +538,13 @@ class SolutionCreateSerializer(serializers.ModelSerializer):
         fields = ['question', 'solution_body']
 
     @staticmethod
-    def _is_protected_newcomer_question(question: Question) -> bool:
-        author = question.user
-        if author is None:
-            return False
-
-        author_level = ReputationService.resolve_level(user=author).value
-        if author_level != CustomUser.ReputationLevel.NEWCOMER:
-            return False
-
-        protection_deadline = question.question_created_at + PROTECTED_NEWCOMER_ANSWER_WINDOW
-        return timezone.now() < protection_deadline
-
-    @staticmethod
-    def _can_bypass_protected_newcomer_gate(user: CustomUser) -> bool:
-        user_level = ReputationService.resolve_level(user=user).value
-        return user_level in {
-            CustomUser.ReputationLevel.EXPERT,
-            CustomUser.ReputationLevel.MASTER,
+    def _raise_protected_newcomer_answer_denied() -> None:
+        permission_error = PermissionDenied(detail=PROTECTED_NEWCOMER_ANSWER_MESSAGE)
+        permission_error.detail = {
+            'detail': PROTECTED_NEWCOMER_ANSWER_MESSAGE,
+            'code': PROTECTED_NEWCOMER_ANSWER_ERROR_CODE,
         }
+        raise permission_error
 
     def validate(self, data):
         user = self.context.get('request').user
@@ -572,13 +556,9 @@ class SolutionCreateSerializer(serializers.ModelSerializer):
         if Solution.objects.filter(user=user, question=question).exists():
             raise serializers.ValidationError('Пользователь уже выложил решение на данный вопрос')
 
-        if self._is_protected_newcomer_question(question) and not self._can_bypass_protected_newcomer_gate(user):
-            permission_error = PermissionDenied(detail=PROTECTED_NEWCOMER_ANSWER_MESSAGE)
-            permission_error.detail = {
-                'detail': PROTECTED_NEWCOMER_ANSWER_MESSAGE,
-                'code': PROTECTED_NEWCOMER_ANSWER_ERROR_CODE,
-            }
-            raise permission_error
+        answer_decision = QuestionProtectionService.get_answer_eligibility(question, user)
+        if not answer_decision.allowed:
+            self._raise_protected_newcomer_answer_denied()
 
         return data
 
