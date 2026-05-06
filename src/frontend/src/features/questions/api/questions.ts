@@ -36,6 +36,22 @@ export interface QuestionProtectionSnapshot {
   viewer_downvote_reason_message: string
 }
 
+export function getProtectedQuestionAnswerWindowLabel(question: Pick<QuestionProtectionSnapshot, 'viewer_answer_required_level_label'>) {
+  const requiredLabel = question.viewer_answer_required_level_label ?? 'Эксперт'
+  return `${requiredLabel}+ отвечают первые 12 часов`
+}
+
+export function getProtectedQuestionAnswerWindowSummary(
+  question: Pick<QuestionProtectionSnapshot, 'viewer_answer_required_level_label'>,
+) {
+  const requiredLabel = question.viewer_answer_required_level_label ?? 'Эксперт'
+  const responderGroup = requiredLabel === 'Участник'
+    ? 'участники и мастера'
+    : `${requiredLabel.toLowerCase()}ы и мастера`
+
+  return `В течение первых 12 часов после публикации отвечать могут только ${responderGroup}.`
+}
+
 export interface QuestionListItem extends QuestionProtectionSnapshot {
   question_id: string
   user: string
