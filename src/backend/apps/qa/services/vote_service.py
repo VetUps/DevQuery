@@ -7,6 +7,7 @@ from django.db.models.functions import Coalesce
 from rest_framework.exceptions import PermissionDenied, ValidationError, NotFound
 
 from ..models import Vote, Question, Solution
+from .question_protection_service import QuestionProtectionService
 from ...user.models import CustomUser, ReputationTransaction
 from ...user.services.reputation_service import ReputationService
 
@@ -122,7 +123,7 @@ class VoteService:
         return getattr(obj, 'user_vote_type', None)
 
     @staticmethod
-    def validate_vote_permission(target_object: Question | Solution, user: CustomUser) -> None:
+    def validate_vote_permission(target_object: Question | Solution, user: CustomUser, vote_type: str | None = None) -> None:
         """
         Проверяет, что пользователь не голосует за собственный контент
         :param target_object: Объект вопроса или решения
@@ -131,6 +132,11 @@ class VoteService:
         """
         if target_object.user == user:
             raise PermissionDenied('Нельзя голосовать за собственный контент')
+
+        if isinstance(target_object, Question) and vote_type == Vote.VoteType.DOWNVOTE:
+            decision = QuestionProtectionService.get_question_downvote_eligibility(target_object, user)
+            if not decision.allowed:
+                raise PermissionDenied(decision.reason_code)
 
     @staticmethod
     def get_content_type(target_type: str) -> ContentType:
@@ -200,7 +206,7 @@ class VoteService:
             raise ValidationError(f'Неверный тип голоса. Допустимые значения: {Vote.VoteType.UPVOTE}, {Vote.VoteType.DOWNVOTE}')
 
         target_object = cls.get_target_object(target_type, target_id)
-        cls.validate_vote_permission(target_object, user)
+        cls.validate_vote_permission(target_object, user, vote_type)
 
         content_type = cls.get_content_type(target_type)
 

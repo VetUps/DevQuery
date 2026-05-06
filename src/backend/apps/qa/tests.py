@@ -30,8 +30,213 @@ from apps.qa.services.question_edit_service import QuestionChangePayload, Questi
 from apps.qa.services.solution_edits_service import SolutionEditService
 from apps.qa.services.solution_service import BEST_SOLUTION_REPUTATION_AWARD, SolutionService
 from apps.qa.services.vote_service import VoteService
+from apps.qa.services.question_protection_service import QuestionProtectionService
 from apps.user.models import CustomUser, ReputationTransaction
 from apps.user.services.reputation_service import ReputationService
+
+
+class QuestionProtectionServiceTests(APITestCase):
+    def setUp(self):
+        self.newcomer_author = CustomUser.objects.create_user(
+            user_email='newcomer-author@example.com',
+            user_name='newcomer-author',
+            password='password',
+        )
+        self.participant_author = CustomUser.objects.create_user(
+            user_email='participant-author@example.com',
+            user_name='participant-author',
+            password='password',
+        )
+        self.participant_author.user_reputation_score = 30
+        self.participant_author.save(update_fields=['user_reputation_score'])
+        self.expert_author = CustomUser.objects.create_user(
+            user_email='expert-author@example.com',
+            user_name='expert-author',
+            password='password',
+        )
+        self.expert_author.user_reputation_score = 100
+        self.expert_author.save(update_fields=['user_reputation_score'])
+        self.master_author = CustomUser.objects.create_user(
+            user_email='master-author@example.com',
+            user_name='master-author',
+            password='password',
+        )
+        self.master_author.user_reputation_score = 300
+        self.master_author.save(update_fields=['user_reputation_score'])
+
+        self.newcomer_viewer = CustomUser.objects.create_user(
+            user_email='newcomer-viewer@example.com',
+            user_name='newcomer-viewer',
+            password='password',
+        )
+        self.participant_viewer = CustomUser.objects.create_user(
+            user_email='participant-viewer@example.com',
+            user_name='participant-viewer',
+            password='password',
+        )
+        self.participant_viewer.user_reputation_score = 30
+        self.participant_viewer.save(update_fields=['user_reputation_score'])
+        self.expert_viewer = CustomUser.objects.create_user(
+            user_email='expert-viewer@example.com',
+            user_name='expert-viewer',
+            password='password',
+        )
+        self.expert_viewer.user_reputation_score = 100
+        self.expert_viewer.save(update_fields=['user_reputation_score'])
+        self.master_viewer = CustomUser.objects.create_user(
+            user_email='master-viewer@example.com',
+            user_name='master-viewer',
+            password='password',
+        )
+        self.master_viewer.user_reputation_score = 300
+        self.master_viewer.save(update_fields=['user_reputation_score'])
+
+    def create_question(self, *, author, created_at=None):
+        question = Question.objects.create(
+            user=author,
+            question_title='Protected policy question',
+            question_body='Need to evaluate protected newcomer rules.',
+        )
+        if created_at is not None:
+            Question.objects.filter(pk=question.pk).update(question_created_at=created_at)
+            question.refresh_from_db()
+        return question
+
+    def test_newcomer_question_is_protected_before_window_boundary(self):
+        created_at = timezone.now() - timedelta(hours=11, minutes=59, seconds=59)
+        question = self.create_question(author=self.newcomer_author, created_at=created_at)
+
+        state = QuestionProtectionService.get_protection_state(question)
+
+        self.assertTrue(state.is_protected)
+        self.assertEqual(state.author_level, CustomUser.ReputationLevel.NEWCOMER)
+        self.assertEqual(state.reason_code, QuestionProtectionService.PROTECTED_NEWCOMER)
+        self.assertEqual(state.progress.points_to_next_level, 30)
+        self.assertEqual(state.progress.next_level, CustomUser.ReputationLevel.PARTICIPANT)
+        self.assertIsNotNone(state.protected_until)
+
+    def test_newcomer_question_is_not_protected_at_window_boundary(self):
+        created_at = timezone.now() - timedelta(hours=12)
+        question = self.create_question(author=self.newcomer_author, created_at=created_at)
+
+        state = QuestionProtectionService.get_protection_state(question)
+
+        self.assertFalse(state.is_protected)
+        self.assertEqual(state.reason_code, QuestionProtectionService.NOT_PROTECTED)
+        self.assertIsNone(state.protected_until)
+
+    def test_newcomer_question_is_not_protected_after_window_boundary(self):
+        created_at = timezone.now() - timedelta(hours=12, seconds=1)
+        question = self.create_question(author=self.newcomer_author, created_at=created_at)
+
+        state = QuestionProtectionService.get_protection_state(question)
+
+        self.assertFalse(state.is_protected)
+        self.assertEqual(state.reason_code, QuestionProtectionService.NOT_PROTECTED)
+        self.assertIsNone(state.protected_until)
+
+    def test_non_newcomer_authors_do_not_trigger_protection(self):
+        for author in [self.participant_author, self.expert_author, self.master_author]:
+            with self.subTest(author=author.user_name):
+                question = self.create_question(author=author, created_at=timezone.now() - timedelta(hours=1))
+                state = QuestionProtectionService.get_protection_state(question)
+
+                self.assertFalse(state.is_protected)
+                self.assertEqual(state.reason_code, QuestionProtectionService.NOT_PROTECTED)
+                self.assertEqual(state.author_level, ReputationService.get_progress(author)['level'])
+
+    def test_question_without_author_is_not_protected(self):
+        question = self.create_question(author=None, created_at=timezone.now() - timedelta(hours=1))
+
+        state = QuestionProtectionService.get_protection_state(question)
+
+        self.assertFalse(state.is_protected)
+        self.assertEqual(state.reason_code, QuestionProtectionService.PROTECTED_MISSING_AUTHOR)
+        self.assertIsNone(state.author_level)
+        self.assertIsNone(state.protected_until)
+
+    def test_answer_eligibility_blocks_anonymous_newcomer_and_participant_viewers_during_window(self):
+        question = self.create_question(author=self.newcomer_author, created_at=timezone.now() - timedelta(hours=1))
+
+        anonymous_decision = QuestionProtectionService.get_answer_eligibility(question, None)
+        newcomer_decision = QuestionProtectionService.get_answer_eligibility(question, self.newcomer_viewer)
+        participant_decision = QuestionProtectionService.get_answer_eligibility(question, self.participant_viewer)
+
+        self.assertFalse(anonymous_decision.allowed)
+        self.assertEqual(anonymous_decision.reason_code, QuestionProtectionService.ANSWER_BLOCKED_ANONYMOUS)
+        self.assertEqual(anonymous_decision.required_level, CustomUser.ReputationLevel.EXPERT)
+        self.assertIsNone(anonymous_decision.viewer_level)
+        self.assertIsNotNone(anonymous_decision.protected_until)
+
+        self.assertFalse(newcomer_decision.allowed)
+        self.assertEqual(newcomer_decision.reason_code, QuestionProtectionService.ANSWER_BLOCKED_INSUFFICIENT_LEVEL)
+        self.assertEqual(newcomer_decision.viewer_level, CustomUser.ReputationLevel.NEWCOMER)
+        self.assertEqual(newcomer_decision.points_to_next_level, 30)
+        self.assertEqual(newcomer_decision.next_level, CustomUser.ReputationLevel.PARTICIPANT)
+
+        self.assertFalse(participant_decision.allowed)
+        self.assertEqual(participant_decision.reason_code, QuestionProtectionService.ANSWER_BLOCKED_INSUFFICIENT_LEVEL)
+        self.assertEqual(participant_decision.viewer_level, CustomUser.ReputationLevel.PARTICIPANT)
+        self.assertEqual(participant_decision.points_to_next_level, 70)
+        self.assertEqual(participant_decision.next_level, CustomUser.ReputationLevel.EXPERT)
+
+    def test_answer_eligibility_allows_expert_and_master_viewers_during_window(self):
+        question = self.create_question(author=self.newcomer_author, created_at=timezone.now() - timedelta(hours=1))
+
+        expert_decision = QuestionProtectionService.get_answer_eligibility(question, self.expert_viewer)
+        master_decision = QuestionProtectionService.get_answer_eligibility(question, self.master_viewer)
+
+        self.assertTrue(expert_decision.allowed)
+        self.assertEqual(expert_decision.reason_code, QuestionProtectionService.ANSWER_ALLOWED)
+        self.assertEqual(expert_decision.viewer_level, CustomUser.ReputationLevel.EXPERT)
+        self.assertEqual(expert_decision.required_level, CustomUser.ReputationLevel.EXPERT)
+        self.assertEqual(expert_decision.points_to_next_level, 200)
+
+        self.assertTrue(master_decision.allowed)
+        self.assertEqual(master_decision.reason_code, QuestionProtectionService.ANSWER_ALLOWED)
+        self.assertEqual(master_decision.viewer_level, CustomUser.ReputationLevel.MASTER)
+        self.assertEqual(master_decision.points_to_next_level, 0)
+        self.assertIsNone(master_decision.next_level)
+
+    def test_answer_eligibility_returns_allowed_for_unprotected_question(self):
+        question = self.create_question(author=self.participant_author, created_at=timezone.now() - timedelta(hours=1))
+
+        decision = QuestionProtectionService.get_answer_eligibility(question, self.newcomer_viewer)
+
+        self.assertTrue(decision.allowed)
+        self.assertEqual(decision.reason_code, QuestionProtectionService.ANSWER_ALLOWED)
+        self.assertIsNone(decision.protected_until)
+
+    def test_question_downvote_eligibility_blocks_all_viewers_during_window(self):
+        question = self.create_question(author=self.newcomer_author, created_at=timezone.now() - timedelta(hours=1))
+
+        anonymous_decision = QuestionProtectionService.get_question_downvote_eligibility(question, None)
+        participant_decision = QuestionProtectionService.get_question_downvote_eligibility(question, self.participant_viewer)
+        expert_decision = QuestionProtectionService.get_question_downvote_eligibility(question, self.expert_viewer)
+
+        self.assertFalse(anonymous_decision.allowed)
+        self.assertEqual(anonymous_decision.reason_code, QuestionProtectionService.DOWNVOTE_BLOCKED_PROTECTED)
+        self.assertIsNone(anonymous_decision.required_level)
+        self.assertIsNone(anonymous_decision.viewer_level)
+
+        self.assertFalse(participant_decision.allowed)
+        self.assertEqual(participant_decision.reason_code, QuestionProtectionService.DOWNVOTE_BLOCKED_PROTECTED)
+        self.assertEqual(participant_decision.viewer_level, CustomUser.ReputationLevel.PARTICIPANT)
+        self.assertEqual(participant_decision.points_to_next_level, 70)
+
+        self.assertFalse(expert_decision.allowed)
+        self.assertEqual(expert_decision.reason_code, QuestionProtectionService.DOWNVOTE_BLOCKED_PROTECTED)
+        self.assertEqual(expert_decision.viewer_level, CustomUser.ReputationLevel.EXPERT)
+
+    def test_question_downvote_eligibility_returns_allowed_after_window(self):
+        question = self.create_question(author=self.newcomer_author, created_at=timezone.now() - timedelta(hours=12, seconds=1))
+
+        decision = QuestionProtectionService.get_question_downvote_eligibility(question, self.participant_viewer)
+
+        self.assertTrue(decision.allowed)
+        self.assertEqual(decision.reason_code, QuestionProtectionService.DOWNVOTE_ALLOWED)
+        self.assertIsNone(decision.required_level)
+        self.assertIsNone(decision.protected_until)
 
 
 class QuestionTagModelTests(APITestCase):
@@ -426,6 +631,25 @@ class ReputationVoteServiceTests(APITestCase):
         self.assertEqual(transaction.object_id, expected_source.pk)
         self.assertEqual(transaction.actor_id, self.voter.user_id)
 
+    def test_question_downvote_is_rejected_for_protected_newcomer_question(self):
+        protected_question_author = CustomUser.objects.create_user(
+            user_email='protected-question-author@example.com',
+            user_name='protected-question-author',
+            password='password',
+        )
+        protected_question = Question.objects.create(
+            user=protected_question_author,
+            question_title='Protected newcomer question',
+            question_body='Should reject downvotes during the protected window.',
+        )
+
+        with self.assertRaisesMessage(PermissionDenied, QuestionProtectionService.DOWNVOTE_BLOCKED_PROTECTED):
+            VoteService.cast_vote('question', str(protected_question.question_id), Vote.VoteType.DOWNVOTE, self.voter)
+
+        self.assertFalse(Vote.objects.filter(object_id=protected_question.question_id).exists())
+        protected_question_author.refresh_from_db()
+        self.assertEqual(protected_question_author.user_reputation_score, 0)
+
     def test_should_reward_upvote_transition_matches_m004_rules(self):
         cases = [
             (None, Vote.VoteType.UPVOTE, True),
@@ -805,6 +1029,135 @@ class ReputationIntegratedScoringRegressionTests(APITestCase):
         self.receiver.refresh_from_db()
         self.assertEqual(self.receiver.user_reputation_score, expected_score)
         self.assertEqual(ReputationTransaction.objects.filter(user=self.receiver).count(), transaction_count)
+
+
+class ProtectedQuestionAnswerApiTests(APITestCase):
+    def setUp(self):
+        self.newcomer_author = CustomUser.objects.create_user(
+            user_email='newcomer-author@example.com',
+            user_name='newcomer-author',
+            password='password',
+        )
+        self.participant = CustomUser.objects.create_user(
+            user_email='participant-answerer@example.com',
+            user_name='participant-answerer',
+            password='password',
+            user_reputation_score=30,
+        )
+        self.expert = CustomUser.objects.create_user(
+            user_email='expert-answerer@example.com',
+            user_name='expert-answerer',
+            password='password',
+            user_reputation_score=100,
+        )
+        self.master = CustomUser.objects.create_user(
+            user_email='master-answerer@example.com',
+            user_name='master-answerer',
+            password='password',
+            user_reputation_score=300,
+        )
+        self.question = Question.objects.create(
+            user=self.newcomer_author,
+            question_title='Protected newcomer question',
+            question_body='This question should enforce protected newcomer answer rules.',
+        )
+        self.solution_payload = {
+            'question': str(self.question.question_id),
+            'solution_body': 'Concrete answer body that should be persisted only when allowed.',
+        }
+
+    def _create_solution(self, actor: CustomUser):
+        self.client.force_authenticate(actor)
+        return self.client.post('/solution/', self.solution_payload, format='json')
+
+    def test_participant_cannot_answer_protected_newcomer_question_during_window(self):
+        response = self._create_solution(self.participant)
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.data)
+        self.assertEqual(
+            response.data,
+            {
+                'detail': 'В течение 12 часов после публикации на вопросы новичков могут отвечать только эксперты и мастера.',
+                'code': 'protected_newcomer_answer_required',
+            },
+        )
+        self.assertFalse(Solution.objects.filter(user=self.participant, question=self.question).exists())
+        self.assertEqual(Solution.objects.count(), 0)
+        self.assertEqual(ReputationTransaction.objects.count(), 0)
+
+    def test_expert_can_answer_protected_newcomer_question_during_window(self):
+        response = self._create_solution(self.expert)
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        solution = Solution.objects.get(user=self.expert, question=self.question)
+        self.assertEqual(solution.solution_body, self.solution_payload['solution_body'])
+
+    def test_master_can_answer_protected_newcomer_question_during_window(self):
+        response = self._create_solution(self.master)
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        solution = Solution.objects.get(user=self.master, question=self.question)
+        self.assertEqual(solution.solution_body, self.solution_payload['solution_body'])
+
+    def test_participant_can_answer_non_newcomer_question_during_window(self):
+        experienced_author = CustomUser.objects.create_user(
+            user_email='experienced-author@example.com',
+            user_name='experienced-author',
+            password='password',
+            user_reputation_score=30,
+        )
+        question = Question.objects.create(
+            user=experienced_author,
+            question_title='Open question from participant',
+            question_body='This should not be protected for answers.',
+        )
+
+        self.client.force_authenticate(self.participant)
+        response = self.client.post(
+            '/solution/',
+            {
+                'question': str(question.question_id),
+                'solution_body': 'Participant answer should be allowed for non-newcomer questions.',
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertTrue(Solution.objects.filter(user=self.participant, question=question).exists())
+
+    def test_participant_can_answer_after_protected_window_expires(self):
+        Question.objects.filter(pk=self.question.pk).update(
+            question_created_at=timezone.now() - timedelta(hours=13)
+        )
+        self.question.refresh_from_db()
+
+        response = self._create_solution(self.participant)
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertTrue(Solution.objects.filter(user=self.participant, question=self.question).exists())
+
+    def test_existing_self_answer_validation_remains_deterministic_for_newcomer_author(self):
+        response = self._create_solution(self.newcomer_author)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.data)
+        self.assertEqual(response.data, {'non_field_errors': ['Автор вопроса не может публиковать решение к своему вопросу']})
+        self.assertFalse(Solution.objects.filter(question=self.question).exists())
+
+    def test_existing_duplicate_solution_validation_wins_over_protection_for_same_user(self):
+        Question.objects.filter(pk=self.question.pk).update(
+            question_created_at=timezone.now() - timedelta(hours=13)
+        )
+        Solution.objects.create(
+            user=self.participant,
+            question=self.question,
+            solution_body='First answer',
+        )
+
+        response = self._create_solution(self.participant)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.data)
+        self.assertEqual(response.data, {'non_field_errors': ['Пользователь уже выложил решение на данный вопрос']})
+        self.assertEqual(Solution.objects.filter(user=self.participant, question=self.question).count(), 1)
 
 
 class SolutionEditLifecycleTests(APITestCase):
