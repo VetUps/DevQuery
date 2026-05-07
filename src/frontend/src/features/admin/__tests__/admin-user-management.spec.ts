@@ -1,5 +1,5 @@
-import { mount, flushPromises } from '@vue/test-utils'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { DOMWrapper, mount, flushPromises } from '@vue/test-utils'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
   fetchAdminUserActivityTimeline,
@@ -111,13 +111,66 @@ function buildActivityTimeline(overrides: Partial<AdminUserActivityTimeline> = {
 }
 
 async function mountManagement() {
+  cleanupDialogBody()
   const wrapper = mount(AdminUserManagement)
   await flushPromises()
   return wrapper
 }
 
+function cleanupDialogBody() {
+  document.body.style.overflow = ''
+  document.body.querySelectorAll('.app-dialog').forEach((element) => element.remove())
+}
+
+function queryDialog() {
+  return document.body.querySelector<HTMLElement>('[role="dialog"]')
+}
+
+function getDialog() {
+  const dialog = queryDialog()
+  expect(dialog).not.toBeNull()
+  return dialog as HTMLElement
+}
+
+function getByTestId(container: ParentNode, testId: string) {
+  const element = container.querySelector<HTMLElement>(`[data-testid="${testId}"]`)
+  expect(element).not.toBeNull()
+  return element as HTMLElement
+}
+
+function modalText(testId: string) {
+  return getByTestId(getDialog(), testId).textContent ?? ''
+}
+
+function modalWrapper(testId: string) {
+  return new DOMWrapper(getByTestId(getDialog(), testId))
+}
+
+function modalControl(selector: string) {
+  const element = getDialog().querySelector<HTMLElement>(selector)
+  expect(element).not.toBeNull()
+  return new DOMWrapper(element as HTMLElement)
+}
+
+function pageText(wrapper: any) {
+  return `${wrapper.text()} ${document.body.textContent ?? ''}`
+}
+
+async function openUserManagement(wrapper: any, userId = 'user-1') {
+  const row = wrapper.get(`[data-testid="admin-user-row-${userId}"]`)
+  expect(row.text()).toContain('Управление')
+
+  const action = row.get(`[data-testid="admin-user-manage-${userId}"]`)
+  expect(action.text()).toContain('Управление')
+  await action.trigger('click')
+
+  return getDialog()
+}
+
+
 describe('AdminUserManagement', () => {
   beforeEach(() => {
+    cleanupDialogBody()
     vi.clearAllMocks()
     mockedFetchAdminUsers.mockResolvedValue([buildUser()])
     mockedFetchAdminUserDetail.mockResolvedValue(buildDetail())
@@ -125,18 +178,26 @@ describe('AdminUserManagement', () => {
     mockedUpdateAdminUserManualOverride.mockResolvedValue(buildDetail())
   })
 
+  afterEach(() => {
+    cleanupDialogBody()
+  })
+
   it('loads the bounded default list on mount and keeps admin markers stable', async () => {
     const wrapper = await mountManagement()
 
     expect(mockedFetchAdminUsers).toHaveBeenCalledWith({ search: '', limit: 25 })
     expect(wrapper.get('[data-testid="admin-user-search"]').text()).toContain('Поиск пользователя')
-    expect(wrapper.get('[data-testid="admin-user-row-user-1"]').text()).toContain('alice@example.com')
-    expect(wrapper.get('[data-testid="admin-user-detail-empty"]').text()).toContain('Выберите пользователя')
-    expect(wrapper.text()).not.toContain('admin-api')
-    expect(wrapper.text()).not.toContain('token')
-    expect(wrapper.text()).not.toContain('password')
-    expect(wrapper.text()).not.toContain('content type')
-    expect(wrapper.text()).not.toContain('object id')
+    const rowText = wrapper.get('[data-testid="admin-user-row-user-1"]').text()
+    expect(rowText).toContain('alice@example.com')
+    expect(rowText).toContain('Управление')
+    expect(wrapper.get('[data-testid="admin-user-manage-user-1"]').text()).toContain('Управление')
+    expect(wrapper.find('[data-testid="admin-user-detail-empty"]').exists()).toBe(false)
+    expect(queryDialog()).toBeNull()
+    expect(pageText(wrapper)).not.toContain('admin-api')
+    expect(pageText(wrapper)).not.toContain('token')
+    expect(pageText(wrapper)).not.toContain('password')
+    expect(pageText(wrapper)).not.toContain('content type')
+    expect(pageText(wrapper)).not.toContain('object id')
   })
 
   it('submits explicit search text and renders empty results without throwing', async () => {
@@ -150,6 +211,163 @@ describe('AdminUserManagement', () => {
 
     expect(mockedFetchAdminUsers).toHaveBeenLastCalledWith({ search: '  missing  ', limit: 25 })
     expect(wrapper.get('[data-testid="admin-user-search-empty"]').text()).toContain('Пользователи не найдены')
+  })
+
+  it('opens the management modal immediately with selected context while detail is still loading', async () => {
+    let resolveDetail!: (detail: AdminUserDetail) => void
+    mockedFetchAdminUserDetail.mockReturnValueOnce(new Promise((resolve) => {
+      resolveDetail = resolve
+    }))
+
+    const wrapper = await mountManagement()
+
+    const dialog = await openUserManagement(wrapper)
+
+    expect(dialog.getAttribute('role')).toBe('dialog')
+    expect(document.body.style.overflow).toBe('hidden')
+    expect(mockedFetchAdminUserDetail).toHaveBeenCalledWith('user-1')
+    expect(modalText('admin-user-detail-selected-context')).toContain('alice@example.com')
+    expect(modalText('admin-user-detail-loading')).toContain('Загружаем детали пользователя')
+    expect(wrapper.find('[data-testid="admin-user-detail-empty"]').exists()).toBe(false)
+
+    resolveDetail(buildDetail())
+    await flushPromises()
+  })
+
+  it('opens with accessible local modal tabs and switches panels without closing the dialog', async () => {
+    const wrapper = await mountManagement()
+
+    const dialog = await openUserManagement(wrapper)
+    await flushPromises()
+
+    expect(getByTestId(dialog, 'admin-user-detail-tabs').getAttribute('role')).toBe('tablist')
+    const detailsTab = getByTestId(dialog, 'admin-user-detail-tab-details')
+    const ledgerTab = getByTestId(dialog, 'admin-user-detail-tab-ledger')
+    const activityTab = getByTestId(dialog, 'admin-user-detail-tab-activity')
+
+    expect(detailsTab.getAttribute('role')).toBe('tab')
+    expect(detailsTab.getAttribute('aria-selected')).toBe('true')
+    expect(detailsTab.textContent).toContain('Детали о пользователе')
+    expect(ledgerTab.textContent).toContain('Журнал репутации')
+    expect(activityTab.textContent).toContain('Журнал событий')
+    expect(modalText('admin-user-detail-panel-details')).toContain('250')
+    expect(getByTestId(dialog, 'admin-user-detail-panel-ledger').hidden).toBe(true)
+    expect(getByTestId(dialog, 'admin-user-detail-panel-activity').hidden).toBe(true)
+
+    await modalWrapper('admin-user-detail-tab-ledger').trigger('click')
+    await flushPromises()
+
+    expect(queryDialog()).toBe(dialog)
+    expect(detailsTab.getAttribute('aria-selected')).toBe('false')
+    expect(ledgerTab.getAttribute('aria-selected')).toBe('true')
+    expect(modalText('admin-user-detail-panel-ledger')).toContain('Ручная корректировка')
+    expect(getByTestId(dialog, 'admin-user-detail-panel-details').hidden).toBe(true)
+
+    await modalWrapper('admin-user-detail-tab-activity').trigger('click')
+    await flushPromises()
+
+    expect(queryDialog()).toBe(dialog)
+    expect(ledgerTab.getAttribute('aria-selected')).toBe('false')
+    expect(activityTab.getAttribute('aria-selected')).toBe('true')
+    expect(modalText('admin-user-detail-panel-activity')).toContain('Журнал действий пользователя')
+  })
+
+  it('keeps the manual override form collapsed in a native details disclosure inside only the details tab', async () => {
+    const wrapper = await mountManagement()
+
+    const dialog = await openUserManagement(wrapper)
+    await flushPromises()
+
+    const detailsPanel = getByTestId(dialog, 'admin-user-detail-panel-details')
+    const ledgerPanel = getByTestId(dialog, 'admin-user-detail-panel-ledger')
+    const activityPanel = getByTestId(dialog, 'admin-user-detail-panel-activity')
+    const expander = getByTestId(detailsPanel, 'admin-manual-override-expander') as HTMLDetailsElement
+    const summary = getByTestId(expander, 'admin-manual-override-summary')
+
+    expect(expander.tagName).toBe('DETAILS')
+    expect(summary.tagName).toBe('SUMMARY')
+    expect(summary.textContent).toContain('Изменить ручной уровень репутации')
+    expect(expander.open).toBe(false)
+    expect(getByTestId(expander, 'admin-manual-override-form')).toBeInstanceOf(HTMLFormElement)
+    expect(ledgerPanel.querySelector('[data-testid="admin-manual-override-form"]')).toBeNull()
+    expect(activityPanel.querySelector('[data-testid="admin-manual-override-form"]')).toBeNull()
+
+    await new DOMWrapper(summary).trigger('click')
+    await flushPromises()
+
+    expect(expander.open).toBe(true)
+
+    await modalWrapper('admin-user-detail-tab-ledger').trigger('click')
+    await flushPromises()
+
+    expect(detailsPanel.hidden).toBe(true)
+    expect(ledgerPanel.hidden).toBe(false)
+    expect(ledgerPanel.querySelector('[data-testid="admin-manual-override-expander"]')).toBeNull()
+  })
+
+  it('resets details context and the native override disclosure when switching users in an open modal', async () => {
+    mockedFetchAdminUsers.mockResolvedValueOnce([
+      buildUser({ user_id: 'user-1', user_name: 'alice', user_email: 'alice@example.com' }),
+      buildUser({ user_id: 'user-2', user_name: 'bob', user_email: 'bob@example.com' }),
+    ])
+    mockedFetchAdminUserDetail
+      .mockResolvedValueOnce(buildDetail({
+        user_id: 'user-1',
+        user_name: 'alice',
+        user_email: 'alice@example.com',
+        reputation: buildReputationSummary({ score: 250, level_label: 'Эксперт' }),
+      }))
+      .mockResolvedValueOnce(buildDetail({
+        user_id: 'user-2',
+        user_name: 'bob',
+        user_email: 'bob@example.com',
+        reputation: buildReputationSummary({ score: 640, level_label: 'Мастер' }),
+      }))
+
+    const wrapper = await mountManagement()
+
+    await openUserManagement(wrapper, 'user-1')
+    await flushPromises()
+
+    expect(modalText('admin-user-detail-selected-context')).toContain('alice@example.com')
+    expect(modalText('admin-user-reputation-summary')).toContain('Эксперт')
+    const firstExpander = getByTestId(getDialog(), 'admin-manual-override-expander') as HTMLDetailsElement
+    await modalWrapper('admin-manual-override-summary').trigger('click')
+    await flushPromises()
+    expect(firstExpander.open).toBe(true)
+
+    await openUserManagement(wrapper, 'user-2')
+    await flushPromises()
+
+    expect(queryDialog()).not.toBeNull()
+    expect(mockedFetchAdminUserDetail).toHaveBeenLastCalledWith('user-2')
+    expect(modalText('admin-user-detail-selected-context')).toContain('bob@example.com')
+    expect(modalText('admin-user-detail-selected-context')).not.toContain('alice@example.com')
+    expect(modalText('admin-user-reputation-summary')).toContain('Мастер')
+    expect(modalText('admin-user-reputation-summary')).not.toContain('Эксперт')
+    expect(modalWrapper('admin-user-detail-tab-details').attributes('aria-selected')).toBe('true')
+    expect((getByTestId(getDialog(), 'admin-manual-override-expander') as HTMLDetailsElement).open).toBe(false)
+  })
+
+  it('resets the local modal tab to details when the same user is reopened', async () => {
+    const wrapper = await mountManagement()
+
+    await openUserManagement(wrapper)
+    await flushPromises()
+    await modalWrapper('admin-user-detail-tab-activity').trigger('click')
+    await flushPromises()
+
+    expect(modalWrapper('admin-user-detail-tab-activity').attributes('aria-selected')).toBe('true')
+
+    await modalControl('.app-dialog__close').trigger('click')
+    await flushPromises()
+    expect(queryDialog()).toBeNull()
+
+    await openUserManagement(wrapper)
+    await flushPromises()
+
+    expect(modalWrapper('admin-user-detail-tab-details').attributes('aria-selected')).toBe('true')
+    expect(modalWrapper('admin-user-detail-tab-activity').attributes('aria-selected')).toBe('false')
   })
 
   it('selects a user, renders reputation detail, and shows a read-only ledger', async () => {
@@ -168,14 +386,18 @@ describe('AdminUserManagement', () => {
 
     const wrapper = await mountManagement()
 
-    await wrapper.get('[data-testid="admin-user-row-user-1"]').trigger('click')
+    await openUserManagement(wrapper)
     await flushPromises()
 
     expect(mockedFetchAdminUserDetail).toHaveBeenCalledWith('user-1')
-    expect(wrapper.get('[data-testid="admin-user-reputation-summary"]').text()).toContain('250')
-    expect(wrapper.get('[data-testid="admin-user-reputation-summary"]').text()).toContain('Мастер')
-    expect(wrapper.get('[data-testid="admin-reputation-ledger"]').text()).toContain('Ручная корректировка')
-    expect(wrapper.get('[data-testid="admin-reputation-ledger"]').text()).toContain('Администратор уточнил репутацию')
+    expect(modalText('admin-user-reputation-summary')).toContain('250')
+    expect(modalText('admin-user-reputation-summary')).toContain('Мастер')
+
+    await modalWrapper('admin-user-detail-tab-ledger').trigger('click')
+    await flushPromises()
+
+    expect(modalText('admin-reputation-ledger')).toContain('Ручная корректировка')
+    expect(modalText('admin-reputation-ledger')).toContain('Администратор уточнил репутацию')
   })
 
   it('renders safe list retry state for rejected or malformed admin list responses', async () => {
@@ -184,8 +406,8 @@ describe('AdminUserManagement', () => {
     const wrapper = await mountManagement()
 
     expect(wrapper.get('[data-testid="admin-user-search-error"]').text()).toContain('Не удалось загрузить пользователей')
-    expect(wrapper.text()).not.toContain('object_id')
-    expect(wrapper.text()).not.toContain('token')
+    expect(pageText(wrapper)).not.toContain('object_id')
+    expect(pageText(wrapper)).not.toContain('token')
 
     mockedFetchAdminUsers.mockResolvedValueOnce([buildUser({ user_name: 'recovered' })])
     await wrapper.get('[data-testid="admin-user-search-error"] button').trigger('click')
@@ -199,19 +421,21 @@ describe('AdminUserManagement', () => {
 
     const wrapper = await mountManagement()
 
-    await wrapper.get('[data-testid="admin-user-row-user-1"]').trigger('click')
+    await openUserManagement(wrapper)
     await flushPromises()
 
-    expect(wrapper.get('[data-testid="admin-user-detail-selected-context"]').text()).toContain('alice@example.com')
-    expect(wrapper.get('[data-testid="admin-user-detail-error"]').text()).toContain('Не удалось загрузить детали пользователя')
-    expect(wrapper.text()).not.toContain('raw exception')
-    expect(wrapper.text()).not.toContain('password')
+    expect(modalText('admin-user-detail-selected-context')).toContain('alice@example.com')
+    expect(modalText('admin-user-detail-error')).toContain('Не удалось загрузить детали пользователя')
+    expect(pageText(wrapper)).not.toContain('raw exception')
+    expect(pageText(wrapper)).not.toContain('password')
 
     mockedFetchAdminUserDetail.mockResolvedValueOnce(buildDetail({ reputation_ledger: [] }))
-    await wrapper.get('[data-testid="admin-user-detail-error"] button').trigger('click')
+    await modalControl('[data-testid="admin-user-detail-error"] button').trigger('click')
+    await flushPromises()
+    await modalWrapper('admin-user-detail-tab-ledger').trigger('click')
     await flushPromises()
 
-    expect(wrapper.get('[data-testid="admin-reputation-ledger-empty"]').text()).toContain('Журнал репутации пуст')
+    expect(modalText('admin-reputation-ledger-empty')).toContain('Журнал репутации пуст')
   })
 
   it('applies a manual override with a required note and renders the server-refreshed ledger without optimistic score changes', async () => {
@@ -244,14 +468,14 @@ describe('AdminUserManagement', () => {
 
     const wrapper = await mountManagement()
 
-    await wrapper.get('[data-testid="admin-user-row-user-1"]').trigger('click')
+    await openUserManagement(wrapper)
     await flushPromises()
-    expect(wrapper.get('[data-testid="admin-user-reputation-summary"]').text()).toContain('250')
-    expect(wrapper.get('[data-testid="admin-user-reputation-summary"]').text()).toContain('Эксперт')
+    expect(modalText('admin-user-reputation-summary')).toContain('250')
+    expect(modalText('admin-user-reputation-summary')).toContain('Эксперт')
 
-    await wrapper.get('#admin-manual-override-level').setValue('master')
-    await wrapper.get('#admin-manual-override-note').setValue('Повышение по итогам модерации.')
-    await wrapper.get('[data-testid="admin-manual-override-form"]').trigger('submit')
+    await modalControl('#admin-manual-override-level').setValue('master')
+    await modalControl('#admin-manual-override-note').setValue('Повышение по итогам модерации.')
+    await modalWrapper('admin-manual-override-form').trigger('submit')
     await flushPromises()
 
     expect(mockedUpdateAdminUserManualOverride).toHaveBeenCalledWith({
@@ -259,12 +483,16 @@ describe('AdminUserManagement', () => {
       manual_reputation_level: 'master',
       note: 'Повышение по итогам модерации.',
     })
-    expect(wrapper.get('[data-testid="admin-user-reputation-summary"]').text()).toContain('250')
-    expect(wrapper.get('[data-testid="admin-user-reputation-summary"]').text()).toContain('Мастер')
-    expect(wrapper.get('[data-testid="admin-reputation-ledger"]').text()).toContain('0')
-    expect(wrapper.get('[data-testid="admin-reputation-ledger"]').text()).toContain('Ручное изменение уровня')
-    expect(wrapper.get('[data-testid="admin-reputation-ledger"]').text()).toContain('Повышение по итогам модерации')
-    expect(wrapper.get('[data-testid="admin-manual-override-feedback"]').text()).toContain('Ручной уровень сохранён')
+    expect(modalText('admin-user-reputation-summary')).toContain('250')
+    expect(modalText('admin-user-reputation-summary')).toContain('Мастер')
+    expect(modalText('admin-manual-override-feedback')).toContain('Ручной уровень сохранён')
+
+    await modalWrapper('admin-user-detail-tab-ledger').trigger('click')
+    await flushPromises()
+
+    expect(modalText('admin-reputation-ledger')).toContain('0')
+    expect(modalText('admin-reputation-ledger')).toContain('Ручное изменение уровня')
+    expect(modalText('admin-reputation-ledger')).toContain('Повышение по итогам модерации')
   })
 
   it('clears a manual override by sending null and requires an audit note before submit', async () => {
@@ -281,18 +509,18 @@ describe('AdminUserManagement', () => {
 
     const wrapper = await mountManagement()
 
-    await wrapper.get('[data-testid="admin-user-row-user-1"]').trigger('click')
+    await openUserManagement(wrapper)
     await flushPromises()
 
-    await wrapper.get('[data-testid="admin-manual-override-form"]').trigger('submit')
+    await modalWrapper('admin-manual-override-form').trigger('submit')
     await flushPromises()
 
     expect(mockedUpdateAdminUserManualOverride).not.toHaveBeenCalled()
-    expect(wrapper.get('[data-testid="admin-manual-override-feedback"]').text()).toContain('Добавьте заметку')
+    expect(modalText('admin-manual-override-feedback')).toContain('Добавьте заметку')
 
-    await wrapper.get('#admin-manual-override-level').setValue('__clear__')
-    await wrapper.get('#admin-manual-override-note').setValue('Снятие ручного уровня.')
-    await wrapper.get('[data-testid="admin-manual-override-form"]').trigger('submit')
+    await modalControl('#admin-manual-override-level').setValue('__clear__')
+    await modalControl('#admin-manual-override-note').setValue('Снятие ручного уровня.')
+    await modalWrapper('admin-manual-override-form').trigger('submit')
     await flushPromises()
 
     expect(mockedUpdateAdminUserManualOverride).toHaveBeenCalledWith({
@@ -310,15 +538,15 @@ describe('AdminUserManagement', () => {
 
     const wrapper = await mountManagement()
 
-    await wrapper.get('[data-testid="admin-user-row-user-1"]').trigger('click')
+    await openUserManagement(wrapper)
     await flushPromises()
-    await wrapper.get('#admin-manual-override-level').setValue('master')
-    await wrapper.get('#admin-manual-override-note').setValue('Duplicate guard.')
-    await wrapper.get('[data-testid="admin-manual-override-form"]').trigger('submit')
-    await wrapper.get('[data-testid="admin-manual-override-form"]').trigger('submit')
+    await modalControl('#admin-manual-override-level').setValue('master')
+    await modalControl('#admin-manual-override-note').setValue('Duplicate guard.')
+    await modalWrapper('admin-manual-override-form').trigger('submit')
+    await modalWrapper('admin-manual-override-form').trigger('submit')
 
     expect(mockedUpdateAdminUserManualOverride).toHaveBeenCalledTimes(1)
-    expect(wrapper.get('[data-testid="admin-manual-override-submit"]').attributes('disabled')).toBeDefined()
+    expect(modalWrapper('admin-manual-override-submit').attributes('disabled')).toBeDefined()
 
     resolveOverride(buildDetail())
     await flushPromises()
@@ -333,19 +561,23 @@ describe('AdminUserManagement', () => {
 
     const wrapper = await mountManagement()
 
-    await wrapper.get('[data-testid="admin-user-row-user-1"]').trigger('click')
+    await openUserManagement(wrapper)
     await flushPromises()
-    await wrapper.get('#admin-manual-override-level').setValue('master')
-    await wrapper.get('#admin-manual-override-note').setValue('Попытка изменения.')
-    await wrapper.get('[data-testid="admin-manual-override-form"]').trigger('submit')
+    await modalControl('#admin-manual-override-level').setValue('master')
+    await modalControl('#admin-manual-override-note').setValue('Попытка изменения.')
+    await modalWrapper('admin-manual-override-form').trigger('submit')
     await flushPromises()
 
-    expect(wrapper.get('[data-testid="admin-user-reputation-summary"]').text()).toContain('Эксперт')
-    expect(wrapper.get('[data-testid="admin-reputation-ledger"]').text()).toContain('Старое значение')
-    expect(wrapper.get('[data-testid="admin-manual-override-feedback"]').text()).toContain('Не удалось сохранить ручной уровень')
-    expect(wrapper.text()).not.toContain('object_id')
-    expect(wrapper.text()).not.toContain('token')
-    expect(wrapper.text()).not.toContain('password')
+    expect(modalText('admin-user-reputation-summary')).toContain('Эксперт')
+    expect(modalText('admin-manual-override-feedback')).toContain('Не удалось сохранить ручной уровень')
+
+    await modalWrapper('admin-user-detail-tab-ledger').trigger('click')
+    await flushPromises()
+
+    expect(modalText('admin-reputation-ledger')).toContain('Старое значение')
+    expect(pageText(wrapper)).not.toContain('object_id')
+    expect(pageText(wrapper)).not.toContain('token')
+    expect(pageText(wrapper)).not.toContain('password')
   })
 
   it('renders selected-user activity with compact cards and no moderation controls or raw body', async () => {
@@ -378,32 +610,38 @@ describe('AdminUserManagement', () => {
 
     const wrapper = await mountManagement()
 
-    expect(wrapper.get('[data-testid="admin-user-activity-no-selection"]').text()).toContain('Активность появится')
+    expect(wrapper.find('[data-testid="admin-user-activity-no-selection"]').exists()).toBe(false)
+    expect(queryDialog()).toBeNull()
 
-    await wrapper.get('[data-testid="admin-user-row-user-1"]').trigger('click')
+    await openUserManagement(wrapper)
+    await flushPromises()
+    await modalWrapper('admin-user-detail-tab-activity').trigger('click')
     await flushPromises()
 
     expect(mockedFetchAdminUserActivityTimeline).toHaveBeenCalledWith({ userId: 'user-1', types: [], limit: 25 })
-    expect(wrapper.get('[data-testid="admin-user-activity-selected-context"]').text()).toContain('alice@example.com')
-    expect(wrapper.get('[data-testid="admin-user-activity-count"]').text()).toContain('Найдено событий: 3')
-    expect(wrapper.get('[data-testid="admin-user-activity-item-question-q-1"]').text()).toContain('Краткое описание вопроса')
-    expect(wrapper.get('[data-testid="admin-user-activity-item-comment-comment-1"]').text()).toContain('Комментарий #9')
-    expect(wrapper.get('[data-testid="admin-user-activity-item-reputation-rep-1"]').text()).toContain('Репутация изменилась')
-    expect(wrapper.text()).not.toContain('Полное тело')
-    expect(wrapper.text()).not.toContain('Удалить')
-    expect(wrapper.text()).not.toContain('Заблокировать')
+    expect(modalText('admin-user-activity-selected-context')).toContain('alice@example.com')
+    expect(modalText('admin-user-activity-count')).toContain('Найдено событий: 3')
+    expect(modalText('admin-user-activity-item-question-q-1')).toContain('Краткое описание вопроса')
+    expect(modalText('admin-user-activity-item-comment-comment-1')).toContain('Комментарий #9')
+    expect(modalText('admin-user-activity-item-reputation-rep-1')).toContain('Репутация изменилась')
+    expect(pageText(wrapper)).not.toContain('Полное тело')
+    expect(pageText(wrapper)).not.toContain('Удалить')
+    expect(pageText(wrapper)).not.toContain('Заблокировать')
   })
 
   it('reloads only the activity section when filters are toggled', async () => {
     const wrapper = await mountManagement()
 
-    await wrapper.get('[data-testid="admin-user-row-user-1"]').trigger('click')
+    await openUserManagement(wrapper)
     await flushPromises()
     mockedFetchAdminUserDetail.mockClear()
 
-    await wrapper.get('[data-testid="admin-user-activity-filter-comment"]').trigger('click')
+    await modalWrapper('admin-user-detail-tab-activity').trigger('click')
     await flushPromises()
-    await wrapper.get('[data-testid="admin-user-activity-filter-reputation"]').trigger('click')
+
+    await modalWrapper('admin-user-activity-filter-comment').trigger('click')
+    await flushPromises()
+    await modalWrapper('admin-user-activity-filter-reputation').trigger('click')
     await flushPromises()
 
     expect(mockedFetchAdminUserActivityTimeline).toHaveBeenLastCalledWith({
@@ -411,8 +649,8 @@ describe('AdminUserManagement', () => {
       types: ['comment', 'reputation'],
       limit: 25,
     })
-    expect(wrapper.get('[data-testid="admin-user-activity-filter-comment"]').attributes('aria-pressed')).toBe('true')
-    expect(wrapper.get('[data-testid="admin-user-activity-filter-reputation"]').attributes('aria-pressed')).toBe('true')
+    expect(modalWrapper('admin-user-activity-filter-comment').attributes('aria-pressed')).toBe('true')
+    expect(modalWrapper('admin-user-activity-filter-reputation').attributes('aria-pressed')).toBe('true')
     expect(mockedFetchAdminUserDetail).not.toHaveBeenCalled()
   })
 
@@ -421,10 +659,12 @@ describe('AdminUserManagement', () => {
 
     const wrapper = await mountManagement()
 
-    await wrapper.get('[data-testid="admin-user-row-user-1"]').trigger('click')
+    await openUserManagement(wrapper)
+    await flushPromises()
+    await modalWrapper('admin-user-detail-tab-activity').trigger('click')
     await flushPromises()
 
-    expect(wrapper.get('[data-testid="admin-user-activity-empty"]').text()).toContain('Активность не найдена')
+    expect(modalText('admin-user-activity-empty')).toContain('Активность не найдена')
   })
 
   it('keeps reputation controls visible and retries activity after safe fetch failures', async () => {
@@ -436,21 +676,27 @@ describe('AdminUserManagement', () => {
 
     const wrapper = await mountManagement()
 
-    await wrapper.get('[data-testid="admin-user-row-user-1"]').trigger('click')
+    await openUserManagement(wrapper)
     await flushPromises()
 
-    expect(wrapper.get('[data-testid="admin-user-reputation-summary"]').text()).toContain('250')
-    expect(wrapper.get('[data-testid="admin-manual-override-form"]').exists()).toBe(true)
-    expect(wrapper.get('[data-testid="admin-reputation-ledger"]').exists()).toBe(true)
-    expect(wrapper.get('[data-testid="admin-user-activity-error"]').text()).toContain('Не удалось загрузить активность пользователя')
-    expect(wrapper.text()).not.toContain('raw_body')
-    expect(wrapper.text()).not.toContain('password')
-    expect(wrapper.text()).not.toContain('object_id')
+    expect(modalText('admin-user-reputation-summary')).toContain('250')
+    expect(modalWrapper('admin-manual-override-form').exists()).toBe(true)
 
-    await wrapper.get('[data-testid="admin-user-activity-error"] button').trigger('click')
+    await modalWrapper('admin-user-detail-tab-ledger').trigger('click')
+    await flushPromises()
+    expect(modalWrapper('admin-reputation-ledger').exists()).toBe(true)
+
+    await modalWrapper('admin-user-detail-tab-activity').trigger('click')
+    await flushPromises()
+    expect(modalText('admin-user-activity-error')).toContain('Не удалось загрузить активность пользователя')
+    expect(pageText(wrapper)).not.toContain('raw_body')
+    expect(pageText(wrapper)).not.toContain('password')
+    expect(pageText(wrapper)).not.toContain('object_id')
+
+    await modalControl('[data-testid="admin-user-activity-error"] button').trigger('click')
     await flushPromises()
 
-    expect(wrapper.get('[data-testid="admin-user-activity-item-solution-recovered"]').text()).toContain('Решение добавлено')
+    expect(modalText('admin-user-activity-item-solution-recovered')).toContain('Решение добавлено')
   })
 
   it('clears stale activity before loading a newly selected user', async () => {
@@ -470,20 +716,24 @@ describe('AdminUserManagement', () => {
 
     const wrapper = await mountManagement()
 
-    await wrapper.get('[data-testid="admin-user-row-user-1"]').trigger('click')
+    await openUserManagement(wrapper)
     await flushPromises()
-    expect(wrapper.text()).toContain('Старая активность')
+    await modalWrapper('admin-user-detail-tab-activity').trigger('click')
+    await flushPromises()
+    expect(pageText(wrapper)).toContain('Старая активность')
 
-    await wrapper.get('[data-testid="admin-user-row-user-2"]').trigger('click')
+    await openUserManagement(wrapper, 'user-2')
+    await flushPromises()
+    await modalWrapper('admin-user-detail-tab-activity').trigger('click')
     await flushPromises()
 
-    expect(wrapper.get('[data-testid="admin-user-activity-loading"]').text()).toContain('Загружаем')
-    expect(wrapper.text()).not.toContain('Старая активность')
+    expect(modalText('admin-user-activity-loading')).toContain('Загружаем')
+    expect(pageText(wrapper)).not.toContain('Старая активность')
 
     resolveSecondActivity(buildActivityTimeline({ items: [buildActivityItem({ id: 'new', title: 'Новая активность' })] }))
     await flushPromises()
 
-    expect(wrapper.get('[data-testid="admin-user-activity-item-question-new"]').text()).toContain('Новая активность')
+    expect(modalText('admin-user-activity-item-question-new')).toContain('Новая активность')
   })
 
 })

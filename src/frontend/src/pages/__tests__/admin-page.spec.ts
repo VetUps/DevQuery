@@ -22,7 +22,7 @@ vi.mock('@/layouts/AppShellLayout.vue', () => ({
 
 vi.mock('@/features/admin/components/AdminUserManagement.vue', () => ({
   default: {
-    template: '<section data-testid="admin-user-management">Пользователи и репутация</section>',
+    template: '<section data-testid="admin-user-management">Пользователи и репутация <button type="button" data-testid="admin-user-manage-user-1">Управление</button></section>',
   },
 }))
 
@@ -68,6 +68,8 @@ describe('AdminPage', () => {
     currentUserState.data.value = null
     currentUserState.isPending.value = false
     currentUserState.isError.value = false
+    window.localStorage.clear()
+    window.history.pushState({}, '', '/')
   })
 
   it('renders localized loading copy while profile verification is pending', () => {
@@ -76,6 +78,7 @@ describe('AdminPage', () => {
     const wrapper = mountAdminPage()
 
     expect(wrapper.get('[data-testid="admin-shell-loading"]').text()).toContain('Проверяем доступ')
+    expect(wrapper.find('[role="tablist"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="admin-shell"]').exists()).toBe(false)
   })
 
@@ -88,6 +91,8 @@ describe('AdminPage', () => {
     expect(panelText).toContain('Не удалось подтвердить доступ')
     expect(panelText).toContain('Подробности ошибки скрыты')
     expect(panelText).not.toContain('Malformed auth response')
+    expect(wrapper.find('[role="tablist"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="admin-user-management"]').exists()).toBe(false)
   })
 
   it('renders forbidden copy for parsed ordinary users', () => {
@@ -96,18 +101,31 @@ describe('AdminPage', () => {
     const wrapper = mountAdminPage()
 
     expect(wrapper.get('[data-testid="admin-shell-forbidden"]').text()).toContain('Недостаточно прав')
+    expect(wrapper.find('[role="tablist"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="admin-shell"]').exists()).toBe(false)
   })
 
-  it('renders the admin shell and mounts management only for parsed admins', () => {
+  it('renders the admin shell with the users tab active by default for parsed admins', () => {
     currentUserState.data.value = buildProfile({ user_role: 'admin' })
+    window.localStorage.setItem('admin-active-tab', 'policy')
+    window.history.pushState({}, '', '/admin?tab=policy')
 
     const wrapper = mountAdminPage()
 
     expect(wrapper.get('[data-testid="admin-shell"]').text()).toContain('Рабочая область администратора')
     expect(wrapper.get('[data-testid="admin-shell"]').text()).toContain('Управляйте пользователями')
-    expect(wrapper.get('[data-testid="admin-user-management"]').text()).toContain('Пользователи и репутация')
-    expect(wrapper.get('[data-testid="admin-policy-panel"]').text()).toContain('Защитное окно для новичков')
+    expect(wrapper.get('[role="tablist"]').text()).toContain('Пользователи')
+    expect(wrapper.get('[role="tablist"]').text()).toContain('Политика репутации')
+    expect(wrapper.get('[data-testid="admin-tab-users"]').attributes('aria-selected')).toBe('true')
+    expect(wrapper.get('[data-testid="admin-tab-users"]').attributes('aria-controls')).toBe('admin-users-panel')
+    expect(wrapper.get('[data-testid="admin-tab-policy"]').attributes('aria-selected')).toBe('false')
+    expect(wrapper.get('[data-testid="admin-tab-policy"]').attributes('aria-controls')).toBe('admin-policy-tab-panel')
+    expect(wrapper.get('[data-testid="admin-users-panel"]').attributes('role')).toBe('tabpanel')
+    expect(wrapper.get('[data-testid="admin-users-panel"]').text()).toContain('Пользователи и репутация')
+    expect(wrapper.get('[data-testid="admin-user-manage-user-1"]').text()).toContain('Управление')
+    expect(wrapper.find('[data-testid="admin-user-detail-empty"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="admin-policy-tab-panel"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="admin-policy-panel"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="admin-section-activity"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="admin-section-policy"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="admin-section-users"]').exists()).toBe(false)
@@ -116,5 +134,25 @@ describe('AdminPage', () => {
     expect(wrapper.text()).not.toContain('debug')
     expect(wrapper.text()).not.toContain('будут собраны')
     expect(wrapper.text()).not.toContain('prototype')
+  })
+
+  it('switches to the policy tab with selected-state diagnostics and isolates the users panel', async () => {
+    currentUserState.data.value = buildProfile({ user_role: 'admin' })
+
+    const wrapper = mountAdminPage()
+
+    await wrapper.get('[data-testid="admin-tab-policy"]').trigger('click')
+
+    expect(wrapper.get('[data-testid="admin-tab-users"]').attributes('aria-selected')).toBe('false')
+    expect(wrapper.get('[data-testid="admin-tab-policy"]').attributes('aria-selected')).toBe('true')
+    expect(wrapper.get('[data-testid="admin-policy-tab-panel"]').attributes('role')).toBe('tabpanel')
+    expect(wrapper.get('[data-testid="admin-policy-tab-panel"]').text()).toContain('Защитное окно для новичков')
+    expect(wrapper.find('[data-testid="admin-user-management"]').exists()).toBe(false)
+
+    await wrapper.get('[data-testid="admin-tab-users"]').trigger('click')
+
+    expect(wrapper.get('[data-testid="admin-tab-users"]').attributes('aria-selected')).toBe('true')
+    expect(wrapper.get('[data-testid="admin-users-panel"]').text()).toContain('Пользователи и репутация')
+    expect(wrapper.find('[data-testid="admin-policy-tab-panel"]').exists()).toBe(false)
   })
 })
