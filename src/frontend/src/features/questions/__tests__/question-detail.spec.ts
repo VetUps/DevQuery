@@ -403,7 +403,6 @@ describe('question detail page', () => {
     profileState.data.value = {
       user_id: 'user-1',
       user_name: 'Master Alice',
-      user_role: 'user',
       user_reputation_score: 510,
       user_avatar_url: null,
       user_bio: null,
@@ -432,7 +431,6 @@ describe('question detail page', () => {
     })
     profileState.data.value = {
       user_name: 'Legacy Author',
-      user_role: 'user',
       user_reputation_score: 37,
       user_created_at: '2026-03-01T12:00:00Z',
     }

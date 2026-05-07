@@ -8,11 +8,36 @@ import { createAppRouter } from '@/app/router'
 import { useSessionStore } from '@/features/auth/stores/session'
 import AppHeader from '@/widgets/app-header/AppHeader.vue'
 
+type TestCurrentUser = {
+  user_id: string
+  user_name: string
+  user_email: string
+  user_role: 'admin' | 'user'
+  user_reputation_score: number
+  user_created_at: string
+  reputation: Record<string, unknown>
+  reputation_ledger: unknown[]
+}
+
 const currentUserState = {
-  data: ref<{ user_name?: string } | null>(null),
+  data: ref<Partial<TestCurrentUser> | null>(null),
   isPending: ref(false),
   isError: ref(false),
   refetch: vi.fn(),
+}
+
+function makeCurrentUser(overrides: Partial<TestCurrentUser> = {}): TestCurrentUser {
+  return {
+    user_id: 'user-1',
+    user_name: 'Пользователь',
+    user_email: 'user@example.test',
+    user_role: 'user',
+    user_reputation_score: 25,
+    user_created_at: '2024-01-01T00:00:00Z',
+    reputation: {},
+    reputation_ledger: [],
+    ...overrides,
+  }
 }
 
 vi.mock('@/features/auth/queries/useCurrentUserQuery', () => ({
@@ -74,8 +99,8 @@ describe('AppHeader', () => {
     expect(wrapper.find('[data-testid="login-link"].app-header__link--compact').exists()).toBe(true)
   })
 
-  it('shows authenticated compact navigation and account-menu routes', async () => {
-    currentUserState.data.value = { user_name: 'Пользователь' }
+  it('shows authenticated compact navigation and account-menu routes without admin access for ordinary users', async () => {
+    currentUserState.data.value = makeCurrentUser({ user_role: 'user' })
 
     const { wrapper } = await mountHeader({ authenticated: true })
 
@@ -93,13 +118,27 @@ describe('AppHeader', () => {
     expect(wrapper.get('[data-testid="account-menu-panel"]').exists()).toBe(true)
     expect(wrapper.get('[data-testid="profile-menu-link"]').attributes('href')).toBe('/profile')
     expect(wrapper.get('[data-testid="review-menu-link"]').attributes('href')).toBe('/profile?tab=review')
+    expect(wrapper.find('[data-testid="admin-menu-link"]').exists()).toBe(false)
     expect(wrapper.text()).toContain('Профиль')
     expect(wrapper.text()).toContain('Проверка правок')
     expect(wrapper.text()).toContain('Выйти')
     expect(wrapper.find('[data-testid="future-placeholder"]').exists()).toBe(false)
   })
 
-  it('falls back to the account label when current-user data is missing or blank', async () => {
+  it('shows exactly one admin account-menu entry for administrators', async () => {
+    currentUserState.data.value = makeCurrentUser({ user_role: 'admin' })
+
+    const { wrapper } = await mountHeader({ authenticated: true })
+
+    await wrapper.get('[data-testid="account-menu-toggle"]').trigger('click')
+
+    const adminLinks = wrapper.findAll('[data-testid="admin-menu-link"]')
+    expect(adminLinks).toHaveLength(1)
+    expect(adminLinks[0].attributes('href')).toBe('/admin')
+    expect(adminLinks[0].text()).toContain('Администрирование')
+  })
+
+  it('falls back to the account label and hides admin access when current-user data is missing or blank', async () => {
     currentUserState.data.value = { user_name: '   ' }
 
     const { wrapper } = await mountHeader({ authenticated: true })
@@ -107,10 +146,14 @@ describe('AppHeader', () => {
 
     expect(toggle.attributes('title')).toBe('Аккаунт')
     expect(toggle.text()).toContain('Аккаунт')
+
+    await toggle.trigger('click')
+
+    expect(wrapper.find('[data-testid="admin-menu-link"]').exists()).toBe(false)
   })
 
   it('keeps logout wired to the session store and redirects home', async () => {
-    currentUserState.data.value = { user_name: 'Пользователь' }
+    currentUserState.data.value = makeCurrentUser()
     const { wrapper, router, sessionStore } = await mountHeader({ authenticated: true, initialRoute: '/profile' })
     const logoutSpy = vi.spyOn(sessionStore, 'logout').mockResolvedValue(undefined)
 
