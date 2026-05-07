@@ -18,7 +18,7 @@ const emit = defineEmits<{
   'update:searchText': [value: string]
   submit: []
   retry: []
-  selectUser: [userId: string]
+  manageUser: [userId: string]
 }>()
 </script>
 
@@ -69,21 +69,31 @@ const emit = defineEmits<{
     />
 
     <ul v-else class="admin-user-search__results" aria-label="Результаты поиска пользователей">
-      <li v-for="user in users" :key="user.user_id" class="admin-user-search__result">
-        <button
-          class="admin-user-search__user-button"
-          :class="{ 'admin-user-search__user-button--selected': user.user_id === selectedUserId }"
-          type="button"
-          :aria-pressed="user.user_id === selectedUserId"
-          :data-testid="`admin-user-row-${user.user_id}`"
-          @click="emit('selectUser', user.user_id)"
-        >
+      <li
+        v-for="user in users"
+        :key="user.user_id"
+        class="admin-user-search__result"
+        :class="{ 'admin-user-search__result--selected': user.user_id === selectedUserId }"
+        :data-testid="`admin-user-row-${user.user_id}`"
+      >
+        <div class="admin-user-search__user-summary">
           <span class="admin-user-search__name">{{ user.user_name }}</span>
           <span class="admin-user-search__email">{{ user.user_email }}</span>
           <span class="admin-user-search__meta">
             {{ user.user_role === 'admin' ? 'Администратор' : 'Пользователь' }} · {{ user.user_reputation_score }} очков
           </span>
-        </button>
+        </div>
+
+        <AppButton
+          type="button"
+          variant="secondary"
+          size="compact"
+          :data-testid="`admin-user-manage-${user.user_id}`"
+          :aria-label="`Управление пользователем ${user.user_name}`"
+          @click="emit('manageUser', user.user_id)"
+        >
+          Управление
+        </AppButton>
       </li>
     </ul>
   </section>
@@ -146,21 +156,26 @@ const emit = defineEmits<{
   list-style: none;
 }
 
-.admin-user-search__user-button {
-  display: grid;
-  width: 100%;
-  gap: var(--space-xs);
+.admin-user-search__result {
+  display: flex;
+  gap: var(--space-md);
+  align-items: center;
+  justify-content: space-between;
   padding: var(--space-md);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   background: rgb(255 255 255 / 0.72);
-  color: var(--color-text);
-  text-align: left;
 }
 
-.admin-user-search__user-button--selected {
+.admin-user-search__result--selected {
   border-color: var(--color-accent);
   box-shadow: 0 0 0 3px rgb(17 112 140 / 0.12);
+}
+
+.admin-user-search__user-summary {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-xs);
 }
 
 .admin-user-search__name {
@@ -169,7 +184,8 @@ const emit = defineEmits<{
 
 @media (width <= 720px) {
   .admin-user-search__header,
-  .admin-user-search__form {
+  .admin-user-search__form,
+  .admin-user-search__result {
     display: grid;
     justify-content: stretch;
   }

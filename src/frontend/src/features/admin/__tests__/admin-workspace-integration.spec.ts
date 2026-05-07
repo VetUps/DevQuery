@@ -1,5 +1,5 @@
-import { flushPromises, mount } from '@vue/test-utils'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { DOMWrapper, flushPromises, mount } from '@vue/test-utils'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
   fetchAdminReputationPolicyConfig,
@@ -158,9 +158,60 @@ async function settle() {
 }
 
 async function mountWorkspace() {
+  cleanupDialogBody()
   const wrapper = mount(AdminPage)
   await settle()
   return wrapper
+}
+
+function cleanupDialogBody() {
+  document.body.style.overflow = ''
+  document.body.querySelectorAll('.app-dialog').forEach((element) => element.remove())
+}
+
+function queryDialog() {
+  return document.body.querySelector<HTMLElement>('[role="dialog"]')
+}
+
+function getDialog() {
+  const dialog = queryDialog()
+  expect(dialog).not.toBeNull()
+  return dialog as HTMLElement
+}
+
+function getByTestId(container: ParentNode, testId: string) {
+  const element = container.querySelector<HTMLElement>(`[data-testid="${testId}"]`)
+  expect(element).not.toBeNull()
+  return element as HTMLElement
+}
+
+function modalText(testId: string) {
+  return getByTestId(getDialog(), testId).textContent ?? ''
+}
+
+function modalWrapper(testId: string) {
+  return new DOMWrapper(getByTestId(getDialog(), testId))
+}
+
+function modalControl(selector: string) {
+  const element = getDialog().querySelector<HTMLElement>(selector)
+  expect(element).not.toBeNull()
+  return new DOMWrapper(element as HTMLElement)
+}
+
+function pageText(wrapper: any) {
+  return `${wrapper.text()} ${document.body.textContent ?? ''}`
+}
+
+async function openUserManagement(wrapper: any, userId = 'user-1') {
+  const row = wrapper.get(`[data-testid="admin-user-row-${userId}"]`)
+  expect(row.text()).toContain('Управление')
+
+  const action = row.get(`[data-testid="admin-user-manage-${userId}"]`)
+  expect(action.text()).toContain('Управление')
+  await action.trigger('click')
+
+  return getDialog()
 }
 
 function expectNoSensitiveShellCopy(text: string) {
@@ -173,8 +224,23 @@ function expectNoSensitiveShellCopy(text: string) {
   expect(text).not.toContain('будут собраны')
 }
 
+function expectNoAntiFeatureCopy(text: string) {
+  expect(text).not.toContain('stack')
+  expect(text).not.toContain('full body')
+  expect(text).not.toContain('raw body')
+  expect(text).not.toContain('Полное тело')
+  expect(text).not.toContain('Удалить')
+  expect(text).not.toContain('delete')
+  expect(text).not.toContain('Заблокировать')
+  expect(text).not.toContain('ban')
+  expect(text).not.toContain('role-management')
+  expect(text).not.toContain('Редактор порогов')
+  expect(text).not.toContain('Сохранить пороги')
+}
+
 describe('Admin workspace integration', () => {
   beforeEach(() => {
+    cleanupDialogBody()
     vi.clearAllMocks()
     currentUserState.data.value = buildCurrentUser()
     currentUserState.isPending.value = false
@@ -203,6 +269,10 @@ describe('Admin workspace integration', () => {
     mockedUpdatePolicy.mockResolvedValue(buildPolicy({ protected_newcomer_window_hours: 72 }))
   })
 
+  afterEach(() => {
+    cleanupDialogBody()
+  })
+
   it('walks the assembled admin workspace with real user, activity, override, and policy sections', async () => {
     mockedFetchAdminUserActivityTimeline
       .mockResolvedValueOnce(buildActivityTimeline())
@@ -216,7 +286,9 @@ describe('Admin workspace integration', () => {
     expect(wrapper.get('[data-testid="admin-shell"]').text()).toContain('Рабочая область администратора')
     expect(wrapper.get('[data-testid="admin-shell"]').text()).toContain('Управляйте пользователями')
     expect(mockedFetchAdminUsers).toHaveBeenCalledWith({ search: '', limit: 25 })
-    expect(mockedFetchPolicy).toHaveBeenCalledTimes(1)
+    expect(mockedFetchPolicy).not.toHaveBeenCalled()
+    expect(wrapper.get('[data-testid="admin-tab-users"]').attributes('aria-selected')).toBe('true')
+    expect(wrapper.find('[data-testid="admin-policy-tab-panel"]').exists()).toBe(false)
 
     await wrapper.get('#admin-user-search-input').setValue('alice@example.com')
     await wrapper.get('[data-testid="admin-user-search"] form').trigger('submit')
@@ -224,25 +296,35 @@ describe('Admin workspace integration', () => {
 
     expect(mockedFetchAdminUsers).toHaveBeenLastCalledWith({ search: 'alice@example.com', limit: 25 })
 
-    await wrapper.get('[data-testid="admin-user-row-user-1"]').trigger('click')
+    await openUserManagement(wrapper)
     await settle()
 
     expect(mockedFetchAdminUserDetail).toHaveBeenCalledWith('user-1')
     expect(mockedFetchAdminUserActivityTimeline).toHaveBeenCalledWith({ userId: 'user-1', types: [], limit: 25 })
-    expect(wrapper.get('[data-testid="admin-user-reputation-summary"]').text()).toContain('Эксперт')
-    expect(wrapper.get('[data-testid="admin-reputation-ledger"]').text()).toContain('Проверенная ручная корректировка')
-    expect(wrapper.get('[data-testid="admin-user-activity-count"]').text()).toContain('Найдено событий: 1')
+    expect(modalWrapper('admin-user-detail-tab-details').attributes('aria-selected')).toBe('true')
+    expect(modalText('admin-user-reputation-summary')).toContain('Эксперт')
 
-    await wrapper.get('[data-testid="admin-user-activity-filter-comment"]').trigger('click')
+    await modalWrapper('admin-user-detail-tab-ledger').trigger('click')
+    await settle()
+    expect(modalText('admin-reputation-ledger')).toContain('Проверенная ручная корректировка')
+
+    await modalWrapper('admin-user-detail-tab-activity').trigger('click')
+    await settle()
+    expect(modalText('admin-user-activity-count')).toContain('Найдено событий: 1')
+
+    await modalWrapper('admin-user-activity-filter-comment').trigger('click')
     await settle()
 
     expect(mockedFetchAdminUserActivityTimeline).toHaveBeenLastCalledWith({ userId: 'user-1', types: ['comment'], limit: 25 })
-    expect(wrapper.get('[data-testid="admin-user-activity-filter-comment"]').attributes('aria-pressed')).toBe('true')
-    expect(wrapper.get('[data-testid="admin-user-activity-item-comment-comment-1"]').text()).toContain('Комментарий добавлен')
+    expect(modalWrapper('admin-user-activity-filter-comment').attributes('aria-pressed')).toBe('true')
+    expect(modalText('admin-user-activity-item-comment-comment-1')).toContain('Комментарий добавлен')
 
-    await wrapper.get('#admin-manual-override-level').setValue('master')
-    await wrapper.get('#admin-manual-override-note').setValue('Интеграционная проверка ручного уровня.')
-    await wrapper.get('[data-testid="admin-manual-override-form"]').trigger('submit')
+    await modalWrapper('admin-user-detail-tab-details').trigger('click')
+    await settle()
+
+    await modalControl('#admin-manual-override-level').setValue('master')
+    await modalControl('#admin-manual-override-note').setValue('Интеграционная проверка ручного уровня.')
+    await modalWrapper('admin-manual-override-form').trigger('submit')
     await settle()
 
     expect(mockedUpdateAdminUserManualOverride).toHaveBeenCalledWith({
@@ -250,8 +332,16 @@ describe('Admin workspace integration', () => {
       manual_reputation_level: 'master',
       note: 'Интеграционная проверка ручного уровня.',
     })
-    expect(wrapper.get('[data-testid="admin-user-reputation-summary"]').text()).toContain('Мастер')
-    expect(wrapper.get('[data-testid="admin-manual-override-feedback"]').text()).toContain('Ручной уровень сохранён')
+    expect(modalText('admin-user-reputation-summary')).toContain('Мастер')
+    expect(modalText('admin-manual-override-feedback')).toContain('Ручной уровень сохранён')
+
+    await wrapper.get('[data-testid="admin-tab-policy"]').trigger('click')
+    await settle()
+
+    expect(wrapper.get('[data-testid="admin-tab-policy"]').attributes('aria-selected')).toBe('true')
+    expect(wrapper.get('[data-testid="admin-policy-tab-panel"]').text()).toContain('Защитное окно для новичков')
+    expect(wrapper.find('[data-testid="admin-user-management"]').exists()).toBe(false)
+    expect(mockedFetchPolicy).toHaveBeenCalledTimes(1)
 
     await wrapper.get('[data-testid="admin-policy-hours-input"]').setValue('72')
     await wrapper.get('[data-testid="admin-policy-form"]').trigger('submit')
@@ -260,7 +350,37 @@ describe('Admin workspace integration', () => {
     expect(mockedUpdatePolicy).toHaveBeenCalledWith({ protected_newcomer_window_hours: 72 })
     expect(wrapper.get('[data-testid="admin-policy-current-value"]').text()).toContain('72 ч')
     expect(wrapper.get('[data-testid="admin-policy-save-success"]').text()).toContain('Настройки политики сохранены')
-    expectNoSensitiveShellCopy(wrapper.text())
+
+    await wrapper.get('[data-testid="admin-tab-users"]').trigger('click')
+    await settle()
+
+    expect(wrapper.get('[data-testid="admin-tab-users"]').attributes('aria-selected')).toBe('true')
+    expect(wrapper.get('[data-testid="admin-user-management"]').text()).toContain('alice')
+    expect(wrapper.find('[data-testid="admin-policy-tab-panel"]').exists()).toBe(false)
+    expectNoSensitiveShellCopy(pageText(wrapper))
+  })
+
+  it('keeps R046-R050 and R056 anti-feature controls out of the assembled admin surface', async () => {
+    const wrapper = await mountWorkspace()
+
+    await openUserManagement(wrapper)
+    await settle()
+    await modalWrapper('admin-user-detail-tab-activity').trigger('click')
+    await settle()
+
+    await wrapper.get('[data-testid="admin-tab-policy"]').trigger('click')
+    await settle()
+
+    const assembledText = pageText(wrapper)
+    expectNoSensitiveShellCopy(assembledText)
+    expectNoAntiFeatureCopy(assembledText)
+    expect(wrapper.find('[data-testid="admin-reputation-threshold-editor"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="admin-policy-threshold-input"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="admin-user-delete"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="admin-user-ban"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="admin-user-role-controls"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="admin-moderation-actions"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="admin-policy-hours-input"]').exists()).toBe(true)
   })
 
   it('keeps ordinary, missing, and unverifiable users out of the assembled admin sections', async () => {
@@ -284,20 +404,23 @@ describe('Admin workspace integration', () => {
     expect(wrapper.find('[data-testid="admin-user-management"]').exists()).toBe(false)
     expect(mockedFetchAdminUsers).not.toHaveBeenCalled()
     expect(mockedFetchPolicy).not.toHaveBeenCalled()
-    expectNoSensitiveShellCopy(wrapper.text())
+    expectNoSensitiveShellCopy(pageText(wrapper))
   })
 
   it('surfaces local override and policy validation without sending malformed admin payloads', async () => {
     const wrapper = await mountWorkspace()
 
-    await wrapper.get('[data-testid="admin-user-row-user-1"]').trigger('click')
+    await openUserManagement(wrapper)
     await settle()
 
-    await wrapper.get('[data-testid="admin-manual-override-form"]').trigger('submit')
+    await modalWrapper('admin-manual-override-form').trigger('submit')
     await settle()
 
-    expect(wrapper.get('[data-testid="admin-manual-override-feedback"]').text()).toContain('Добавьте заметку')
+    expect(modalText('admin-manual-override-feedback')).toContain('Добавьте заметку')
     expect(mockedUpdateAdminUserManualOverride).not.toHaveBeenCalled()
+
+    await wrapper.get('[data-testid="admin-tab-policy"]').trigger('click')
+    await settle()
 
     await wrapper.get('[data-testid="admin-policy-hours-input"]').setValue('73')
     await wrapper.get('[data-testid="admin-policy-form"]').trigger('submit')
@@ -316,8 +439,14 @@ describe('Admin workspace integration', () => {
 
     expect(failedWrapper.get('[data-testid="admin-shell"]').text()).toContain('Рабочая область администратора')
     expect(failedWrapper.get('[data-testid="admin-user-search-error"]').text()).toContain('Не удалось загрузить пользователей')
+    expect(failedWrapper.find('[data-testid="admin-policy-tab-panel"]').exists()).toBe(false)
+    expect(mockedFetchPolicy).not.toHaveBeenCalled()
+
+    await failedWrapper.get('[data-testid="admin-tab-policy"]').trigger('click')
+    await settle()
+
     expect(failedWrapper.get('[data-testid="admin-policy-load-error"]').text()).toContain('Не удалось загрузить политику')
-    expectNoSensitiveShellCopy(failedWrapper.text())
+    expectNoSensitiveShellCopy(pageText(failedWrapper))
 
     mockedFetchAdminUsers.mockResolvedValue([buildUser()])
     mockedFetchPolicy.mockResolvedValue(buildPolicy())
@@ -326,14 +455,19 @@ describe('Admin workspace integration', () => {
 
     const emptyWrapper = await mountWorkspace()
 
-    await emptyWrapper.get('[data-testid="admin-user-row-user-1"]').trigger('click')
+    await openUserManagement(emptyWrapper)
     await settle()
 
-    expect(emptyWrapper.get('[data-testid="admin-reputation-ledger-empty"]').text()).toContain('Журнал репутации пуст')
-    expect(emptyWrapper.get('[data-testid="admin-user-activity-empty"]').text()).toContain('Активность не найдена')
-    expect(emptyWrapper.text()).not.toContain('Полное тело')
-    expect(emptyWrapper.text()).not.toContain('Удалить')
-    expect(emptyWrapper.text()).not.toContain('Заблокировать')
-    expectNoSensitiveShellCopy(emptyWrapper.text())
+    await modalWrapper('admin-user-detail-tab-ledger').trigger('click')
+    await settle()
+    expect(modalText('admin-reputation-ledger-empty')).toContain('Журнал репутации пуст')
+
+    await modalWrapper('admin-user-detail-tab-activity').trigger('click')
+    await settle()
+    expect(modalText('admin-user-activity-empty')).toContain('Активность не найдена')
+    expect(pageText(emptyWrapper)).not.toContain('Полное тело')
+    expect(pageText(emptyWrapper)).not.toContain('Удалить')
+    expect(pageText(emptyWrapper)).not.toContain('Заблокировать')
+    expectNoSensitiveShellCopy(pageText(emptyWrapper))
   })
 })

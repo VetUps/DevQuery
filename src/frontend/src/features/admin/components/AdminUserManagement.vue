@@ -1,12 +1,23 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { onMounted, shallowRef } from 'vue'
 
 import AdminUserReputationDetail from '@/features/admin/components/AdminUserReputationDetail.vue'
 import AdminUserSearchPanel from '@/features/admin/components/AdminUserSearchPanel.vue'
 import { useAdminUserManagement } from '@/features/admin/composables/useAdminUserManagement'
+import AppDialog from '@/shared/ui/AppDialog.vue'
 import SurfacePanel from '@/shared/ui/SurfacePanel.vue'
 
 const adminUsers = useAdminUserManagement()
+const isUserModalOpen = shallowRef(false)
+
+function manageUser(userId: string) {
+  isUserModalOpen.value = true
+  void adminUsers.selectUser(userId)
+}
+
+function closeUserModal() {
+  isUserModalOpen.value = false
+}
 
 onMounted(() => {
   void adminUsers.loadUsers()
@@ -24,11 +35,17 @@ onMounted(() => {
         :error="adminUsers.listError.value"
         @submit="adminUsers.loadUsers"
         @retry="adminUsers.loadUsers"
-        @select-user="adminUsers.selectUser"
+        @manage-user="manageUser"
       />
     </SurfacePanel>
 
-    <SurfacePanel padding="lg">
+    <AppDialog
+      :open="isUserModalOpen"
+      size="wide"
+      title="Управление пользователем"
+      description="Репутация, журнал и активность выбранного пользователя."
+      @close="closeUserModal"
+    >
       <AdminUserReputationDetail
         :selected-user="adminUsers.selectedUser.value"
         :detail="adminUsers.selectedUserDetail.value"
@@ -40,21 +57,15 @@ onMounted(() => {
         @retry="adminUsers.retrySelectedUser"
         @submit-manual-override="adminUsers.submitManualOverride"
       />
-    </SurfacePanel>
+    </AppDialog>
   </div>
 </template>
 
 <style scoped>
 .admin-user-management {
   display: grid;
-  grid-template-columns: minmax(300px, 0.95fr) minmax(360px, 1.35fr);
   gap: var(--space-lg);
   align-items: start;
 }
 
-@media (width <= 1040px) {
-  .admin-user-management {
-    grid-template-columns: 1fr;
-  }
-}
 </style>
