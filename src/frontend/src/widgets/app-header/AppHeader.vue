@@ -3,6 +3,7 @@ import { storeToRefs } from 'pinia'
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
+import { canAccessAdminWorkspace as canProfileAccessAdminWorkspace } from '@/features/admin/libs/admin-access'
 import { useCurrentUserQuery } from '@/features/auth/queries/useCurrentUserQuery'
 import { useSessionStore } from '@/features/auth/stores/session'
 import AppButton from '@/shared/ui/AppButton.vue'
@@ -19,13 +20,16 @@ const isMenuOpen = ref(false)
 const isSignedIn = computed(() => isAuthenticated.value)
 const askQuestionTarget = computed(() => (isSignedIn.value ? '/questions/ask' : '/register'))
 let accountLabel = computed(() => 'Аккаунт')
+let hasAdminWorkspaceAccess = computed(() => false)
 
 try {
   const currentUserQuery = useCurrentUserQuery()
 
   accountLabel = computed(() => currentUserQuery.data.value?.user_name?.trim() || 'Аккаунт')
+  hasAdminWorkspaceAccess = computed(() => canProfileAccessAdminWorkspace(currentUserQuery.data.value))
 } catch {
   accountLabel = computed(() => 'Аккаунт')
+  hasAdminWorkspaceAccess = computed(() => false)
 }
 
 watch(
@@ -60,6 +64,7 @@ async function handleLogout() {
           </RouterLink>
 
           <AccountMenu
+            :can-access-admin-workspace="hasAdminWorkspaceAccess"
             :label="accountLabel"
             :open="isMenuOpen"
             @close="isMenuOpen = !isMenuOpen"
