@@ -116,8 +116,8 @@ const protectionWindowNote = computed(() => {
 
         <dl v-if="author" class="question-detail-hero__author-stats">
           <div>
-            <dt>Роль</dt>
-            <dd>{{ author.user_role }}</dd>
+            <dt>Уровень</dt>
+            <dd>{{ author.reputation?.level_label ?? '—' }}</dd>
           </div>
           <div>
             <dt>Репутация</dt>
