@@ -57,7 +57,6 @@ function buildPublicProfilePayload(overrides: Record<string, unknown> = {}) {
   return {
     user_id: 'user-1',
     user_name: 'alice',
-    user_role: 'user',
     user_reputation_score: 125,
     user_avatar_url: null,
     user_bio: 'Backend and frontend developer',
@@ -145,7 +144,6 @@ describe('reputation API contract', () => {
     expect(result).toEqual({
       user_id: 'user-1',
       user_name: 'alice',
-      user_role: 'user',
       user_reputation_score: 125,
       user_avatar_url: null,
       user_bio: 'Backend and frontend developer',
