@@ -217,3 +217,7 @@ tmp/
 M004-reputation-notes.md
 Постановка задачи.docx
 AGENTS.md
+
+# Local GSD/browser artifacts
+.artifacts/
+stackoverflow-2-frontend@*
