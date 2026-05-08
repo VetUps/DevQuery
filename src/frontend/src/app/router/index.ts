@@ -70,12 +70,18 @@ export const routes: RouteRecordRaw[] = [
   },
 ]
 
-async function ensureAuthenticatedSession() {
+function hydrateStoredSessionIfNeeded() {
   const sessionStore = useSessionStore()
 
   if (!sessionStore.accessToken && !sessionStore.refreshToken) {
     sessionStore.hydrateFromStorage()
   }
+
+  return sessionStore
+}
+
+async function ensureAuthenticatedSession() {
+  const sessionStore = hydrateStoredSessionIfNeeded()
 
   if (sessionStore.accessToken && sessionStore.isAuthenticated) {
     return true
@@ -135,6 +141,8 @@ export function createAppRouter(history: RouterHistory = createWebHistory()) {
   })
 
   router.beforeEach(async (to) => {
+    hydrateStoredSessionIfNeeded()
+
     if (!to.meta.requiresAuth) {
       return true
     }
