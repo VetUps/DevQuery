@@ -242,7 +242,7 @@ describe('protected newcomer question integrated policy proof', () => {
       viewer_downvote_reason_message: 'В первые 24 часа после публикации у вопросов новичков отключены даунвоуты, чтобы обсуждение начиналось с содержательной обратной связи.',
     }))
 
-    expect(wrapper.get('[data-testid="question-protection-badge"]').text()).toContain('Эксперт+ отвечают первые 24 часов')
+    expect(wrapper.get('[data-testid="question-protection-badge"]').text()).toContain('Эксперт+ отвечают первые 24 часа')
     expect(wrapper.get('[data-testid="question-protection-panel"]').text()).toContain('В течение первых 24 часов после публикации отвечать могут только эксперты и мастера.')
     expect(wrapper.get('[data-testid="solution-composer-blocked-reason"]').text()).toContain('первые 24 часа')
     expect(wrapper.text()).toContain('В первые 24 часа после публикации у вопросов новичков отключены даунвоуты')
