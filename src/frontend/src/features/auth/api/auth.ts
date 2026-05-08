@@ -8,10 +8,13 @@ import {
 } from '@/features/users/api/reputation'
 import { apiBaseUrl } from '@/shared/api/config'
 
+export type UserRole = 'user' | 'admin'
+
 export interface UserProfile {
   user_id: string
   user_name: string
   user_email: string
+  user_role: UserRole
   user_reputation_score: number
   user_avatar_url: string | null
   user_bio: string | null
@@ -73,6 +76,14 @@ function assertNumber(value: unknown, fieldName: string): number {
   return value
 }
 
+function assertUserRole(value: unknown): UserRole {
+  if (value !== 'user' && value !== 'admin') {
+    throw new Error('Malformed auth response: user_role')
+  }
+
+  return value
+}
+
 function parseUserProfile(value: unknown): UserProfile {
   if (!isRecord(value)) {
     throw new Error('Malformed auth response: expected profile object')
@@ -82,6 +93,7 @@ function parseUserProfile(value: unknown): UserProfile {
     user_id: assertString(value.user_id, 'user_id'),
     user_name: assertString(value.user_name, 'user_name'),
     user_email: assertString(value.user_email, 'user_email'),
+    user_role: assertUserRole(value.user_role),
     user_reputation_score: assertNumber(value.user_reputation_score, 'user_reputation_score'),
     user_avatar_url: assertNullableString(value.user_avatar_url, 'user_avatar_url'),
     user_bio: assertNullableString(value.user_bio, 'user_bio'),

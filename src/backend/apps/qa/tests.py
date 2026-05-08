@@ -518,6 +518,37 @@ class QuestionTagResponseSerializerTests(APITestCase):
         self.assertTrue(response.data['viewer_downvote_reason_message'])
         self.assertIsNotNone(response.data['protected_until'])
 
+    def test_question_detail_response_uses_admin_configured_window_in_reason_messages(self):
+        ReputationPolicyConfig.objects.create(protected_newcomer_window_hours=24)
+        protected_author = CustomUser.objects.create_user(
+            user_email='protected-config-author@example.com',
+            user_name='protected-config-author',
+            password='password',
+        )
+        participant_viewer = CustomUser.objects.create_user(
+            user_email='participant-config-viewer@example.com',
+            user_name='participant-config-viewer',
+            password='password',
+            user_reputation_score=30,
+        )
+        protected_question = Question.objects.create(
+            user=protected_author,
+            question_title='Protected newcomer question with configured window',
+            question_body='Frontend metadata copy should follow the policy duration.',
+        )
+        Question.objects.filter(pk=protected_question.pk).update(
+            question_created_at=timezone.now() - timedelta(hours=13)
+        )
+        protected_question.refresh_from_db()
+
+        self.client.force_authenticate(participant_viewer)
+        response = self.client.get(f'/question/{protected_question.question_id}/')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data['is_protected'])
+        self.assertIn('24 часа', response.data['viewer_answer_reason_message'])
+        self.assertIn('24 часа', response.data['viewer_downvote_reason_message'])
+
 
 class TagAutocompleteApiTests(APITestCase):
     def setUp(self):
@@ -741,7 +772,10 @@ class ReputationVoteServiceTests(APITestCase):
         with self.assertRaises(PermissionDenied) as context:
             VoteService.cast_vote('question', str(protected_question.question_id), Vote.VoteType.DOWNVOTE, self.voter)
 
-        self.assertEqual(str(context.exception.detail['detail']), VoteService.PROTECTED_QUESTION_DOWNVOTE_MESSAGE)
+        self.assertEqual(
+            str(context.exception.detail['detail']),
+            QuestionProtectionService.build_downvote_denied_message(),
+        )
         self.assertEqual(str(context.exception.detail['code']), VoteService.PROTECTED_QUESTION_DOWNVOTE_ERROR_CODE)
         self.assertFalse(Vote.objects.filter(object_id=protected_question.question_id).exists())
         protected_question_author.refresh_from_db()
@@ -768,7 +802,41 @@ class ReputationVoteServiceTests(APITestCase):
         with self.assertRaises(PermissionDenied) as context:
             VoteService.cast_vote('question', str(protected_question.question_id), Vote.VoteType.DOWNVOTE, expert_voter)
 
-        self.assertEqual(str(context.exception.detail['detail']), VoteService.PROTECTED_QUESTION_DOWNVOTE_MESSAGE)
+        self.assertEqual(
+            str(context.exception.detail['detail']),
+            QuestionProtectionService.build_downvote_denied_message(),
+        )
+        self.assertEqual(str(context.exception.detail['code']), VoteService.PROTECTED_QUESTION_DOWNVOTE_ERROR_CODE)
+        self.assertFalse(Vote.objects.filter(object_id=protected_question.question_id).exists())
+
+    def test_question_downvote_error_uses_admin_configured_protected_window(self):
+        ReputationPolicyConfig.objects.create(protected_newcomer_window_hours=24)
+        protected_question_author = CustomUser.objects.create_user(
+            user_email='protected-config-window-author@example.com',
+            user_name='protected-config-window-author',
+            password='password',
+        )
+        protected_question = Question.objects.create(
+            user=protected_question_author,
+            question_title='Protected newcomer question for configured downvote window',
+            question_body='Downvote error copy should follow configured policy duration.',
+        )
+        Question.objects.filter(pk=protected_question.pk).update(
+            question_created_at=timezone.now() - timedelta(hours=13)
+        )
+        protected_question.refresh_from_db()
+
+        decision = QuestionProtectionService.get_question_downvote_eligibility(protected_question, self.voter)
+        self.assertFalse(decision.allowed)
+
+        with self.assertRaises(PermissionDenied) as context:
+            VoteService.cast_vote('question', str(protected_question.question_id), Vote.VoteType.DOWNVOTE, self.voter)
+
+        self.assertEqual(
+            str(context.exception.detail['detail']),
+            QuestionProtectionService.build_downvote_denied_message(decision),
+        )
+        self.assertIn('24 часов', str(context.exception.detail['detail']))
         self.assertEqual(str(context.exception.detail['code']), VoteService.PROTECTED_QUESTION_DOWNVOTE_ERROR_CODE)
         self.assertFalse(Vote.objects.filter(object_id=protected_question.question_id).exists())
 
@@ -1544,7 +1612,7 @@ class ProtectedQuestionAnswerApiTests(APITestCase):
         self.assertEqual(
             response.data,
             {
-                'detail': 'В течение 12 часов после публикации на вопросы новичков могут отвечать только эксперты и мастера.',
+                'detail': QuestionProtectionService.build_answer_denied_message(),
                 'code': 'protected_newcomer_answer_required',
             },
         )
@@ -1624,10 +1692,11 @@ class ProtectedQuestionAnswerApiTests(APITestCase):
         self.assertEqual(
             response.data,
             {
-                'detail': 'В течение 12 часов после публикации на вопросы новичков могут отвечать только эксперты и мастера.',
+                'detail': QuestionProtectionService.build_answer_denied_message(participant_decision),
                 'code': 'protected_newcomer_answer_required',
             },
         )
+        self.assertIn('24 часов', response.data['detail'])
         self.assertFalse(Solution.objects.filter(user=self.participant, question=self.question).exists())
         self.assertEqual(Solution.objects.count(), 0)
         self.assertEqual(ReputationTransaction.objects.count(), 0)
@@ -2271,6 +2340,14 @@ class QuestionEditLifecycleTests(APITestCase):
         self.assertEqual(self.question.question_title, 'Original title')
         self.assertEqual(self.question.question_body, 'Original body')
         self.assertEqual(set(self.question.tags.values_list('name', flat=True)), {'django'})
+
+    def test_revision_history_returns_empty_list_for_question_without_revisions(self):
+        self.client.force_authenticate(self.author)
+
+        response = self.client.get(f'/question/history/{self.question.question_id}/revisions/')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual(response.data, [])
 
     def test_history_endpoints_expose_event_and_revision_records(self):
         QuestionEditService.direct_edit(

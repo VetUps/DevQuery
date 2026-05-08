@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Iterable
 
 from django.contrib.contenttypes.models import ContentType
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.utils.translation import gettext_lazy as _
 from rest_framework.exceptions import ValidationError
@@ -68,6 +69,21 @@ class ReputationService:
     @classmethod
     def get_protected_newcomer_window_hours(cls) -> int:
         return cls.get_policy_config().protected_newcomer_window_hours
+
+    @classmethod
+    def update_protected_newcomer_window_hours(cls, protected_newcomer_window_hours: int) -> ReputationPolicyConfig:
+        with transaction.atomic():
+            config = ReputationPolicyConfig.objects.select_for_update().filter(singleton_key='default').first()
+            if config is None:
+                config = ReputationPolicyConfig()
+
+            config.protected_newcomer_window_hours = protected_newcomer_window_hours
+            try:
+                config.full_clean()
+            except DjangoValidationError as exc:
+                raise ValidationError(exc.message_dict) from exc
+            config.save()
+            return config
 
     @classmethod
     def _level_label(cls, level: str) -> str:

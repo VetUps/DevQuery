@@ -18,9 +18,6 @@ class VoteService:
     """
 
     PROTECTED_QUESTION_DOWNVOTE_ERROR_CODE = QuestionProtectionService.DOWNVOTE_BLOCKED_PROTECTED
-    PROTECTED_QUESTION_DOWNVOTE_MESSAGE = (
-        'В течение 12 часов после публикации вопросы новичков нельзя минусовать.'
-    )
 
     REPUTATION_REWARDS = {
         'question': {
@@ -128,11 +125,12 @@ class VoteService:
         return getattr(obj, 'user_vote_type', None)
 
     @staticmethod
-    def build_protected_question_downvote_error() -> PermissionDenied:
-        permission_error = PermissionDenied(detail=VoteService.PROTECTED_QUESTION_DOWNVOTE_MESSAGE)
+    def build_protected_question_downvote_error(decision=None) -> PermissionDenied:
+        message = QuestionProtectionService.build_downvote_denied_message(decision)
+        permission_error = PermissionDenied(detail=message)
         permission_error.detail = {
             'detail': ErrorDetail(
-                VoteService.PROTECTED_QUESTION_DOWNVOTE_MESSAGE,
+                message,
                 code=VoteService.PROTECTED_QUESTION_DOWNVOTE_ERROR_CODE,
             ),
             'code': ErrorDetail(
@@ -156,7 +154,7 @@ class VoteService:
         if isinstance(target_object, Question) and vote_type == Vote.VoteType.DOWNVOTE:
             decision = QuestionProtectionService.get_question_downvote_eligibility(target_object, user)
             if not decision.allowed:
-                raise VoteService.build_protected_question_downvote_error()
+                raise VoteService.build_protected_question_downvote_error(decision)
 
     @staticmethod
     def get_content_type(target_type: str) -> ContentType:

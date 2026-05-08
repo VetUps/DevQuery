@@ -119,7 +119,7 @@ function parseQuestionRevisionListResponse(value: unknown): QuestionRevisionList
 }
 
 export async function fetchQuestionRevisions(questionId: string) {
-  const response = await http.get<unknown>(`/question/revisions/${questionId}/`)
+  const response = await http.get<unknown>(`/question/history/${questionId}/revisions/`)
 
   return parseQuestionRevisionListResponse(response.data)
 }

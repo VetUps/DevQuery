@@ -51,7 +51,6 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
     """
     class Roles(models.TextChoices):
         USER_ROLE = 'user', 'User'
-        EXPERT_ROLE = 'expert', 'Expert'
         ADMIN_ROLE = 'admin', 'Admin'
 
     class ReputationLevel(models.TextChoices):
