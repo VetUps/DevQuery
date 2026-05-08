@@ -116,3 +116,5 @@ export const useSessionStore = defineStore('session', () => {
     logout,
   }
 })
+
+export type SessionStore = ReturnType<typeof useSessionStore>

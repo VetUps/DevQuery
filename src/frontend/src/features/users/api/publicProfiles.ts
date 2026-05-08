@@ -4,7 +4,6 @@ import { parseReputationSummary, type ReputationSummary } from '@/features/users
 export interface PublicUserProfile {
   user_id: string
   user_name: string
-  user_role: string
   user_reputation_score: number
   user_avatar_url: string | null
   user_bio: string | null
@@ -48,7 +47,6 @@ function parsePublicProfile(value: unknown): PublicUserProfile {
   return {
     user_id: assertString(value.user_id, 'user_id'),
     user_name: assertString(value.user_name, 'user_name'),
-    user_role: assertString(value.user_role, 'user_role'),
     user_reputation_score: assertNumber(value.user_reputation_score, 'user_reputation_score'),
     user_avatar_url: assertNullableString(value.user_avatar_url, 'user_avatar_url'),
     user_bio: assertNullableString(value.user_bio, 'user_bio'),

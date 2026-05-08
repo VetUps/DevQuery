@@ -61,7 +61,21 @@ export function getProtectedQuestionWindowHours(
 }
 
 export function getProtectedQuestionWindowLabel(windowHours: number) {
-  return `${windowHours} ${windowHours % 10 === 1 && windowHours % 100 !== 11 ? 'час' : 'часов'}`
+  const suffix = windowHours % 100 >= 11 && windowHours % 100 <= 14
+    ? 'часов'
+    : windowHours % 10 === 1
+      ? 'час'
+      : windowHours % 10 >= 2 && windowHours % 10 <= 4
+        ? 'часа'
+        : 'часов'
+
+  return `${windowHours} ${suffix}`
+}
+
+export function getProtectedQuestionWindowGenitiveLabel(windowHours: number) {
+  const suffix = windowHours % 10 === 1 && windowHours % 100 !== 11 ? 'часа' : 'часов'
+
+  return `${windowHours} ${suffix}`
 }
 
 export function getProtectedQuestionAnswerWindowLabel(
@@ -80,7 +94,7 @@ export function getProtectedQuestionAnswerWindowSummary(
   const responderGroup = requiredLabel === 'Участник'
     ? 'участники и мастера'
     : `${requiredLabel.toLowerCase()}ы и мастера`
-  const windowLabel = getProtectedQuestionWindowLabel(getProtectedQuestionWindowHours(question))
+  const windowLabel = getProtectedQuestionWindowGenitiveLabel(getProtectedQuestionWindowHours(question))
 
   return `В течение первых ${windowLabel} после публикации отвечать могут только ${responderGroup}.`
 }

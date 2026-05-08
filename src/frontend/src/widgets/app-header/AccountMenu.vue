@@ -5,8 +5,10 @@ import AppButton from '@/shared/ui/AppButton.vue'
 
 const props = withDefaults(defineProps<{
   open: boolean
+  canAccessAdminWorkspace?: boolean
   label?: string
 }>(), {
+  canAccessAdminWorkspace: false,
   label: 'Аккаунт',
 })
 
@@ -37,6 +39,14 @@ defineEmits<{
     >
       <RouterLink class="account-menu__link" data-testid="profile-menu-link" to="/profile">
         Профиль
+      </RouterLink>
+      <RouterLink
+        v-if="props.canAccessAdminWorkspace"
+        class="account-menu__link"
+        data-testid="admin-menu-link"
+        to="/admin"
+      >
+        Администрирование
       </RouterLink>
       <RouterLink
         class="account-menu__link"

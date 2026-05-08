@@ -141,6 +141,74 @@ class QuestionProtectionService:
         )
 
     @classmethod
+    def format_window_hours(cls, hours: int | None = None) -> str:
+        window_hours = hours if hours is not None else ReputationService.get_protected_newcomer_window_hours()
+        if 11 <= window_hours % 100 <= 14:
+            suffix = 'часов'
+        elif window_hours % 10 == 1:
+            suffix = 'час'
+        elif 2 <= window_hours % 10 <= 4:
+            suffix = 'часа'
+        else:
+            suffix = 'часов'
+
+        return f'{window_hours} {suffix}'
+
+    @classmethod
+    def format_window_hours_genitive(cls, hours: int | None = None) -> str:
+        window_hours = hours if hours is not None else ReputationService.get_protected_newcomer_window_hours()
+        suffix = 'часа' if window_hours % 10 == 1 and window_hours % 100 != 11 else 'часов'
+
+        return f'{window_hours} {suffix}'
+
+    @classmethod
+    def get_decision_window_hours(cls, decision: ProtectionDecision | None = None) -> int:
+        if decision is not None and decision.protected_until is not None:
+            return ReputationService.get_protected_newcomer_window_hours()
+
+        return ReputationService.get_protected_newcomer_window_hours()
+
+    @classmethod
+    def build_answer_denied_message(cls, decision: ProtectionDecision | None = None) -> str:
+        window_label = cls.format_window_hours_genitive(cls.get_decision_window_hours(decision))
+        return (
+            f'В течение {window_label} после публикации на вопросы новичков могут отвечать '
+            'только эксперты и мастера.'
+        )
+
+    @classmethod
+    def build_answer_reason_message(cls, reason_code: str, decision: ProtectionDecision | None = None) -> str:
+        window_label = cls.format_window_hours(cls.get_decision_window_hours(decision))
+        if reason_code == cls.ANSWER_BLOCKED_ANONYMOUS:
+            return (
+                f'Этот вопрос новичка защищён на первые {window_label}. '
+                'Войдите в аккаунт с уровнем Эксперт или Мастер, чтобы ответить.'
+            )
+        if reason_code == cls.ANSWER_BLOCKED_INSUFFICIENT_LEVEL:
+            return (
+                f'Этот вопрос новичка защищён на первые {window_label}. '
+                'Отвечать сейчас могут только участники уровня Эксперт или Мастер.'
+            )
+
+        return ''
+
+    @classmethod
+    def build_downvote_denied_message(cls, decision: ProtectionDecision | None = None) -> str:
+        window_label = cls.format_window_hours_genitive(cls.get_decision_window_hours(decision))
+        return f'В течение {window_label} после публикации вопросы новичков нельзя минусовать.'
+
+    @classmethod
+    def build_downvote_reason_message(cls, reason_code: str, decision: ProtectionDecision | None = None) -> str:
+        if reason_code != cls.DOWNVOTE_BLOCKED_PROTECTED:
+            return ''
+
+        window_label = cls.format_window_hours(cls.get_decision_window_hours(decision))
+        return (
+            f'В первые {window_label} после публикации у вопросов новичков отключены даунвоуты, '
+            'чтобы обсуждение начиналось с содержательной обратной связи.'
+        )
+
+    @classmethod
     def _build_progress(cls, user: CustomUser) -> ProtectionProgress:
         progress = ReputationService.get_progress(user)
         return ProtectionProgress(

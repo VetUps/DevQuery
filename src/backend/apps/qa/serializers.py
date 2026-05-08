@@ -27,24 +27,6 @@ from .services.vote_service import VoteService
 MAX_QUESTION_TAGS = 5
 TAG_NAME_PATTERN = re.compile(r'^[a-z0-9-]+$')
 PROTECTED_NEWCOMER_ANSWER_ERROR_CODE = 'protected_newcomer_answer_required'
-PROTECTED_NEWCOMER_ANSWER_MESSAGE = (
-    'В течение 12 часов после публикации на вопросы новичков могут отвечать только эксперты и мастера.'
-)
-PROTECTED_NEWCOMER_ANSWER_REASON_MESSAGES = {
-    QuestionProtectionService.ANSWER_ALLOWED: '',
-    QuestionProtectionService.ANSWER_BLOCKED_ANONYMOUS: (
-        'Этот вопрос новичка защищён на первые 12 часов. Войдите в аккаунт с уровнем Эксперт или Мастер, чтобы ответить.'
-    ),
-    QuestionProtectionService.ANSWER_BLOCKED_INSUFFICIENT_LEVEL: (
-        'Этот вопрос новичка защищён на первые 12 часов. Отвечать сейчас могут только участники уровня Эксперт или Мастер.'
-    ),
-}
-PROTECTED_NEWCOMER_DOWNVOTE_REASON_MESSAGES = {
-    QuestionProtectionService.DOWNVOTE_ALLOWED: '',
-    QuestionProtectionService.DOWNVOTE_BLOCKED_PROTECTED: (
-        'В первые 12 часов после публикации у вопросов новичков отключены даунвоуты, чтобы обсуждение начиналось с содержательной обратной связи.'
-    ),
-}
 
 
 def normalize_question_tags(raw_tags):
@@ -162,7 +144,11 @@ class QuestionProtectionMixin:
         return self._get_answer_decision(obj).reason_code
 
     def get_viewer_answer_reason_message(self, obj: Question):
-        return PROTECTED_NEWCOMER_ANSWER_REASON_MESSAGES.get(self._get_answer_decision(obj).reason_code, '')
+        answer_decision = self._get_answer_decision(obj)
+        return QuestionProtectionService.build_answer_reason_message(
+            answer_decision.reason_code,
+            answer_decision,
+        )
 
     def get_viewer_answer_required_level(self, obj: Question):
         return self._get_answer_decision(obj).required_level
@@ -212,7 +198,11 @@ class QuestionProtectionMixin:
         return self._get_downvote_decision(obj).reason_code
 
     def get_viewer_downvote_reason_message(self, obj: Question):
-        return PROTECTED_NEWCOMER_DOWNVOTE_REASON_MESSAGES.get(self._get_downvote_decision(obj).reason_code, '')
+        downvote_decision = self._get_downvote_decision(obj)
+        return QuestionProtectionService.build_downvote_reason_message(
+            downvote_decision.reason_code,
+            downvote_decision,
+        )
 
 
 class QuestionGetSerializer(QuestionProtectionMixin, serializers.ModelSerializer):
@@ -538,10 +528,11 @@ class SolutionCreateSerializer(serializers.ModelSerializer):
         fields = ['question', 'solution_body']
 
     @staticmethod
-    def _raise_protected_newcomer_answer_denied() -> None:
-        permission_error = PermissionDenied(detail=PROTECTED_NEWCOMER_ANSWER_MESSAGE)
+    def _raise_protected_newcomer_answer_denied(answer_decision) -> None:
+        message = QuestionProtectionService.build_answer_denied_message(answer_decision)
+        permission_error = PermissionDenied(detail=message)
         permission_error.detail = {
-            'detail': PROTECTED_NEWCOMER_ANSWER_MESSAGE,
+            'detail': message,
             'code': PROTECTED_NEWCOMER_ANSWER_ERROR_CODE,
         }
         raise permission_error
@@ -558,7 +549,7 @@ class SolutionCreateSerializer(serializers.ModelSerializer):
 
         answer_decision = QuestionProtectionService.get_answer_eligibility(question, user)
         if not answer_decision.allowed:
-            self._raise_protected_newcomer_answer_denied()
+            self._raise_protected_newcomer_answer_denied(answer_decision)
 
         return data
 

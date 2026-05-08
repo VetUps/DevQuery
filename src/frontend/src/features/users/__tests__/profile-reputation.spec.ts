@@ -91,8 +91,8 @@ describe('profile reputation helpers', () => {
     }
 
     expect(getProtectedQuestionWindowHours(twentyFourHourQuestion)).toBe(24)
-    expect(getProtectedQuestionWindowLabel(24)).toBe('24 часов')
-    expect(getProtectedQuestionAnswerWindowLabel(twentyFourHourQuestion)).toBe('Участник+ отвечают первые 24 часов')
+    expect(getProtectedQuestionWindowLabel(24)).toBe('24 часа')
+    expect(getProtectedQuestionAnswerWindowLabel(twentyFourHourQuestion)).toBe('Участник+ отвечают первые 24 часа')
     expect(getProtectedQuestionAnswerWindowSummary(twentyFourHourQuestion)).toBe(
       'В течение первых 24 часов после публикации отвечать могут только участники и мастера.',
     )

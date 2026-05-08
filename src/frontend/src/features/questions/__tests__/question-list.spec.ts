@@ -185,8 +185,8 @@ describe('question list home page', () => {
 
     const { wrapper } = await mountHomePage()
 
-    expect(wrapper.get('[data-testid="question-card-protection"]').text()).toContain('Защита 24 часов')
-    expect(wrapper.get('[data-testid="question-card-protection-panel"]').text()).toContain('Защищённый вопрос · Эксперт+ отвечают первые 24 часов')
+    expect(wrapper.get('[data-testid="question-card-protection"]').text()).toContain('Защита 24 часа')
+    expect(wrapper.get('[data-testid="question-card-protection-panel"]').text()).toContain('Защищённый вопрос · Эксперт+ отвечают первые 24 часа')
     expect(wrapper.get('[data-testid="question-card-protection-panel"]').text()).toContain('В течение первых 24 часов после публикации отвечать могут только эксперты и мастера.')
     expect(wrapper.get('[data-testid="question-card-answer-blocked-reason"]').text()).toContain('первые 24 часа')
     expect(wrapper.get('[data-testid="question-card-downvote-blocked-reason"]').text()).toContain('В первые 24 часа после публикации')

@@ -5,6 +5,7 @@ import { useRoute, useRouter } from 'vue-router'
 
 import { useCurrentUserQuery } from '@/features/auth/queries/useCurrentUserQuery'
 import { useSessionStore } from '@/features/auth/stores/session'
+import { canAccessAdminWorkspace } from '@/features/admin/libs/admin-access'
 import ProfileQuestionEditReviewQueue from '@/features/questions/components/ProfileQuestionEditReviewQueue.vue'
 import ProfileEditHistoryTab from '@/features/solutions/components/ProfileEditHistoryTab.vue'
 import ProfileEditReviewQueue from '@/features/solutions/components/ProfileEditReviewQueue.vue'
@@ -48,6 +49,7 @@ watch(
 )
 
 const user = computed(() => profileQuery.data.value)
+const canOpenAdminWorkspace = computed(() => canAccessAdminWorkspace(user.value))
 const reputation = computed(() => user.value?.reputation ?? null)
 const reputationLedger = computed(() => user.value?.reputation_ledger ?? [])
 const reputationErrorMessage = computed(() => {
@@ -125,6 +127,16 @@ async function setActiveTab(tab: ProfileTab) {
             <p class="profile-page__eyebrow">Профиль</p>
             <h1 class="profile-page__title">{{ user.user_name }}</h1>
             <p class="profile-page__email">{{ user.user_email }}</p>
+
+            <RouterLink
+              v-if="canOpenAdminWorkspace"
+              class="profile-page__admin-link"
+              data-testid="profile-admin-link"
+              to="/admin"
+            >
+              <span class="profile-page__admin-link-eyebrow">Инструменты администратора</span>
+              <span class="profile-page__admin-link-title">Администрирование</span>
+            </RouterLink>
           </div>
 
           <dl class="profile-page__facts">
@@ -214,6 +226,7 @@ async function setActiveTab(tab: ProfileTab) {
 
 .profile-page__summary-copy {
   gap: var(--space-xs);
+  justify-items: start;
 }
 
 .profile-page__eyebrow,
@@ -239,6 +252,35 @@ async function setActiveTab(tab: ProfileTab) {
 .profile-page__email {
   color: var(--color-muted);
   line-height: 1.6;
+}
+
+.profile-page__admin-link {
+  display: grid;
+  gap: 2px;
+  margin-top: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid rgb(14 116 144 / 0.22);
+  border-radius: var(--radius-md);
+  background: rgb(14 116 144 / 0.08);
+  color: var(--color-accent);
+  text-decoration: none;
+}
+
+.profile-page__admin-link:hover {
+  border-color: rgb(14 116 144 / 0.34);
+  background: rgb(14 116 144 / 0.12);
+}
+
+.profile-page__admin-link-eyebrow {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.profile-page__admin-link-title {
+  font-size: 14px;
+  font-weight: 700;
 }
 
 .profile-page__facts {

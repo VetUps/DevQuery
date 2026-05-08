@@ -43,7 +43,10 @@ async function mountProfilePage(initialQuery?: Record<string, string>) {
 
   const router = createRouter({
     history: createMemoryHistory(),
-    routes: [{ path: '/profile', component: ProfilePage }],
+    routes: [
+      { path: '/profile', component: ProfilePage },
+      { path: '/admin', component: { template: '<div />' } },
+    ],
   })
 
   await router.push({
@@ -154,6 +157,48 @@ describe('profile reputation surfaces', () => {
 
     document.body.innerHTML = ''
     document.body.style.overflow = ''
+  })
+
+  it('shows an admin workspace entry for administrator profiles', async () => {
+    profileState.data.value = buildProfile({ user_role: 'admin' })
+
+    const { wrapper } = await mountProfilePage()
+    const adminLink = wrapper.get('[data-testid="profile-admin-link"]')
+
+    expect(adminLink.attributes('href')).toBe('/admin')
+    expect(adminLink.text()).toContain('Администрирование')
+  })
+
+  it.each([
+    ['ordinary profile', () => buildProfile({ user_role: 'user' })],
+    ['missing role profile', () => buildProfile()],
+    ['missing profile', () => null],
+  ])('hides the admin workspace entry for %s', async (_label, buildState) => {
+    profileState.data.value = buildState()
+
+    const { wrapper } = await mountProfilePage()
+
+    expect(wrapper.find('[data-testid="profile-admin-link"]').exists()).toBe(false)
+  })
+
+  it('hides the admin workspace entry while the profile is loading or unavailable after failure', async () => {
+    profileState.data.value = null
+    profileState.isPending.value = true
+
+    const loadingState = await mountProfilePage()
+
+    expect(loadingState.wrapper.find('[data-testid="profile-admin-link"]').exists()).toBe(false)
+
+    loadingState.wrapper.unmount()
+    document.body.innerHTML = ''
+    profileState.isPending.value = false
+    profileState.isError.value = true
+    profileState.error.value = new Error('profile fetch failed')
+
+    const errorState = await mountProfilePage()
+
+    expect(errorState.wrapper.find('[data-testid="profile-admin-link"]').exists()).toBe(false)
+    expect(errorState.wrapper.text()).toContain('Не удалось загрузить профиль')
   })
 
   it('renders the reputation summary trigger and ledger in overview without inline explanation content', async () => {
