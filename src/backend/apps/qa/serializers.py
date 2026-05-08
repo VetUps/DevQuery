@@ -420,6 +420,53 @@ class QuestionCreateResponseSerializer(serializers.ModelSerializer):
         ]
 
 
+class EligibleExpertCandidateSerializer(serializers.Serializer):
+    user_id = serializers.UUIDField(read_only=True)
+    user_name = serializers.CharField(read_only=True)
+    user_reputation_score = serializers.IntegerField(read_only=True)
+    reputation_level = serializers.ChoiceField(choices=CustomUser.ReputationLevel.choices, read_only=True)
+    reputation_level_label = serializers.CharField(read_only=True)
+    is_manual_override = serializers.BooleanField(read_only=True)
+
+
+class EligibleExpertsResponseSerializer(serializers.Serializer):
+    count = serializers.IntegerField(read_only=True)
+    next = serializers.CharField(read_only=True, allow_null=True)
+    previous = serializers.CharField(read_only=True, allow_null=True)
+    results = EligibleExpertCandidateSerializer(many=True, read_only=True)
+    question_id = serializers.UUIDField(read_only=True)
+    max_invites = serializers.IntegerField(read_only=True)
+    invited_count = serializers.IntegerField(read_only=True)
+    remaining_slots = serializers.IntegerField(read_only=True)
+    can_invite = serializers.BooleanField(read_only=True)
+    reason_code = serializers.CharField(read_only=True)
+
+
+class ExpertInvitationCreateRequestSerializer(serializers.Serializer):
+    recipient_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        allow_empty=False,
+        max_length=5,
+    )
+
+
+class ExpertInvitationItemSerializer(serializers.Serializer):
+    recipient_id = serializers.UUIDField(read_only=True)
+    notification_id = serializers.UUIDField(read_only=True)
+    dedupe_key = serializers.CharField(read_only=True)
+    expires_at = serializers.DateTimeField(read_only=True)
+    payload = serializers.DictField(read_only=True)
+
+
+class ExpertInvitationCreateResponseSerializer(serializers.Serializer):
+    question_id = serializers.UUIDField(read_only=True)
+    max_invites = serializers.IntegerField(read_only=True)
+    invited_count = serializers.IntegerField(read_only=True)
+    remaining_slots = serializers.IntegerField(read_only=True)
+    created_count = serializers.IntegerField(read_only=True)
+    invitations = ExpertInvitationItemSerializer(many=True, read_only=True)
+
+
 class QuestionEditProposalResponseSerializer(serializers.ModelSerializer):
     question_title = serializers.CharField(source='question.question_title', read_only=True)
     question_author_id = serializers.UUIDField(source='question.user.user_id', read_only=True, allow_null=True)
