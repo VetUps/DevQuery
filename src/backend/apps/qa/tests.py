@@ -2272,6 +2272,14 @@ class QuestionEditLifecycleTests(APITestCase):
         self.assertEqual(self.question.question_body, 'Original body')
         self.assertEqual(set(self.question.tags.values_list('name', flat=True)), {'django'})
 
+    def test_revision_history_returns_empty_list_for_question_without_revisions(self):
+        self.client.force_authenticate(self.author)
+
+        response = self.client.get(f'/question/history/{self.question.question_id}/revisions/')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual(response.data, [])
+
     def test_history_endpoints_expose_event_and_revision_records(self):
         QuestionEditService.direct_edit(
             question=self.question,

@@ -92,13 +92,13 @@ describe('question revision API contract', () => {
     vi.clearAllMocks()
   })
 
-  it('fetches question revision history from the root backend revisions route', async () => {
+  it('fetches question revision history from the backend history revisions route', async () => {
     const response = buildQuestionRevisionListResponse()
     mockedHttp.get.mockResolvedValue({ data: response })
 
     const result = await fetchQuestionRevisions('question-1')
 
-    expect(mockedHttp.get).toHaveBeenCalledWith('/question/revisions/question-1/')
+    expect(mockedHttp.get).toHaveBeenCalledWith('/question/history/question-1/revisions/')
     expect(result).toEqual(response)
   })
 
@@ -107,6 +107,17 @@ describe('question revision API contract', () => {
     mockedHttp.get.mockResolvedValue({ data: response })
 
     await expect(fetchQuestionRevisions('question-1')).resolves.toEqual(response)
+  })
+
+  it('normalizes an empty raw backend revision list into an empty result page', async () => {
+    mockedHttp.get.mockResolvedValue({ data: [] })
+
+    await expect(fetchQuestionRevisions('question-1')).resolves.toEqual({
+      count: 0,
+      next: null,
+      previous: null,
+      results: [],
+    })
   })
 
   it('normalizes the root backend list payload and field aliases', async () => {
