@@ -261,10 +261,10 @@ export function normalizeQuestionProtectionSnapshot(value: unknown): QuestionPro
   }
 }
 
-function attachQuestionProtectionSnapshot<T extends Record<string, unknown>>(question: T) {
+function attachQuestionProtectionSnapshot<T extends Record<string, unknown>>(question: T, rawQuestion: Record<string, unknown> = question) {
   return {
     ...question,
-    ...normalizeQuestionProtectionSnapshot(question),
+    ...normalizeQuestionProtectionSnapshot(rawQuestion),
   }
 }
 
@@ -282,7 +282,7 @@ export function normalizeQuestionListItem(value: unknown): QuestionListItem {
     question_created_at: typeof question.question_created_at === 'string' ? question.question_created_at : '',
     question_updated_at: typeof question.question_updated_at === 'string' ? question.question_updated_at : '',
     tags: Array.isArray(question.tags) ? question.tags.filter(isQuestionTag) : [],
-  })
+  }, question)
 }
 
 export function normalizeQuestionTags(tags: readonly unknown[] = []) {
