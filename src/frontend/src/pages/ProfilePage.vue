@@ -6,6 +6,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useCurrentUserQuery } from '@/features/auth/queries/useCurrentUserQuery'
 import { useSessionStore } from '@/features/auth/stores/session'
 import { canAccessAdminWorkspace } from '@/features/admin/libs/admin-access'
+import ProfileNotificationsTab from '@/features/notifications/components/ProfileNotificationsTab.vue'
 import ProfileQuestionEditReviewQueue from '@/features/questions/components/ProfileQuestionEditReviewQueue.vue'
 import ProfileEditHistoryTab from '@/features/solutions/components/ProfileEditHistoryTab.vue'
 import ProfileEditReviewQueue from '@/features/solutions/components/ProfileEditReviewQueue.vue'
@@ -18,12 +19,13 @@ import AppDialog from '@/shared/ui/AppDialog.vue'
 import InlineFeedbackPanel from '@/shared/ui/InlineFeedbackPanel.vue'
 import SurfacePanel from '@/shared/ui/SurfacePanel.vue'
 
-type ProfileTab = 'overview' | 'review' | 'history'
+type ProfileTab = 'overview' | 'review' | 'history' | 'notifications'
 
 const PROFILE_TABS: Array<{ value: ProfileTab; label: string }> = [
   { value: 'overview', label: 'Обзор' },
   { value: 'review', label: 'Проверка правок' },
   { value: 'history', label: 'История правок' },
+  { value: 'notifications', label: 'Уведомления' },
 ]
 
 function isProfileTab(value: string): value is ProfileTab {
@@ -188,7 +190,9 @@ async function setActiveTab(tab: ProfileTab) {
             <ProfileQuestionEditReviewQueue />
           </section>
 
-          <ProfileEditHistoryTab v-else />
+          <ProfileEditHistoryTab v-else-if="activeTab === 'history'" />
+
+          <ProfileNotificationsTab v-else />
         </SurfacePanel>
 
         <AppDialog
