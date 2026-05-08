@@ -13,6 +13,7 @@ class SeedLocalDataCommandTests(TestCase):
         call_command('seed_local_data', *args, stdout=output)
         return output.getvalue()
 
+    @override_settings(DEBUG=True)
     def test_command_creates_demo_accounts_and_content(self):
         output = self.call_seed()
 
@@ -35,6 +36,7 @@ class SeedLocalDataCommandTests(TestCase):
         self.assertTrue(Tag.objects.filter(name='django', questions_count__gt=0).exists())
         self.assertTrue(ReputationTransaction.objects.filter(note__contains='Локальные тестовые данные').exists())
 
+    @override_settings(DEBUG=True)
     def test_command_is_idempotent(self):
         self.call_seed()
         counts_after_first_run = self.snapshot_counts()
@@ -43,6 +45,7 @@ class SeedLocalDataCommandTests(TestCase):
 
         self.assertEqual(self.snapshot_counts(), counts_after_first_run)
 
+    @override_settings(DEBUG=True)
     def test_reset_rebuilds_seed_data_without_duplicates(self):
         self.call_seed()
         CustomUser.objects.get(user_email='newcomer.local@example.com').delete()
