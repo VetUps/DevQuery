@@ -8,6 +8,7 @@ import { VueQueryPlugin } from '@tanstack/vue-query'
 import { queryClient } from '@/app/query-client'
 import { useSessionStore } from '@/features/auth/stores/session'
 import QuestionDetailPage from '@/pages/QuestionDetailPage.vue'
+import type { NotificationItem, PaginatedNotificationResponse } from '@/features/notifications/api/notifications'
 import type { QuestionDetail } from '@/features/questions/api/questions'
 
 const questionDetailState = {
@@ -40,6 +41,13 @@ const profileState = {
 
 const currentUserState = {
   data: ref(null),
+  isPending: ref(false),
+  isError: ref(false),
+  refetch: vi.fn(),
+}
+
+const notificationsState = {
+  data: ref<PaginatedNotificationResponse>({ count: 0, next: null, previous: null, results: [] }),
   isPending: ref(false),
   isError: ref(false),
   refetch: vi.fn(),
@@ -86,6 +94,10 @@ vi.mock('@/features/auth/queries/useCurrentUserQuery', () => ({
   useCurrentUserQuery: vi.fn(() => currentUserState),
 }))
 
+vi.mock('@/features/notifications/queries/useNotificationsQuery', () => ({
+  useNotificationsQuery: vi.fn(() => notificationsState),
+}))
+
 vi.mock('@/features/solutions/mutations/useCreateSolutionMutation', () => ({
   useCreateSolutionMutation: vi.fn(() => createSolutionMutationState),
 }))
@@ -101,6 +113,28 @@ vi.mock('@/features/questions/mutations/useCreateQuestionEditMutation', () => ({
 vi.mock('@/features/questions/queries/useTagAutocompleteQuery', () => ({
   useTagAutocompleteQuery: vi.fn(() => tagAutocompleteQueryState),
 }))
+
+function buildInvitationNotification(overrides: Partial<NotificationItem> = {}): NotificationItem {
+  return {
+    notification_id: 'notification-1',
+    notification_type: 'expert_invitation',
+    title: 'Автор приглашает вас ответить',
+    message: 'Помогите новичку с защищённым вопросом.',
+    payload: {},
+    source_question_id: 'protected-question-1',
+    created_at: '2026-04-01T12:05:00Z',
+    read_at: null,
+    expires_at: '2026-04-02T00:00:00Z',
+    is_read: false,
+    is_expired: false,
+    invitation_status: 'active',
+    protected_window_active: true,
+    protected_window_ended: false,
+    protected_until: '2026-04-02T00:00:00Z',
+    cta_url: '/questions/protected-question-1',
+    ...overrides,
+  }
+}
 
 function buildBackendQuestion(overrides: Partial<QuestionDetail> = {}): QuestionDetail {
   return {
@@ -204,6 +238,11 @@ describe('protected newcomer question integrated policy proof', () => {
     currentUserState.isError.value = false
     currentUserState.refetch.mockReset()
 
+    notificationsState.data.value = { count: 0, next: null, previous: null, results: [] }
+    notificationsState.isPending.value = false
+    notificationsState.isError.value = false
+    notificationsState.refetch.mockReset()
+
     createSolutionMutationState.isPending.value = false
     createSolutionMutationState.mutateAsync.mockReset()
 
@@ -301,8 +340,68 @@ describe('protected newcomer question integrated policy proof', () => {
     expect(wrapper.text()).toContain('Читаемый текст вопроса должен оставаться доступным')
     expect(wrapper.find('[data-testid="question-protection-badge"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="question-protection-panel"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="question-invitation-context-panel"]').exists()).toBe(false)
     expect(wrapper.text()).toContain('Написать решение')
     expect(wrapper.find('[data-testid="vote-downvote-blocked"]').exists()).toBe(false)
     expect(wrapper.findAll('button').some((button) => button.text() === 'Против')).toBe(true)
+  })
+
+  it('explains an active expert invitation without changing the composer authorization source', async () => {
+    notificationsState.data.value = {
+      count: 1,
+      next: null,
+      previous: null,
+      results: [buildInvitationNotification()],
+    }
+
+    const wrapper = await mountProtectedQuestion(buildBackendQuestion({
+      viewer_can_answer: true,
+      viewer_answer_reason_code: 'answer_allowed',
+      viewer_answer_reason_message: '',
+      viewer_level: 'expert',
+      viewer_level_label: 'Эксперт',
+    }))
+
+    expect(wrapper.get('[data-testid="question-invitation-context-active"]').text()).toContain('Автор позвал вас как эксперта или мастера')
+    expect(wrapper.get('[data-testid="question-invitation-context-active"]').text()).toContain('уведомление только объясняет контекст')
+    expect(wrapper.text()).toContain('Написать решение')
+    expect(wrapper.find('[data-testid="solution-composer-blocked-reason"]').exists()).toBe(false)
+  })
+
+  it('treats forged or stale invitation notifications as context only when backend blocks answers', async () => {
+    notificationsState.data.value = {
+      count: 1,
+      next: null,
+      previous: null,
+      results: [buildInvitationNotification({
+        invitation_status: 'active',
+        protected_window_active: true,
+        cta_url: null,
+        protected_until: null,
+      })],
+    }
+
+    const wrapper = await mountProtectedQuestion(buildBackendQuestion({ viewer_can_answer: false }))
+
+    expect(wrapper.get('[data-testid="question-invitation-context-stale"]').text()).toContain('Наличие уведомления не является разрешением')
+    expect(wrapper.get('[data-testid="solution-composer-blocked-reason"]').text()).toContain('Отвечать сейчас могут только участники уровня Эксперт или Мастер')
+    expect(wrapper.text()).not.toContain('Написать решение')
+  })
+
+  it('shows ordinary blocked-user context when no matching invitation exists and degrades safely on notification errors', async () => {
+    notificationsState.isError.value = true
+    notificationsState.data.value = {
+      count: 1,
+      next: null,
+      previous: null,
+      results: [buildInvitationNotification({ notification_type: 'system', source_question_id: null })],
+    }
+
+    const wrapper = await mountProtectedQuestion(buildBackendQuestion())
+
+    expect(wrapper.get('[data-testid="question-invitation-context-warning"]').text()).toContain('обычный защищённый контекст')
+    expect(wrapper.get('[data-testid="question-invitation-context-ordinary-blocked"]').text()).toContain('У вас нет активного приглашения')
+    expect(wrapper.get('[data-testid="question-invitation-context-progress"]').text()).toContain('не хватает 70 очков')
+    expect(wrapper.get('[data-testid="solution-composer-blocked-reason"]').text()).toContain('Отвечать сейчас могут только участники уровня Эксперт или Мастер')
   })
 })
