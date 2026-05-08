@@ -1,13 +1,18 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import timedelta
 
 from django.conf import settings
 from django.contrib.contenttypes.models import ContentType
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
+from django.utils import timezone
 
+from apps.notifications.models import Notification
 from apps.qa.models import Comment, Question, QuestionEditEvent, QuestionEditProposal, QuestionRevision, Solution, SolutionEdits, Tag, Vote
+from apps.qa.services.question_expert_invitation_service import QuestionExpertInvitationService
+from apps.qa.services.question_protection_service import QuestionProtectionService
 from apps.user.models import CustomUser, ReputationLevelThreshold, ReputationPolicyConfig, ReputationTransaction
 from apps.user.services.reputation_service import ReputationService
 
@@ -58,6 +63,18 @@ SEED_USERS = [
         bio='Эксперт с принятым решением и историей правок.',
     ),
     SeedUser(
+        email='master.local@example.com',
+        username='master_local',
+        score=360,
+        bio='Мастер для проверки M008 приглашений, profile notifications и доступа к protected-вопросам.',
+    ),
+    SeedUser(
+        email='blocked.local@example.com',
+        username='blocked_local',
+        score=35,
+        bio='Обычный участник без ответа на M008 protected-вопросы; нужен для чистой negative-path проверки.',
+    ),
+    SeedUser(
         email='moderated.local@example.com',
         username='moderated_local',
         score=18,
@@ -98,6 +115,7 @@ class Command(BaseCommand):
             self._seed_votes(users, questions, solutions)
             self._seed_edit_history(users, questions, solutions, tags)
             self._seed_reputation_events(users, solutions)
+            self._seed_m008_invitations(users, questions)
             self._refresh_tag_counters(tags)
 
         self.stdout.write(self.style.SUCCESS('Локальные тестовые данные готовы.'))
@@ -177,6 +195,7 @@ class Command(BaseCommand):
         }
 
     def _seed_questions(self, users: dict[str, CustomUser], tags: dict[str, Tag]) -> dict[str, Question]:
+        now = timezone.now()
         question_specs = {
             'protected': {
                 'user': users['newcomer_local'],
@@ -184,6 +203,45 @@ class Command(BaseCommand):
                 'body': 'Проверочный вопрос новичка: нужен protected-window, теги и несколько комментариев.',
                 'status': Question.Status.OPEN_STATUS,
                 'tags': ['vue', 'typescript'],
+                'created_at': now - timedelta(hours=1),
+            },
+            'm008_invite_flow': {
+                'user': users['newcomer_local'],
+                'title': '[seed][m008] Как вручную пригласить эксперта к protected-вопросу?',
+                'body': (
+                    'Чистый M008-сценарий без заранее созданных приглашений. '
+                    'Войдите как newcomer_local, откройте вопрос и отправьте приглашение expert/master из панели вопроса.'
+                ),
+                'status': Question.Status.OPEN_STATUS,
+                'tags': ['vue', 'reputation'],
+                'created_at': now - timedelta(minutes=30),
+            },
+            'm008_active_invitation': {
+                'user': users['newcomer_local'],
+                'title': '[seed][m008] Активное приглашение эксперту: проверить уведомление и ответ',
+                'body': (
+                    'M008-сценарий с готовыми активными приглашениями для expert_local и master_local. '
+                    'Получатели должны видеть карточки в профиле и доступный ответ на question detail.'
+                ),
+                'status': Question.Status.OPEN_STATUS,
+                'tags': ['typescript', 'reputation'],
+                'created_at': now - timedelta(hours=1),
+            },
+            'm008_expired_invitation': {
+                'user': users['newcomer_local'],
+                'title': '[seed][m008] Истёкшее приглашение при ещё активной защите',
+                'body': 'M008-сценарий для проверки карточки уведомления с истёкшим TTL приглашения.',
+                'status': Question.Status.OPEN_STATUS,
+                'tags': ['django', 'reputation'],
+                'created_at': now - timedelta(hours=2),
+            },
+            'm008_protected_ended': {
+                'user': users['newcomer_local'],
+                'title': '[seed][m008] Приглашение после завершения protected-window',
+                'body': 'M008-сценарий для проверки состояния protected-window-ended в уведомлениях.',
+                'status': Question.Status.OPEN_STATUS,
+                'tags': ['docker', 'reputation'],
+                'created_at': now - timedelta(hours=13),
             },
             'solved': {
                 'user': users['participant_local'],
@@ -191,6 +249,7 @@ class Command(BaseCommand):
                 'body': 'Проверочный solved-вопрос с принятым ответом и голосами.',
                 'status': Question.Status.SOLVED_STATUS,
                 'tags': ['django', 'docker'],
+                'created_at': now - timedelta(days=2),
             },
             'admin': {
                 'user': users['expert_local'],
@@ -198,6 +257,7 @@ class Command(BaseCommand):
                 'body': 'Вопрос для проверки admin activity timeline и истории репутации.',
                 'status': Question.Status.OPEN_STATUS,
                 'tags': ['reputation', 'django'],
+                'created_at': now - timedelta(days=1),
             },
         }
 
@@ -211,6 +271,8 @@ class Command(BaseCommand):
                     'question_status': spec['status'],
                 },
             )
+            Question.objects.filter(pk=question.pk).update(question_created_at=spec['created_at'])
+            question.refresh_from_db()
             question.tags.set([tags[tag_name] for tag_name in spec['tags']])
             questions[key] = question
         return questions
@@ -376,6 +438,102 @@ class Command(BaseCommand):
                 'note': SEED_NOTE + ' Ручная корректировка для проверки admin формы.',
             },
         )
+
+    def _seed_m008_invitations(self, users: dict[str, CustomUser], questions: dict[str, Question]) -> None:
+        active_question = questions['m008_active_invitation']
+        expired_question = questions['m008_expired_invitation']
+        ended_question = questions['m008_protected_ended']
+
+        active_expires_at = active_question.question_created_at + ReputationService.get_protected_newcomer_window() * 2
+        expired_expires_at = timezone.now() - timedelta(minutes=10)
+        ended_expires_at = timezone.now() + timedelta(hours=4)
+
+        self._upsert_invitation_notification(
+            recipient=users['expert_local'],
+            question=active_question,
+            expires_at=active_expires_at,
+            read=False,
+        )
+        self._upsert_invitation_notification(
+            recipient=users['master_local'],
+            question=active_question,
+            expires_at=active_expires_at,
+            read=True,
+        )
+        self._upsert_invitation_notification(
+            recipient=users['expert_local'],
+            question=expired_question,
+            expires_at=expired_expires_at,
+            read=False,
+            title='Истёкшее приглашение ответить на защищённый вопрос',
+        )
+        self._upsert_invitation_notification(
+            recipient=users['expert_local'],
+            question=ended_question,
+            expires_at=ended_expires_at,
+            read=False,
+            title='Приглашение к вопросу с завершённым protected-window',
+        )
+
+    def _upsert_invitation_notification(
+        self,
+        *,
+        recipient: CustomUser,
+        question: Question,
+        expires_at,
+        read: bool,
+        title: str = 'Приглашение ответить на защищённый вопрос',
+    ) -> None:
+        dedupe_key = QuestionExpertInvitationService.build_dedupe_key(question.pk, recipient.pk)
+        payload = self._build_m008_invitation_payload(recipient=recipient, question=question, expires_at=expires_at)
+        read_at = timezone.now() if read else None
+
+        Notification.objects.update_or_create(
+            recipient=recipient,
+            notification_type=Notification.NotificationType.EXPERT_INVITATION,
+            dedupe_key=dedupe_key,
+            defaults={
+                'title': title,
+                'message': f'Автор вопроса «{question.question_title}» приглашает вас помочь с ответом.',
+                'payload': payload,
+                'source_question': question,
+                'expires_at': expires_at,
+                'read_at': read_at,
+            },
+        )
+
+    def _build_m008_invitation_payload(self, *, recipient: CustomUser, question: Question, expires_at) -> dict:
+        author = question.user
+        protection_state = QuestionProtectionService.get_protection_state(question)
+        author_resolution = ReputationService.resolve_level(user=author)
+        recipient_resolution = ReputationService.resolve_level(user=recipient)
+        protected_until = protection_state.protected_until
+        progress = getattr(protection_state, 'progress', None)
+
+        return {
+            'question_id': str(question.pk),
+            'question_title': question.question_title,
+            'question_status': question.question_status,
+            'question_tags': list(question.tags.order_by('name').values_list('name', flat=True)),
+            'author_id': str(author.pk),
+            'author_name': author.user_name,
+            'author_reputation_level': author_resolution.value,
+            'author_reputation_level_label': author_resolution.label,
+            'author_points_to_next_level': getattr(progress, 'points_to_next_level', None),
+            'author_next_level': getattr(progress, 'next_level', None),
+            'author_next_level_label': getattr(progress, 'next_level_label', None),
+            'recipient_id': str(recipient.pk),
+            'recipient_reputation_level': recipient_resolution.value,
+            'recipient_reputation_level_label': recipient_resolution.label,
+            'invitation_type': Notification.NotificationType.EXPERT_INVITATION,
+            'invitation_status': 'active',
+            'cta_url': f'/questions/{question.pk}',
+            'expires_at': expires_at.isoformat(),
+            'is_protected': protection_state.is_protected,
+            'protection_reason_code': protection_state.reason_code,
+            'protected_until': protected_until.isoformat() if protected_until else None,
+            'protected_window_ended': not protection_state.is_protected,
+        }
 
     def _refresh_tag_counters(self, tags: dict[str, Tag]) -> None:
         for tag in tags.values():
