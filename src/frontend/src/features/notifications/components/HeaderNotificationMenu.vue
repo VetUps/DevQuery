@@ -14,7 +14,27 @@ const PROFILE_NOTIFICATIONS_ROUTE = {
   query: { tab: 'notifications' },
 } as const
 
-const isOpen = shallowRef(false)
+const props = withDefaults(defineProps<{
+  open?: boolean
+}>(), {
+  open: undefined,
+})
+
+const emit = defineEmits<{
+  'update:open': [open: boolean]
+}>()
+
+const internalOpen = shallowRef(false)
+const isOpen = computed({
+  get: () => props.open ?? internalOpen.value,
+  set: (value: boolean) => {
+    if (props.open === undefined) {
+      internalOpen.value = value
+    }
+
+    emit('update:open', value)
+  },
+})
 const summaryQuery = useNotificationSummaryQuery()
 
 const summary = computed(() => summaryQuery.data.value)
