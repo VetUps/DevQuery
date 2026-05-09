@@ -1,16 +1,19 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
 
+import type { DraftAssistantResponse } from '@/features/questions/api/questionDraftAssistant'
 import type { QuestionDetail } from '@/features/questions/api/questions'
 import {
   extractQuestionFieldErrors,
   normalizeQuestionSubmitError,
 } from '@/features/questions/libs/question-form-errors'
+import { useQuestionDraftAssistantMutation } from '@/features/questions/mutations/useQuestionDraftAssistantMutation'
 import { useUpdateQuestionMutation } from '@/features/questions/mutations/useUpdateQuestionMutation'
 import AppButton from '@/shared/ui/AppButton.vue'
 import AppInput from '@/shared/ui/AppInput.vue'
 
 import MarkdownComposer from './MarkdownComposer.vue'
+import QuestionDraftAssistantPanel from './QuestionDraftAssistantPanel.vue'
 import QuestionTagInput from './QuestionTagInput.vue'
 
 interface Props {
@@ -23,6 +26,10 @@ const emit = defineEmits<{
 }>()
 
 const updateQuestionMutation = useUpdateQuestionMutation()
+const draftAssistantMutation = useQuestionDraftAssistantMutation()
+const latestDraftAssistantResult = ref<DraftAssistantResponse | null>(null)
+const latestDraftAssistantError = ref<unknown>(null)
+let draftAssistantRequestToken = 0
 
 const form = reactive({
   question_title: '',
@@ -56,6 +63,50 @@ function hydrateFromQuestion(question: QuestionDetail) {
   clearFieldErrors()
   formError.value = ''
   successMessage.value = ''
+  latestDraftAssistantResult.value = null
+  latestDraftAssistantError.value = null
+  draftAssistantRequestToken += 1
+  draftAssistantMutation.reset()
+}
+
+function isCurrentDraftAssistantRequest(token: number, questionId: string) {
+  return token === draftAssistantRequestToken && props.question.question_id === questionId
+}
+
+async function requestDraftAssistantFeedback() {
+  const requestToken = (draftAssistantRequestToken += 1)
+  const requestQuestionId = props.question.question_id
+  latestDraftAssistantError.value = null
+
+  try {
+    const result = await draftAssistantMutation.mutateAsync({
+      question_title: form.question_title,
+      question_body: form.question_body,
+      tags: [...form.tags],
+      mode: 'edit',
+    })
+
+    if (isCurrentDraftAssistantRequest(requestToken, requestQuestionId)) {
+      latestDraftAssistantResult.value = result
+    }
+  } catch (error) {
+    if (isCurrentDraftAssistantRequest(requestToken, requestQuestionId)) {
+      latestDraftAssistantError.value = error
+    }
+    // The mutation exposes a redacted error state through the assistant panel.
+  }
+}
+
+function applySuggestedTitle(title: string) {
+  form.question_title = title
+}
+
+function applySuggestedBody(body: string) {
+  form.question_body = body
+}
+
+function applySuggestedTags(tags: string[]) {
+  form.tags = [...tags]
 }
 
 function clearFieldErrors() {
@@ -131,6 +182,16 @@ async function handleSubmit() {
     />
 
     <QuestionTagInput id="question-edit-tags" v-model="form.tags" label="Теги" :error="fieldErrors.tags" />
+
+    <QuestionDraftAssistantPanel
+      :result="latestDraftAssistantResult"
+      :is-pending="draftAssistantMutation.isPending.value"
+      :error="latestDraftAssistantError"
+      @request="requestDraftAssistantFeedback"
+      @apply-title="applySuggestedTitle"
+      @apply-body="applySuggestedBody"
+      @apply-tags="applySuggestedTags"
+    />
 
     <div class="question-edit-form__footer">
       <p class="question-edit-form__hint">
