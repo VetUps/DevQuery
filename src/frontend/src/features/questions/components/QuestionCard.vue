@@ -1,22 +1,23 @@
 <script setup lang="ts">
-import {
-  getProtectedQuestionAnswerWindowLabel,
-  getProtectedQuestionAnswerWindowSummary,
-  getProtectedQuestionWindowHours,
-  getProtectedQuestionWindowLabel,
-  type QuestionListItem,
-} from '@/features/questions/api/questions'
+import { type QuestionListItem } from '@/features/questions/api/questions'
+import ProtectedQuestionChip from '@/features/questions/components/ProtectedQuestionChip.vue'
 import QuestionTagChips from '@/features/questions/components/QuestionTagChips.vue'
 import AuthorReputationBadge from '@/features/users/components/AuthorReputationBadge.vue'
 import { formatLongDate, formatQuestionStatus } from '@/shared/libs/formatting'
 
 const props = defineProps<{
   question: QuestionListItem
+  isInvitedForCurrentUser?: boolean
 }>()
 </script>
 
 <template>
-  <article class="question-card" data-testid="question-card">
+  <article
+    class="question-card"
+    :class="{ 'question-card--invited': props.isInvitedForCurrentUser }"
+    data-testid="question-card"
+    :data-invited-for-current-user="props.isInvitedForCurrentUser ? 'true' : 'false'"
+  >
     <div class="question-card__meta">
       <span
         class="question-card__status"
@@ -24,12 +25,18 @@ const props = defineProps<{
       >
         {{ formatQuestionStatus(question.question_status) }}
       </span>
-      <span
+      <ProtectedQuestionChip
         v-if="question.is_protected"
-        class="question-card__protection"
-        data-testid="question-card-protection"
+        :question="question"
+        test-id="question-card-protection"
+      />
+      <span
+        v-if="props.isInvitedForCurrentUser"
+        class="question-card__invited-badge"
+        data-testid="question-card-invited-badge"
+        aria-label="Вас позвали ответить на этот вопрос"
       >
-        {{ `Защита ${getProtectedQuestionWindowLabel(getProtectedQuestionWindowHours(question))}` }}
+        Вас позвали ответить
       </span>
       <AuthorReputationBadge
         :reputation="question.reputation"
@@ -50,33 +57,6 @@ const props = defineProps<{
       <h2 class="question-card__title">{{ question.question_title }}</h2>
     </RouterLink>
 
-    <div
-      v-if="question.is_protected"
-      class="question-card__protection-panel"
-      data-testid="question-card-protection-panel"
-    >
-      <p class="question-card__protection-title">
-        Защищённый вопрос · {{ getProtectedQuestionAnswerWindowLabel(question) }}
-      </p>
-      <p class="question-card__protection-copy">
-        {{ getProtectedQuestionAnswerWindowSummary(question) }}
-      </p>
-      <p
-        v-if="question.viewer_answer_reason_message"
-        class="question-card__protection-copy"
-        data-testid="question-card-answer-blocked-reason"
-      >
-        {{ question.viewer_answer_reason_message }}
-      </p>
-      <p
-        v-if="question.viewer_downvote_reason_message"
-        class="question-card__protection-copy"
-        data-testid="question-card-downvote-blocked-reason"
-      >
-        {{ question.viewer_downvote_reason_message }}
-      </p>
-    </div>
-
     <QuestionTagChips :tags="question.tags" />
   </article>
 </template>
@@ -96,6 +76,13 @@ const props = defineProps<{
     box-shadow 0.2s ease;
 }
 
+.question-card--invited {
+  border-color: rgb(217 119 6 / 0.5);
+  background:
+    linear-gradient(135deg, rgb(255 251 235 / 0.9), rgb(255 255 255 / 0.78));
+  box-shadow: 0 18px 34px rgb(217 119 6 / 0.12);
+}
+
 .question-card:hover {
   transform: translateY(-2px);
   border-color: rgb(14 116 144 / 0.26);
@@ -111,9 +98,8 @@ const props = defineProps<{
 }
 
 .question-card__status,
-.question-card__stamp,
-.question-card__protection-title,
-.question-card__protection-copy {
+.question-card__invited-badge,
+.question-card__stamp {
   font-size: 14px;
 }
 
@@ -138,41 +124,16 @@ const props = defineProps<{
   color: #B42318;
 }
 
-.question-card__protection {
+.question-card__invited-badge {
   display: inline-flex;
   align-items: center;
   min-height: 32px;
   padding: 0 12px;
-  border: 1px solid rgb(180 35 24 / 0.18);
+  border: 1px solid rgb(217 119 6 / 0.24);
   border-radius: 999px;
-  background: rgb(180 35 24 / 0.08);
-  color: #B42318;
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.question-card__protection-panel {
-  display: grid;
-  gap: var(--space-xs);
-  padding: var(--space-md) var(--space-lg);
-  border: 1px solid rgb(180 35 24 / 0.18);
-  border-radius: var(--radius-lg);
-  background: rgb(180 35 24 / 0.06);
-}
-
-.question-card__protection-title,
-.question-card__protection-copy {
-  margin: 0;
-}
-
-.question-card__protection-title {
-  color: #8F1D14;
+  background: rgb(251 191 36 / 0.16);
+  color: #92400E;
   font-weight: 700;
-}
-
-.question-card__protection-copy {
-  color: #7A5A46;
-  line-height: 1.6;
 }
 
 .question-card__stamp {
