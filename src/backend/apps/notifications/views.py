@@ -122,3 +122,23 @@ class NotificationMarkReadView(APIView):
 
         serializer = NotificationSerializer(notification, context={'request': request})
         return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class NotificationMarkAllReadView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        request=None,
+        responses={
+            200: inline_serializer(
+                name='NotificationMarkAllReadResponse',
+                fields={
+                    'marked_count': serializers.IntegerField(),
+                    'unread_count': serializers.IntegerField(),
+                },
+            )
+        },
+        description='Mark all authenticated-recipient notifications as read and return deterministic counters.',
+    )
+    def patch(self, request):
+        return Response(NotificationService.mark_all_read(request.user), status=status.HTTP_200_OK)

@@ -86,3 +86,12 @@ class NotificationService:
             notification.read_at = timezone.now()
             notification.save(update_fields=['read_at'])
         return notification
+
+    @staticmethod
+    def mark_all_read(user):
+        marked_count = Notification.objects.filter(recipient=user, read_at__isnull=True).update(read_at=timezone.now())
+        unread_count = NotificationService.unread_count_for_user(user)
+        return {
+            'marked_count': marked_count,
+            'unread_count': unread_count,
+        }
