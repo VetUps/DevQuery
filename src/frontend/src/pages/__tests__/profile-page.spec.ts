@@ -21,7 +21,7 @@ vi.mock('@/features/auth/queries/useCurrentUserQuery', () => ({
 
 vi.mock('@/features/notifications/components/ProfileNotificationsTab.vue', () => ({
   default: {
-    template: '<div data-testid="notifications-workspace">Уведомления профиля готовы к просмотру.</div>',
+    template: '<section data-testid="profile-notifications-tab">Уведомления профиля готовы к просмотру.</section>',
   },
 }))
 
@@ -319,7 +319,7 @@ describe('profile reputation surfaces', () => {
     await flushPromises()
 
     await expectReputationDialogClosed(router.currentRoute.value.query, { tab: 'notifications' })
-    expect(wrapper.get('[data-testid="notifications-workspace"]').text()).toContain('Уведомления профиля')
+    expect(wrapper.get('[data-testid="profile-notifications-tab"]').text()).toContain('Уведомления профиля')
   })
 
   it('renders a localized loading state for the full profile shell', async () => {
@@ -365,7 +365,7 @@ describe('profile reputation surfaces', () => {
     expect(router.currentRoute.value.query.tab).toBe('review')
     expect(wrapper.text()).toContain('Очередь правок к вашим решениям готова к проверке.')
     expect(wrapper.text()).toContain('Очередь правок к вашим вопросам готова к проверке.')
-    expect(wrapper.find('[data-testid="notifications-workspace"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="profile-notifications-tab"]').exists()).toBe(false)
     expect(getDialog()).toBeNull()
     expect(getExplanationPanel()).toBeNull()
   })
@@ -373,9 +373,11 @@ describe('profile reputation surfaces', () => {
   it('uses the route query to switch into the notifications workspace', async () => {
     const { wrapper, router } = await mountProfilePage({ tab: 'notifications' })
 
+    expect(router.currentRoute.value.path).toBe('/profile')
+    expect(router.currentRoute.value.name).toBeUndefined()
     expect(router.currentRoute.value.query.tab).toBe('notifications')
     expect(wrapper.get('[data-testid="profile-tab-notifications"]').classes()).toContain('profile-page__tab--active')
-    expect(wrapper.get('[data-testid="notifications-workspace"]').text()).toContain('Уведомления профиля')
+    expect(wrapper.get('[data-testid="profile-notifications-tab"]').text()).toContain('Уведомления профиля')
     expect(wrapper.find('[data-testid="reputation-explanation-trigger"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="history-workspace"]').exists()).toBe(false)
     expect(getDialog()).toBeNull()
@@ -388,7 +390,7 @@ describe('profile reputation surfaces', () => {
     expect(unknownState.router.currentRoute.value.query.tab).toBe('unknown')
     expect(unknownState.wrapper.get('[data-testid="profile-tab-overview"]').classes()).toContain('profile-page__tab--active')
     expect(unknownState.wrapper.get('[data-testid="reputation-explanation-trigger"]').exists()).toBe(true)
-    expect(unknownState.wrapper.find('[data-testid="notifications-workspace"]').exists()).toBe(false)
+    expect(unknownState.wrapper.find('[data-testid="profile-notifications-tab"]').exists()).toBe(false)
 
     unknownState.wrapper.unmount()
     document.body.innerHTML = ''
@@ -399,7 +401,7 @@ describe('profile reputation surfaces', () => {
     expect(malformedState.router.currentRoute.value.query.tab).toEqual(['notifications', 'history'])
     expect(malformedState.wrapper.get('[data-testid="profile-tab-overview"]').classes()).toContain('profile-page__tab--active')
     expect(malformedState.wrapper.get('[data-testid="reputation-explanation-trigger"]').exists()).toBe(true)
-    expect(malformedState.wrapper.find('[data-testid="notifications-workspace"]').exists()).toBe(false)
+    expect(malformedState.wrapper.find('[data-testid="profile-notifications-tab"]').exists()).toBe(false)
   })
 
   it('keeps child tabs hidden when the profile fetch fails', async () => {
@@ -412,30 +414,40 @@ describe('profile reputation surfaces', () => {
 
     expect(wrapper.text()).toContain('Не удалось загрузить профиль')
     expect(wrapper.find('[data-testid="profile-tab-notifications"]').exists()).toBe(false)
-    expect(wrapper.find('[data-testid="notifications-workspace"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="profile-notifications-tab"]').exists()).toBe(false)
   })
 
   it('updates the route when switching tabs from the shell', async () => {
+    const localStorageSet = vi.spyOn(Storage.prototype, 'setItem')
     const { wrapper, router } = await mountProfilePage()
 
     await wrapper.get('[data-testid="profile-tab-notifications"]').trigger('click')
     await flushPromises()
 
+    expect(router.currentRoute.value.path).toBe('/profile')
+    expect(router.currentRoute.value.name).toBeUndefined()
     expect(router.currentRoute.value.query.tab).toBe('notifications')
+    expect(localStorageSet).not.toHaveBeenCalled()
     expect(wrapper.text()).toContain('Уведомления профиля готовы к просмотру.')
     expect(wrapper.find('[data-testid="history-workspace"]').exists()).toBe(false)
 
     await wrapper.get('[data-testid="profile-tab-history"]').trigger('click')
     await flushPromises()
 
+    expect(router.currentRoute.value.path).toBe('/profile')
+    expect(router.currentRoute.value.name).toBeUndefined()
     expect(router.currentRoute.value.query.tab).toBe('history')
+    expect(localStorageSet).not.toHaveBeenCalled()
     expect(wrapper.text()).toContain('История обработанных правок к вашим решениям доступна в профиле.')
-    expect(wrapper.find('[data-testid="notifications-workspace"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="profile-notifications-tab"]').exists()).toBe(false)
 
     await wrapper.get('[data-testid="profile-tab-overview"]').trigger('click')
     await flushPromises()
 
+    expect(router.currentRoute.value.path).toBe('/profile')
+    expect(router.currentRoute.value.name).toBeUndefined()
     expect(router.currentRoute.value.query).toEqual({})
+    expect(localStorageSet).not.toHaveBeenCalled()
     expect(wrapper.get('[data-testid="reputation-explanation-trigger"]').exists()).toBe(true)
   })
 })
