@@ -8,7 +8,11 @@ import { VueQueryPlugin } from '@tanstack/vue-query'
 import { queryClient } from '@/app/query-client'
 import { useSessionStore } from '@/features/auth/stores/session'
 import type { NotificationItem, PaginatedNotificationResponse } from '@/features/notifications/api/notifications'
-import type { EligibleExpertsEnvelope, ExpertInvitationCreateResponse } from '@/features/questions/api/questionExpertInvitations'
+import type {
+  EligibleExpertsEnvelope,
+  ExpertInvitationCreateResponse,
+  InvitedExpertInvitationsEnvelope,
+} from '@/features/questions/api/questionExpertInvitations'
 import type { QuestionDetail } from '@/features/questions/api/questions'
 import ProfilePage from '@/pages/ProfilePage.vue'
 import QuestionDetailPage from '@/pages/QuestionDetailPage.vue'
@@ -79,6 +83,14 @@ const eligibleExpertsState = {
   refetch: vi.fn(),
 }
 
+const invitedExpertsState = {
+  data: ref<InvitedExpertInvitationsEnvelope | undefined>(undefined),
+  isPending: ref(false),
+  isError: ref(false),
+  error: ref<unknown>(null),
+  refetch: vi.fn(),
+}
+
 const createExpertInvitationsMutationState = {
   isPending: ref(false),
   mutateAsync: vi.fn(),
@@ -135,6 +147,10 @@ vi.mock('@/features/questions/queries/useTagAutocompleteQuery', () => ({
 
 vi.mock('@/features/questions/queries/useEligibleExpertsQuery', () => ({
   useEligibleExpertsQuery: vi.fn(() => eligibleExpertsState),
+}))
+
+vi.mock('@/features/questions/queries/useInvitedExpertInvitationsQuery', () => ({
+  useInvitedExpertInvitationsQuery: vi.fn(() => invitedExpertsState),
 }))
 
 vi.mock('@/features/questions/mutations/useCreateExpertInvitationsMutation', () => ({
@@ -250,6 +266,20 @@ function buildCreateInvitationsResponse(
   }
 }
 
+function buildInvitedExpertsEnvelope(
+  overrides: Partial<InvitedExpertInvitationsEnvelope> = {},
+): InvitedExpertInvitationsEnvelope {
+  return {
+    count: 1,
+    next: null,
+    previous: null,
+    results: [],
+    question_id: 'question-1',
+    invited_count: 1,
+    ...overrides,
+  }
+}
+
 function buildInvitationNotification(overrides: Partial<NotificationItem> = {}): NotificationItem {
   return {
     notification_id: 'notification-1',
@@ -326,6 +356,12 @@ function resetMockState() {
   eligibleExpertsState.error.value = null
   eligibleExpertsState.refetch.mockReset()
 
+  invitedExpertsState.data.value = buildInvitedExpertsEnvelope()
+  invitedExpertsState.isPending.value = false
+  invitedExpertsState.isError.value = false
+  invitedExpertsState.error.value = null
+  invitedExpertsState.refetch.mockReset()
+
   createExpertInvitationsMutationState.isPending.value = false
   createExpertInvitationsMutationState.mutateAsync.mockReset()
 
@@ -380,6 +416,11 @@ async function mountQuestionPage(router: Router, authenticatedUserId = 'expert-1
   return wrapper
 }
 
+async function openExpertInvitationDialog(wrapper: VueWrapper) {
+  await wrapper.get('[data-testid="question-expert-invitation-trigger"]').trigger('click')
+  await flushPromises()
+}
+
 async function mountProfileNotifications(router: Router, authenticatedUserId = 'expert-1') {
   const pinia = installSession(authenticatedUserId)
 
@@ -423,7 +464,9 @@ describe('newcomer help loop integration', () => {
     createExpertInvitationsMutationState.mutateAsync.mockResolvedValue(buildCreateInvitationsResponse())
 
     const wrapper = await mountQuestionPage(createTestRouter(), 'author-1')
+    await openExpertInvitationDialog(wrapper)
 
+    expect(wrapper.get('[data-testid="question-expert-invitation-dialog"]').exists()).toBe(true)
     const panel = wrapper.get('[data-testid="question-expert-invitation-panel"]')
     expect(panel.text()).toContain('Позвать эксперта или мастера')
     expect(panel.get('[data-testid="expert-invitation-slot-summary"]').text()).toContain('Приглашено 1 из 3')
@@ -453,6 +496,7 @@ describe('newcomer help loop integration', () => {
     createExpertInvitationsMutationState.mutateAsync.mockRejectedValue(new Error('timeout Authorization: Bearer secret'))
 
     const mutationWrapper = await mountQuestionPage(createTestRouter(), 'author-1')
+    await openExpertInvitationDialog(mutationWrapper)
 
     await mutationWrapper.get('[data-testid="expert-invitation-candidate-expert-1"]').setValue(true)
     await mutationWrapper.get('[data-testid="expert-invitation-send"]').trigger('click')
@@ -471,11 +515,12 @@ describe('newcomer help loop integration', () => {
     eligibleExpertsState.error.value = new Error('selector backend traceback secret')
 
     const selectorWrapper = await mountQuestionPage(createTestRouter(), 'author-1')
+    await openExpertInvitationDialog(selectorWrapper)
 
-    expect(selectorWrapper.get('[data-testid="expert-invitation-query-error"]').text()).toContain('Не удалось обновить приглашения экспертов')
+    expect(selectorWrapper.get('[data-testid="expert-invitation-available-error"]').text()).toContain('Не удалось обновить приглашения экспертов')
     expect(selectorWrapper.text()).not.toContain('traceback secret')
 
-    await selectorWrapper.get('[data-testid="expert-invitation-query-error"] button').trigger('click')
+    await selectorWrapper.get('[data-testid="expert-invitation-available-retry"]').trigger('click')
 
     expect(eligibleExpertsState.refetch).toHaveBeenCalledOnce()
   })
