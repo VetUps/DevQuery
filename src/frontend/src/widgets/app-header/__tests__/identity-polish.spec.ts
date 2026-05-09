@@ -28,6 +28,14 @@ const bestSolutionMutationState = {
   mutateAsync: vi.fn(),
 }
 
+const notificationQueryState = {
+  data: ref({ unread_count: 0, latest: [] }),
+  isPending: ref(false),
+  isError: ref(false),
+  error: ref(null),
+  refetch: vi.fn(),
+}
+
 vi.mock('@/features/auth/queries/useCurrentUserQuery', () => ({
   useCurrentUserQuery: vi.fn(() => currentUserState),
 }))
@@ -38,6 +46,10 @@ vi.mock('@/features/comments/queries/useCommentContextQuery', () => ({
 
 vi.mock('@/features/solutions/mutations/useBestSolutionMutation', () => ({
   useBestSolutionMutation: vi.fn(() => bestSolutionMutationState),
+}))
+
+vi.mock('@/features/notifications/queries/useNotificationsQuery', () => ({
+  useNotificationSummaryQuery: vi.fn(() => notificationQueryState),
 }))
 
 async function mountHeader() {
@@ -78,6 +90,11 @@ describe('identity polish', () => {
     commentQueryState.refetch.mockReset()
     bestSolutionMutationState.isPending.value = false
     bestSolutionMutationState.mutateAsync.mockReset()
+    notificationQueryState.data.value = { unread_count: 0, latest: [] }
+    notificationQueryState.isPending.value = false
+    notificationQueryState.isError.value = false
+    notificationQueryState.error.value = null
+    notificationQueryState.refetch.mockReset()
   })
 
   it('preserves the full nickname in the account toggle title for truncate behavior', async () => {
