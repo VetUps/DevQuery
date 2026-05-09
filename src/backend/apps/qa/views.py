@@ -3,7 +3,7 @@ from django.shortcuts import get_object_or_404
 from drf_spectacular.types import OpenApiTypes
 from rest_framework import viewsets, status, mixins, pagination
 from rest_framework.decorators import action
-from rest_framework.exceptions import ValidationError as DRFValidationError
+from rest_framework.exceptions import APIException, ValidationError as DRFValidationError
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from drf_spectacular.utils import extend_schema, OpenApiParameter
@@ -21,9 +21,11 @@ from .serializers import (
     SolutionEditCreateSerializer, SolutionEditCreateResponseSerializer, SolutionEditHistorySerializer,
     CommentCreateResponseSerializer, CommentListSerializer, CommentCreateSerializer, CommentDetailSerializer,
     VoteSerializer, VoteCreateSerializer, SolutionEditApprovalSerializer, TagSerializer,
+    QuestionDraftAssistRequestSerializer, QuestionDraftAssistResponseSerializer,
 )
 from .services.question_edit_service import QuestionChangePayload, QuestionEditService
 from .services.question_expert_invitation_service import QuestionExpertInvitationService
+from .services.question_draft_assistant_service import QuestionDraftAssistantService
 from .services.solution_edits_service import SolutionEditService
 from .services.comment_service import CommentService
 from .services.solution_service import SolutionService
@@ -74,6 +76,8 @@ class QuestionViewSet(mixins.ListModelMixin,
     question_edit_proposal_response_serializer = QuestionEditProposalResponseSerializer
     question_edit_event_serializer = QuestionEditEventSerializer
     question_revision_serializer = QuestionRevisionSerializer
+    question_draft_assist_request_serializer = QuestionDraftAssistRequestSerializer
+    question_draft_assist_response_serializer = QuestionDraftAssistResponseSerializer
     question_ordering_fields = {'question_created_at', '-question_created_at'}
 
     def get_serializer_class(self):
@@ -85,6 +89,8 @@ class QuestionViewSet(mixins.ListModelMixin,
             return self.question_create_serializer
         if self.action == 'propose_edit':
             return self.question_edit_create_serializer
+        if self.action == 'draft_assist':
+            return self.question_draft_assist_request_serializer
         return self.serializer_class
 
     def get_permissions(self):
@@ -100,6 +106,7 @@ class QuestionViewSet(mixins.ListModelMixin,
             'reject_edit',
             'eligible_experts',
             'expert_invitations',
+            'draft_assist',
         ]:
             permission_classes = [IsAuthenticated]
         else:
@@ -231,6 +238,26 @@ class QuestionViewSet(mixins.ListModelMixin,
         proposal = serializer.save()
         response_serializer = self.question_edit_proposal_response_serializer(proposal)
         return Response(response_serializer.data, status=status.HTTP_201_CREATED)
+
+    @extend_schema(
+        request=QuestionDraftAssistRequestSerializer,
+        responses={200: QuestionDraftAssistResponseSerializer},
+    )
+    @action(detail=False, methods=['post'], url_path='draft-assist')
+    def draft_assist(self, request):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        try:
+            response_payload = QuestionDraftAssistantService().review_draft(
+                user=request.user,
+                draft=serializer.validated_data,
+            )
+        except Exception as exc:
+            raise APIException('Draft assistant service is unavailable.') from exc
+
+        response_serializer = self.question_draft_assist_response_serializer(response_payload)
+        return Response(response_serializer.data, status=status.HTTP_200_OK)
 
     @action(detail=False, methods=['get'], url_path='pending_edits/(?P<question_id>[^/.]+)')
     @extend_schema(responses=QuestionEditProposalResponseSerializer(many=True))
