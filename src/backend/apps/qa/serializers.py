@@ -273,6 +273,55 @@ class QuestionListSerializer(QuestionProtectionMixin, serializers.ModelSerialize
             *QuestionProtectionMixin.protection_field_names,
         ]
 
+class QuestionDraftAssistRequestSerializer(serializers.Serializer):
+    question_title = serializers.CharField(max_length=300, trim_whitespace=False)
+    question_body = serializers.CharField(trim_whitespace=False)
+    tags = serializers.ListField(child=QuestionTagNameField(), allow_empty=True)
+    mode = serializers.ChoiceField(choices=['create', 'edit'], required=False, default='create')
+
+    def validate_question_title(self, value):
+        normalized_value = value.strip()
+
+        if not normalized_value:
+            raise serializers.ValidationError('Заголовок вопроса не может быть пустым.')
+
+        return normalized_value
+
+    def validate_question_body(self, value):
+        normalized_value = value.strip()
+
+        if not normalized_value:
+            raise serializers.ValidationError('Текст вопроса не может быть пустым.')
+
+        return normalized_value
+
+    def validate_tags(self, value):
+        return normalize_question_tags(value)
+
+
+class QuestionDraftAssistFindingSerializer(serializers.Serializer):
+    code = serializers.CharField(read_only=True)
+    message = serializers.CharField(read_only=True)
+    severity = serializers.ChoiceField(choices=['info', 'warning', 'error'], read_only=True)
+    field = serializers.CharField(read_only=True, allow_null=True, required=False)
+
+
+class QuestionDraftAssistWarningSerializer(serializers.Serializer):
+    code = serializers.CharField(read_only=True)
+    message = serializers.CharField(read_only=True)
+
+
+class QuestionDraftAssistResponseSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(choices=['ok', 'assistant_unavailable'], read_only=True)
+    mode = serializers.ChoiceField(choices=['create', 'edit'], read_only=True)
+    summary = serializers.CharField(read_only=True, allow_blank=True)
+    findings = QuestionDraftAssistFindingSerializer(many=True, read_only=True)
+    suggested_title = serializers.CharField(read_only=True, allow_null=True)
+    suggested_body = serializers.CharField(read_only=True, allow_null=True)
+    suggested_tags = serializers.ListField(child=serializers.CharField(), read_only=True)
+    warnings = QuestionDraftAssistWarningSerializer(many=True, read_only=True)
+
+
 class QuestionUpdateCreateSerializer(serializers.ModelSerializer):
     tags = serializers.ListField(child=QuestionTagNameField(), required=False, write_only=True)
 
