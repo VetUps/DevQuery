@@ -1,56 +1,29 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-
-import {
-  getProtectedQuestionAnswerWindowLabel,
-  getProtectedQuestionAnswerWindowSummary,
-  type QuestionDetail,
-} from '@/features/questions/api/questions'
+import type { QuestionDetail } from '@/features/questions/api/questions'
 import type { PublicUserProfile } from '@/features/users/api/publicProfiles'
 import QuestionTagChips from '@/features/questions/components/QuestionTagChips.vue'
+import ProtectedQuestionChip from '@/features/questions/components/ProtectedQuestionChip.vue'
 import AuthorReputationBadge from '@/features/users/components/AuthorReputationBadge.vue'
 import SignalVoteRail from '@/features/votes/components/SignalVoteRail.vue'
 import { formatLongDate, formatQuestionStatus } from '@/shared/libs/formatting'
 import AppButton from '@/shared/ui/AppButton.vue'
 import MarkdownContent from '@/shared/ui/MarkdownContent.vue'
 
-const props = defineProps<{
+defineProps<{
   question: QuestionDetail
   author: PublicUserProfile | null | undefined
   currentUserId?: string
   canVote?: boolean
   canEdit?: boolean
   canProposeEdit?: boolean
+  canInviteExperts?: boolean
 }>()
 
 const emit = defineEmits<{
   requestEdit: []
   requestProposal: []
+  requestExpertInvitation: []
 }>()
-
-const protectionBadgeLabel = computed(() => {
-  if (!props.question.is_protected) {
-    return ''
-  }
-
-  return `Защищённый вопрос · ${getProtectedQuestionAnswerWindowLabel(props.question)}`
-})
-
-const protectionSummary = computed(() => {
-  if (!props.question.is_protected) {
-    return ''
-  }
-
-  return getProtectedQuestionAnswerWindowSummary(props.question)
-})
-
-const protectionWindowNote = computed(() => {
-  if (!props.question.is_protected || !props.question.protected_until) {
-    return ''
-  }
-
-  return `Окно защиты закончится ${formatLongDate(props.question.protected_until)}.`
-})
 </script>
 
 <template>
@@ -58,13 +31,10 @@ const protectionWindowNote = computed(() => {
     <div class="question-detail-hero__main">
       <div class="question-detail-hero__meta">
         <span class="question-detail-hero__status">{{ formatQuestionStatus(question.question_status) }}</span>
-        <span
+        <ProtectedQuestionChip
           v-if="question.is_protected"
-          class="question-detail-hero__protection-badge"
-          data-testid="question-protection-badge"
-        >
-          {{ protectionBadgeLabel }}
-        </span>
+          :question="question"
+        />
         <span class="question-detail-hero__stamp">
           Создан {{ formatLongDate(question.question_created_at) }}
         </span>
@@ -75,26 +45,22 @@ const protectionWindowNote = computed(() => {
 
       <h1 class="question-detail-hero__title">{{ question.question_title }}</h1>
       <QuestionTagChips :tags="question.tags" variant="large" />
-      <div
-        v-if="question.is_protected"
-        class="question-detail-hero__protection-panel"
-        data-testid="question-protection-panel"
-      >
-        <p class="question-detail-hero__protection-title">Защита новых авторов включена</p>
-        <p class="question-detail-hero__protection-copy">{{ protectionSummary }}</p>
-        <p v-if="protectionWindowNote" class="question-detail-hero__protection-copy">
-          {{ protectionWindowNote }}
-        </p>
-        <p class="question-detail-hero__protection-copy">
-          Чтение и комментарии остаются открытыми для всех, но ответ и даунвоут могут быть временно ограничены.
-        </p>
-      </div>
-      <div v-if="canEdit || canProposeEdit" class="question-detail-hero__actions">
+      <div v-if="canEdit || canProposeEdit || canInviteExperts" class="question-detail-hero__actions">
         <AppButton v-if="canEdit" type="button" variant="secondary" @click="emit('requestEdit')">
           Редактировать вопрос
         </AppButton>
         <AppButton v-else-if="canProposeEdit" type="button" variant="secondary" @click="emit('requestProposal')">
           Предложить правку
+        </AppButton>
+        <AppButton
+          v-if="canInviteExperts"
+          type="button"
+          variant="secondary"
+          data-testid="question-expert-invitation-trigger"
+          aria-label="Позвать эксперта к защищённому вопросу"
+          @click="emit('requestExpertInvitation')"
+        >
+          Позвать эксперта
         </AppButton>
       </div>
       <div class="question-detail-hero__body">
@@ -141,7 +107,6 @@ const protectionWindowNote = computed(() => {
       :target-id="question.question_id"
       :is-own-content="Boolean(currentUserId) && question.user === currentUserId"
       :downvote-blocked="question.is_protected && !question.viewer_can_downvote"
-      :blocked-note="question.viewer_downvote_reason_message"
       label="Оценка вопроса"
     />
   </section>
@@ -180,13 +145,10 @@ const protectionWindowNote = computed(() => {
 }
 
 .question-detail-hero__status,
-.question-detail-hero__protection-badge,
 .question-detail-hero__title,
 .question-detail-hero__body,
 .question-detail-hero__author-label,
 .question-detail-hero__author-name,
-.question-detail-hero__protection-title,
-.question-detail-hero__protection-copy,
 .question-detail-hero__stamp {
   margin: 0;
 }
@@ -199,19 +161,6 @@ const protectionWindowNote = computed(() => {
   border-radius: 999px;
   background: rgb(14 116 144 / 0.1);
   color: var(--color-accent);
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.question-detail-hero__protection-badge {
-  display: inline-flex;
-  align-items: center;
-  min-height: 32px;
-  padding: 0 12px;
-  border: 1px solid rgb(180 35 24 / 0.18);
-  border-radius: 999px;
-  background: rgb(180 35 24 / 0.08);
-  color: #B42318;
   font-size: 14px;
   font-weight: 600;
 }
@@ -232,26 +181,6 @@ const protectionWindowNote = computed(() => {
 .question-detail-hero__body {
   min-width: 0;
   font-size: 17px;
-}
-
-.question-detail-hero__protection-panel {
-  display: grid;
-  gap: var(--space-xs);
-  padding: var(--space-md) var(--space-lg);
-  border: 1px solid rgb(180 35 24 / 0.18);
-  border-radius: var(--radius-lg);
-  background: rgb(180 35 24 / 0.06);
-}
-
-.question-detail-hero__protection-title {
-  color: #8F1D14;
-  font-size: 15px;
-  font-weight: 700;
-}
-
-.question-detail-hero__protection-copy {
-  color: #7A5A46;
-  line-height: 1.6;
 }
 
 .question-detail-hero__actions {

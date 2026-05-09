@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { onBeforeUnmount, watch } from 'vue'
+import { onBeforeUnmount, useAttrs, watch } from 'vue'
+
+defineOptions({ inheritAttrs: false })
 
 interface Props {
   open: boolean
@@ -17,6 +19,8 @@ const props = withDefaults(defineProps<Props>(), {
 const emit = defineEmits<{
   close: []
 }>()
+
+const attrs = useAttrs()
 
 function restoreBodyOverflow() {
   if (typeof document !== 'undefined') {
@@ -62,6 +66,7 @@ onBeforeUnmount(() => {
   <Teleport to="body">
     <div
       v-if="open"
+      v-bind="attrs"
       class="app-dialog"
       @click.self="$emit('close')"
     >
