@@ -13,6 +13,7 @@ from .serializers import (
     QuestionGetSerializer, QuestionListSerializer, QuestionUpdateCreateSerializer,
     QuestionCreateResponseSerializer, EligibleExpertCandidateSerializer, EligibleExpertsResponseSerializer,
     ExpertInvitationCreateRequestSerializer, ExpertInvitationCreateResponseSerializer,
+    ExpertInvitationListItemSerializer, ExpertInvitationListResponseSerializer,
     QuestionEditCreateSerializer, QuestionEditProposalResponseSerializer,
     QuestionEditApprovalSerializer, QuestionEditEventSerializer, QuestionRevisionSerializer,
     SolutionListSerializer, SolutionCreateSerializer,
@@ -321,14 +322,50 @@ class QuestionViewSet(mixins.ListModelMixin,
         }
 
     @extend_schema(
+        methods=['GET'],
+        responses={200: ExpertInvitationListResponseSerializer},
+    )
+    @extend_schema(
+        methods=['POST'],
         request=ExpertInvitationCreateRequestSerializer,
         responses={201: ExpertInvitationCreateResponseSerializer},
     )
-    @action(detail=True, methods=['post'], url_path='expert-invitations')
+    @action(detail=True, methods=['get', 'post'], url_path='expert-invitations')
     def expert_invitations(self, request, *args, **kwargs):
+        question = self.get_object()
+
+        if request.method == 'GET':
+            try:
+                result = QuestionExpertInvitationService.get_invited_experts(
+                    question,
+                    requester=request.user,
+                )
+            except DRFValidationError as exc:
+                detail = getattr(exc, 'detail', {})
+                if isinstance(detail, dict) and detail.get('code') == QuestionExpertInvitationService.NOT_QUESTION_AUTHOR:
+                    return Response(detail, status=status.HTTP_403_FORBIDDEN)
+                return Response(detail, status=status.HTTP_400_BAD_REQUEST)
+
+            page = self.paginate_queryset(result.invitations)
+            if page is not None:
+                serializer = ExpertInvitationListItemSerializer(page, many=True)
+                response = self.get_paginated_response(serializer.data)
+                response.data.update(self._invited_experts_metadata(question, len(result.invitations)))
+                return response
+
+            serializer = ExpertInvitationListItemSerializer(result.invitations, many=True)
+            payload = {
+                'count': len(serializer.data),
+                'next': None,
+                'previous': None,
+                'results': serializer.data,
+            }
+            payload.update(self._invited_experts_metadata(question, len(serializer.data)))
+            response_serializer = ExpertInvitationListResponseSerializer(payload)
+            return Response(response_serializer.data, status=status.HTTP_200_OK)
+
         request_serializer = ExpertInvitationCreateRequestSerializer(data=request.data)
         request_serializer.is_valid(raise_exception=True)
-        question = self.get_object()
 
         try:
             result = QuestionExpertInvitationService.create_invitations(
@@ -361,6 +398,13 @@ class QuestionViewSet(mixins.ListModelMixin,
         }
         response_serializer = ExpertInvitationCreateResponseSerializer(payload)
         return Response(response_serializer.data, status=status.HTTP_201_CREATED)
+
+    @staticmethod
+    def _invited_experts_metadata(question, invited_count):
+        return {
+            'question_id': str(question.pk),
+            'invited_count': invited_count,
+        }
 
     @action(detail=False, methods=['patch'], url_path='approve_edit/(?P<question_edit_id>[^/.]+)')
     @extend_schema(responses=QuestionEditApprovalSerializer)

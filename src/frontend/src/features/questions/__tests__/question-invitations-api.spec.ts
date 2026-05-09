@@ -7,12 +7,15 @@ import { http } from '@/shared/api/http'
 import {
   createExpertInvitations,
   fetchEligibleExperts,
+  fetchInvitedExpertInvitations,
   MalformedExpertInvitationResponseError,
   normalizeExpertInvitationError,
   parseEligibleExpertsEnvelope,
   parseExpertInvitationCreateResponse,
+  parseInvitedExpertInvitationsEnvelope,
   type EligibleExpertsEnvelope,
   type ExpertInvitationCreateResponse,
+  type InvitedExpertInvitationsEnvelope,
 } from '@/features/questions/api/questionExpertInvitations'
 import { useCreateExpertInvitationsMutation } from '@/features/questions/mutations/useCreateExpertInvitationsMutation'
 import {
@@ -20,6 +23,10 @@ import {
   buildEligibleExpertsQueryKey,
   useEligibleExpertsQuery,
 } from '@/features/questions/queries/useEligibleExpertsQuery'
+import {
+  buildInvitedExpertInvitationsQueryKey,
+  useInvitedExpertInvitationsQuery,
+} from '@/features/questions/queries/useInvitedExpertInvitationsQuery'
 
 vi.mock('@/shared/api/http', () => ({
   http: {
@@ -103,6 +110,32 @@ function buildCreateResponse(overrides: Partial<ExpertInvitationCreateResponse> 
   }
 }
 
+function buildInvitedEnvelope(overrides: Partial<InvitedExpertInvitationsEnvelope> = {}): InvitedExpertInvitationsEnvelope {
+  return {
+    count: 1,
+    next: null,
+    previous: null,
+    results: [
+      {
+        recipient_id: EXPERT_ID,
+        recipient_name: 'Expert Alice',
+        recipient_reputation_score: 450,
+        reputation_level: 'expert',
+        reputation_level_label: 'Эксперт',
+        notification_id: NOTIFICATION_ID,
+        is_read: false,
+        read_at: null,
+        invitation_status: 'active',
+        protected_window_active: true,
+        protected_until: '2026-05-08T12:00:00Z',
+      },
+    ],
+    question_id: QUESTION_ID,
+    invited_count: 1,
+    ...overrides,
+  }
+}
+
 describe('question expert invitations API boundary', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -139,6 +172,15 @@ describe('question expert invitations API boundary', () => {
     })
   })
 
+  it('fetches already invited experts from the author-scoped invitation list route', async () => {
+    const envelope = buildInvitedEnvelope()
+    mockedHttp.get.mockResolvedValue({ data: envelope })
+
+    await expect(fetchInvitedExpertInvitations(QUESTION_ID)).resolves.toEqual(envelope)
+
+    expect(mockedHttp.get).toHaveBeenCalledWith(`/question/${QUESTION_ID}/expert-invitations/`)
+  })
+
   it('parses successful eligible-expert envelopes and empty slot states', () => {
     expect(parseEligibleExpertsEnvelope(buildEligibleEnvelope()).results).toHaveLength(2)
 
@@ -171,6 +213,32 @@ describe('question expert invitations API boundary', () => {
     expect(parseExpertInvitationCreateResponse(buildCreateResponse({ created_count: 0, invitations: [] })).invitations).toEqual([])
   })
 
+  it('parses invited expert envelopes with nullable read and protection dates', () => {
+    const readAt = '2026-05-08T12:05:00Z'
+    const envelope = buildInvitedEnvelope({
+      count: 2,
+      invited_count: 2,
+      results: [
+        buildInvitedEnvelope().results[0],
+        {
+          ...buildInvitedEnvelope().results[0],
+          recipient_id: MASTER_ID,
+          recipient_name: 'Master Bob',
+          notification_id: '55555555-5555-4555-8555-555555555555',
+          is_read: true,
+          read_at: readAt,
+          protected_window_active: false,
+          protected_until: null,
+        },
+      ],
+    })
+
+    expect(parseInvitedExpertInvitationsEnvelope(envelope)).toEqual(envelope)
+    expect(
+      parseInvitedExpertInvitationsEnvelope(buildInvitedEnvelope({ count: 0, invited_count: 0, results: [] })).results,
+    ).toEqual([])
+  })
+
   it('throws named malformed-response errors for missing results, invalid slots, ids, dates, and payloads', () => {
     const malformedValues = [
       { ...buildEligibleEnvelope(), results: undefined },
@@ -188,15 +256,40 @@ describe('question expert invitations API boundary', () => {
     }
   })
 
+  it('rejects malformed invited-expert envelopes without leaking raw response bodies', () => {
+    const malformedValues = [
+      { ...buildInvitedEnvelope(), results: undefined },
+      { ...buildInvitedEnvelope(), results: [{ ...buildInvitedEnvelope().results[0], recipient_id: 'not-a-uuid' }] },
+      { ...buildInvitedEnvelope(), results: [{ ...buildInvitedEnvelope().results[0], is_read: 'false' }] },
+      { ...buildInvitedEnvelope(), results: [{ ...buildInvitedEnvelope().results[0], read_at: 'not-a-date' }] },
+      { ...buildInvitedEnvelope(), results: [{ ...buildInvitedEnvelope().results[0], protected_window_active: 1 }] },
+      { ...buildInvitedEnvelope(), results: [{ ...buildInvitedEnvelope().results[0], payload: { secret: 'body' } }] },
+    ]
+
+    for (const value of malformedValues) {
+      expect(() => parseInvitedExpertInvitationsEnvelope(value)).toThrow(MalformedExpertInvitationResponseError)
+    }
+
+    expect(() =>
+      parseInvitedExpertInvitationsEnvelope({
+        ...buildInvitedEnvelope(),
+        results: [{ ...buildInvitedEnvelope().results[0], dedupe_key: 'secret-key' }],
+      }),
+    ).toThrow('results.sensitive_fields')
+  })
+
   it('propagates GET and POST transport failures without converting them into raw rendered objects', async () => {
-    const getError = { isAxiosError: true, response: { status: 500, data: { traceback: 'secret stack' } } }
+    const eligibleGetError = { isAxiosError: true, response: { status: 500, data: { traceback: 'secret stack' } } }
+    const invitedGetError = new Error('timeout of 10000ms exceeded')
     const postError = new Error('timeout of 10000ms exceeded')
-    mockedHttp.get.mockRejectedValueOnce(getError)
+    mockedHttp.get.mockRejectedValueOnce(eligibleGetError).mockRejectedValueOnce(invitedGetError)
     mockedHttp.post.mockRejectedValueOnce(postError)
 
-    await expect(fetchEligibleExperts(QUESTION_ID)).rejects.toBe(getError)
+    await expect(fetchEligibleExperts(QUESTION_ID)).rejects.toBe(eligibleGetError)
+    await expect(fetchInvitedExpertInvitations(QUESTION_ID)).rejects.toBe(invitedGetError)
     await expect(createExpertInvitations(QUESTION_ID, [EXPERT_ID])).rejects.toBe(postError)
-    expect(normalizeExpertInvitationError(getError)).toBe('Не удалось обновить приглашения экспертов. Попробуйте ещё раз.')
+    expect(normalizeExpertInvitationError(eligibleGetError)).toBe('Не удалось обновить приглашения экспертов. Попробуйте ещё раз.')
+    expect(normalizeExpertInvitationError(invitedGetError)).toBe('Не удалось обновить приглашения экспертов. Попробуйте ещё раз.')
     expect(normalizeExpertInvitationError(postError)).toBe('Не удалось обновить приглашения экспертов. Попробуйте ещё раз.')
   })
 
@@ -234,7 +327,29 @@ describe('question expert invitations API boundary', () => {
     })
   })
 
-  it('invalidates relevant eligible-experts cache keys only after mutation success', async () => {
+  it('keeps invited-expert query keys isolated and disables blank question ids', async () => {
+    const blankOptions = useInvitedExpertInvitationsQuery(ref('   '))
+
+    expect(buildInvitedExpertInvitationsQueryKey(` ${QUESTION_ID} `)).toEqual([
+      'questions',
+      'invited-experts',
+      QUESTION_ID,
+    ])
+    expect(buildInvitedExpertInvitationsQueryKey(QUESTION_ID)).not.toEqual(buildEligibleExpertsBaseQueryKey(QUESTION_ID))
+    expect(blankOptions.queryKey.value).toEqual(['questions', 'invited-experts', ''])
+    expect(blankOptions.enabled.value).toBe(false)
+
+    const enabledOptions = useInvitedExpertInvitationsQuery(ref(` ${QUESTION_ID} `), true)
+    mockedHttp.get.mockResolvedValue({ data: buildInvitedEnvelope() })
+
+    expect(enabledOptions.queryKey.value).toEqual(['questions', 'invited-experts', QUESTION_ID])
+    expect(enabledOptions.enabled.value).toBe(true)
+    await enabledOptions.queryFn()
+
+    expect(mockedHttp.get).toHaveBeenLastCalledWith(`/question/${QUESTION_ID}/expert-invitations/`)
+  })
+
+  it('invalidates eligible and invited expert cache namespaces only after mutation success', async () => {
     const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries').mockResolvedValue()
 
     useCreateExpertInvitationsMutation()
@@ -242,11 +357,30 @@ describe('question expert invitations API boundary', () => {
 
     expect(mutationOptions.mutationFn).toBeTypeOf('function')
     expect(invalidateSpy).not.toHaveBeenCalled()
+    expect(buildInvitedExpertInvitationsQueryKey(QUESTION_ID)).not.toEqual(buildEligibleExpertsBaseQueryKey(QUESTION_ID))
 
     await mutationOptions.onSuccess(buildCreateResponse(), { questionId: QUESTION_ID, recipientIds: [EXPERT_ID] })
 
-    expect(invalidateSpy).toHaveBeenCalledTimes(1)
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: buildEligibleExpertsBaseQueryKey(QUESTION_ID) })
+    expect(invalidateSpy).toHaveBeenCalledTimes(2)
+    expect(invalidateSpy).toHaveBeenNthCalledWith(1, { queryKey: buildEligibleExpertsBaseQueryKey(QUESTION_ID) })
+    expect(invalidateSpy).toHaveBeenNthCalledWith(2, { queryKey: buildInvitedExpertInvitationsQueryKey(QUESTION_ID) })
+
+    invalidateSpy.mockRestore()
+  })
+
+  it('does not invalidate eligible or invited expert caches when mutation POST fails', async () => {
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries').mockResolvedValue()
+    const postError = new Error('timeout of 10000ms exceeded')
+    mockedHttp.post.mockRejectedValue(postError)
+
+    useCreateExpertInvitationsMutation()
+    const mutationOptions = mockedUseMutation.mock.calls.at(-1)?.[0] as any
+
+    await expect(
+      mutationOptions.mutationFn({ questionId: QUESTION_ID, recipientIds: [EXPERT_ID] }),
+    ).rejects.toBe(postError)
+
+    expect(invalidateSpy).not.toHaveBeenCalled()
 
     invalidateSpy.mockRestore()
   })
