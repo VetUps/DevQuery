@@ -26,6 +26,13 @@ const autocompleteState = vi.hoisted(() => ({
   isFetching: false,
 }))
 
+const notificationsQueryState = vi.hoisted(() => ({
+  data: { value: { count: 0, next: null, previous: null, results: [] } },
+  isPending: { value: false },
+  isError: { value: false },
+  refetch: vi.fn(),
+}))
+
 vi.mock('@/features/questions/queries/useQuestionListQuery', () => ({
   useQuestionListQuery: vi.fn((params: MaybeRefOrGetter<QuestionListParams>) => {
     questionListCapture.params = params
@@ -36,6 +43,10 @@ vi.mock('@/features/questions/queries/useQuestionListQuery', () => ({
 
 vi.mock('@/features/questions/queries/useTagAutocompleteQuery', () => ({
   useTagAutocompleteQuery: vi.fn(() => autocompleteState),
+}))
+
+vi.mock('@/features/notifications/queries/useNotificationsQuery', () => ({
+  useNotificationsQuery: vi.fn(() => notificationsQueryState),
 }))
 
 function emptyQuestionList(): PaginatedResponse<QuestionListItem> {
@@ -145,6 +156,10 @@ describe('HomePage discovery tag routing', () => {
     autocompleteState.data = []
     autocompleteState.isError = false
     autocompleteState.isFetching = false
+    notificationsQueryState.data.value = { count: 0, next: null, previous: null, results: [] }
+    notificationsQueryState.isPending.value = false
+    notificationsQueryState.isError.value = false
+    notificationsQueryState.refetch.mockClear()
   })
 
   it('keeps the discovery sidebar without the removed quick-entry auth card', async () => {

@@ -8,7 +8,11 @@ import DiscussionThreadModal from '@/features/comments/components/DiscussionThre
 import { useCommentContextQuery } from '@/features/comments/queries/useCommentContextQuery'
 import { useCurrentUserQuery } from '@/features/auth/queries/useCurrentUserQuery'
 import { useSessionStore } from '@/features/auth/stores/session'
+import type { NotificationItem } from '@/features/notifications/api/notifications'
+import { useNotificationsQuery } from '@/features/notifications/queries/useNotificationsQuery'
 import QuestionDetailHero from '@/features/questions/components/QuestionDetailHero.vue'
+import QuestionExpertInvitationPanel from '@/features/questions/components/QuestionExpertInvitationPanel.vue'
+import QuestionInvitationContextPanel from '@/features/questions/components/QuestionInvitationContextPanel.vue'
 import QuestionRevisionHistoryButton from '@/features/questions/components/QuestionRevisionHistoryButton.vue'
 import QuestionEditProposalModal from '@/features/questions/components/QuestionEditProposalModal.vue'
 import QuestionDetailSkeleton from '@/features/questions/components/QuestionDetailSkeleton.vue'
@@ -37,6 +41,7 @@ const questionDetailQuery = useQuestionDetailQuery(questionId)
 const solutionsQuery = useSolutionsQuery(questionId)
 const questionCommentsQuery = useCommentContextQuery('question', questionId)
 const currentUserQuery = useCurrentUserQuery()
+const notificationsQuery = useNotificationsQuery(isAuthenticated.value)
 
 const questionAuthorId = computed(() => questionDetailQuery.data.value?.user ?? '')
 const questionAuthorQuery = usePublicProfileQuery(questionAuthorId)
@@ -50,6 +55,7 @@ const solutionSuccessMessage = ref('')
 const freshSolutionId = ref<string | null>(null)
 const activeInlineComposerKey = ref<string | null>(null)
 const isQuestionDiscussionOpen = ref(false)
+const isExpertInvitationOpen = ref(false)
 
 let clearFreshSolutionTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -72,6 +78,29 @@ const canProposeQuestionEdit = computed(
     !currentUserQuery.isPending.value &&
     !currentUserQuery.isError.value,
 )
+const canShowExpertInvitationPanel = computed(
+  () =>
+    isQuestionAuthor.value &&
+    !currentUserQuery.isPending.value &&
+    !currentUserQuery.isError.value &&
+    Boolean(questionDetailQuery.data.value?.is_protected),
+)
+const canShowInvitationContextPanel = computed(
+  () => isAuthenticated.value && !isQuestionAuthor.value && Boolean(questionDetailQuery.data.value?.is_protected),
+)
+const matchingExpertInvitation = computed<NotificationItem | null>(() => {
+  const question = questionDetailQuery.data.value
+
+  if (!question || !canShowInvitationContextPanel.value) {
+    return null
+  }
+
+  return notificationsQuery.data.value?.results.find(
+    (notification) =>
+      notification.notification_type === 'expert_invitation' &&
+      notification.source_question_id === question.question_id,
+  ) ?? null
+})
 const currentUserSolution = computed(() =>
   (solutionsQuery.data.value ?? []).find((solution) => solution.user === currentUserId.value) ?? null,
 )
@@ -124,6 +153,18 @@ function closeQuestionProposal() {
   isQuestionProposalOpen.value = false
 }
 
+function openExpertInvitation() {
+  if (!canShowExpertInvitationPanel.value) {
+    return
+  }
+
+  isExpertInvitationOpen.value = true
+}
+
+function closeExpertInvitation() {
+  isExpertInvitationOpen.value = false
+}
+
 async function handleQuestionEditSaved(_updatedQuestion: QuestionDetail) {
   await questionDetailQuery.refetch()
   isQuestionEditOpen.value = false
@@ -174,10 +215,20 @@ watch(
     freshSolutionId.value = null
     activeInlineComposerKey.value = null
     isQuestionDiscussionOpen.value = false
+    isExpertInvitationOpen.value = false
 
     if (clearFreshSolutionTimer) {
       clearTimeout(clearFreshSolutionTimer)
       clearFreshSolutionTimer = null
+    }
+  },
+)
+
+watch(
+  canShowExpertInvitationPanel,
+  (canShow) => {
+    if (!canShow) {
+      isExpertInvitationOpen.value = false
     }
   },
 )
@@ -229,8 +280,20 @@ onBeforeUnmount(() => {
           :can-vote="isAuthenticated"
           :can-edit="canEditQuestion"
           :can-propose-edit="canProposeQuestionEdit"
+          :can-invite-experts="canShowExpertInvitationPanel"
           @request-edit="openQuestionEdit"
           @request-proposal="openQuestionProposal"
+          @request-expert-invitation="openExpertInvitation"
+        />
+
+        <QuestionInvitationContextPanel
+          v-if="canShowInvitationContextPanel"
+          :question="questionDetailQuery.data.value"
+          :matching-invitation="matchingExpertInvitation"
+          :is-author="isQuestionAuthor"
+          :is-authenticated="isAuthenticated"
+          :notifications-pending="notificationsQuery.isPending.value"
+          :notifications-error="notificationsQuery.isError.value"
         />
 
         <QuestionRevisionHistoryButton :question-id="questionId" />
@@ -329,6 +392,22 @@ onBeforeUnmount(() => {
           <QuestionEditForm
             :question="questionDetailQuery.data.value"
             @saved="handleQuestionEditSaved"
+          />
+        </AppDialog>
+
+        <AppDialog
+          v-if="questionDetailQuery.data.value"
+          :open="isExpertInvitationOpen && canShowExpertInvitationPanel"
+          title="Позвать эксперта"
+          :description="`Выберите экспертов и мастеров для защищённого вопроса: ${questionDetailQuery.data.value.question_title}`"
+          size="wide"
+          data-testid="question-expert-invitation-dialog"
+          @close="closeExpertInvitation"
+        >
+          <QuestionExpertInvitationPanel
+            v-if="isExpertInvitationOpen && canShowExpertInvitationPanel"
+            :question-id="questionId"
+            :enabled="isExpertInvitationOpen && canShowExpertInvitationPanel"
           />
         </AppDialog>
 
