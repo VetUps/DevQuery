@@ -43,6 +43,29 @@ export interface ExpertInvitationCreateResponse {
   invitations: ExpertInvitationItem[]
 }
 
+export interface InvitedExpertInvitation {
+  recipient_id: string
+  recipient_name: string
+  recipient_reputation_score: number
+  reputation_level: string
+  reputation_level_label: string
+  notification_id: string
+  is_read: boolean
+  read_at: string | null
+  invitation_status: string
+  protected_window_active: boolean
+  protected_until: string | null
+}
+
+export interface InvitedExpertInvitationsEnvelope {
+  count: number
+  next: string | null
+  previous: string | null
+  results: InvitedExpertInvitation[]
+  question_id: string
+  invited_count: number
+}
+
 export class MalformedExpertInvitationResponseError extends Error {
   constructor(message = 'Malformed expert invitation API response') {
     super(message)
@@ -126,6 +149,20 @@ function assertIsoDateString(value: unknown, fieldName: string): string {
   return dateValue
 }
 
+function assertNullableIsoDateString(value: unknown, fieldName: string): string | null {
+  if (value === null) {
+    return null
+  }
+
+  return assertIsoDateString(value, fieldName)
+}
+
+function assertNoSensitiveInvitationFields(value: Record<string, unknown>, fieldName: string): void {
+  if ('payload' in value || 'dedupe_key' in value || 'recipient_email' in value || 'user_email' in value) {
+    fail(fieldName)
+  }
+}
+
 export function parseEligibleExpertCandidate(value: unknown): EligibleExpertCandidate {
   const candidate = assertRecord(value, 'candidate')
 
@@ -189,6 +226,42 @@ export function parseExpertInvitationCreateResponse(value: unknown): ExpertInvit
   }
 }
 
+export function parseInvitedExpertInvitation(value: unknown): InvitedExpertInvitation {
+  const invitation = assertRecord(value, 'results')
+  assertNoSensitiveInvitationFields(invitation, 'results.sensitive_fields')
+
+  return {
+    recipient_id: assertUuid(invitation.recipient_id, 'results.recipient_id'),
+    recipient_name: assertString(invitation.recipient_name, 'results.recipient_name'),
+    recipient_reputation_score: assertInteger(invitation.recipient_reputation_score, 'results.recipient_reputation_score'),
+    reputation_level: assertString(invitation.reputation_level, 'results.reputation_level'),
+    reputation_level_label: assertString(invitation.reputation_level_label, 'results.reputation_level_label'),
+    notification_id: assertUuid(invitation.notification_id, 'results.notification_id'),
+    is_read: assertBoolean(invitation.is_read, 'results.is_read'),
+    read_at: assertNullableIsoDateString(invitation.read_at, 'results.read_at'),
+    invitation_status: assertString(invitation.invitation_status, 'results.invitation_status'),
+    protected_window_active: assertBoolean(invitation.protected_window_active, 'results.protected_window_active'),
+    protected_until: assertNullableIsoDateString(invitation.protected_until, 'results.protected_until'),
+  }
+}
+
+export function parseInvitedExpertInvitationsEnvelope(value: unknown): InvitedExpertInvitationsEnvelope {
+  const envelope = assertRecord(value, 'invited-experts envelope')
+
+  if (!Array.isArray(envelope.results)) {
+    fail('results')
+  }
+
+  return {
+    count: assertNonNegativeInteger(envelope.count, 'count'),
+    next: assertNullableString(envelope.next, 'next'),
+    previous: assertNullableString(envelope.previous, 'previous'),
+    results: envelope.results.map(parseInvitedExpertInvitation),
+    question_id: assertUuid(envelope.question_id, 'question_id'),
+    invited_count: assertNonNegativeInteger(envelope.invited_count, 'invited_count'),
+  }
+}
+
 export function normalizeExpertInvitationError(error: unknown): string {
   if (error instanceof MalformedExpertInvitationResponseError) {
     return error.message
@@ -203,6 +276,12 @@ export async function fetchEligibleExperts(questionId: string, options: { search
   const response = await http.get<unknown>(`/question/${questionId}/eligible-experts/`, requestOptions)
 
   return parseEligibleExpertsEnvelope(response.data)
+}
+
+export async function fetchInvitedExpertInvitations(questionId: string) {
+  const response = await http.get<unknown>(`/question/${questionId}/expert-invitations/`)
+
+  return parseInvitedExpertInvitationsEnvelope(response.data)
 }
 
 export async function createExpertInvitations(questionId: string, recipientIds: string[]) {
