@@ -259,6 +259,13 @@ class NotificationApiTests(APITestCase):
         self.assertEqual(set(response.data.keys()), {'count', 'next', 'previous', 'results'})
         self.assertIsInstance(response.data['results'], list)
 
+    def assert_summary_contract(self, response):
+        self.assertEqual(set(response.data.keys()), {'unread_count', 'latest'})
+        self.assertIsInstance(response.data['unread_count'], int)
+        self.assertIsInstance(response.data['latest'], list)
+        for payload in response.data['latest']:
+            self.assert_notification_contract(payload)
+
     def create_notification(
         self,
         *,
@@ -413,6 +420,125 @@ class NotificationApiTests(APITestCase):
         self.assertIsNone(payload['protected_until'])
         self.assertIsNone(payload['cta_url'])
 
+    def test_unauthenticated_summary_returns_401(self):
+        response = self.client.get('/notifications/summary/')
+
+        self.assertEqual(response.status_code, 401, response.data)
+
+    def test_summary_returns_unread_count_and_bounded_latest_for_current_user_only(self):
+        now = timezone.now()
+        own_notifications = []
+        for index in range(6):
+            notification = self.create_notification(title=f'Own summary {index}')
+            Notification.objects.filter(pk=notification.pk).update(created_at=now - timedelta(minutes=index))
+            own_notifications.append(notification)
+        NotificationService.mark_read(own_notifications[1].notification_id, self.recipient)
+        foreign_newer = self.create_notification(recipient=self.other_recipient, title='Foreign newer unread')
+        Notification.objects.filter(pk=foreign_newer.pk).update(created_at=now + timedelta(minutes=5))
+        self.client.force_authenticate(user=self.recipient)
+
+        response = self.client.get('/notifications/summary/')
+
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assert_summary_contract(response)
+        self.assertEqual(response.data['unread_count'], 5)
+        self.assertEqual(len(response.data['latest']), 5)
+        self.assertEqual(
+            [payload['title'] for payload in response.data['latest']],
+            ['Own summary 0', 'Own summary 1', 'Own summary 2', 'Own summary 3', 'Own summary 4'],
+        )
+        for payload in response.data['latest']:
+            self.assertNotEqual(payload['title'], 'Foreign newer unread')
+            self.assert_notification_contract(payload)
+
+    def test_summary_returns_empty_latest_for_user_without_notifications(self):
+        self.create_notification(recipient=self.other_recipient, title='Foreign only')
+        self.client.force_authenticate(user=self.recipient)
+
+        response = self.client.get('/notifications/summary/')
+
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assert_summary_contract(response)
+        self.assertEqual(response.data['unread_count'], 0)
+        self.assertEqual(response.data['latest'], [])
+
+    def test_unread_status_filters_current_user_unread_notifications_only(self):
+        unread = self.create_notification(title='Unread own')
+        read = self.create_notification(title='Read own')
+        NotificationService.mark_read(read.notification_id, self.recipient)
+        self.create_notification(recipient=self.other_recipient, title='Foreign unread')
+        self.client.force_authenticate(user=self.recipient)
+
+        response = self.client.get('/notifications/', {'status': 'unread', 'page': '1'})
+
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assert_paginated_list_contract(response)
+        payloads = self.notification_payloads(response)
+        self.assertEqual(len(payloads), 1)
+        self.assertEqual(payloads[0]['notification_id'], str(unread.notification_id))
+        self.assertEqual(payloads[0]['title'], 'Unread own')
+        self.assertFalse(payloads[0]['is_read'])
+
+    def test_all_status_returns_read_and_unread_current_user_notifications(self):
+        unread = self.create_notification(title='Unread own')
+        read = self.create_notification(title='Read own')
+        NotificationService.mark_read(read.notification_id, self.recipient)
+        self.client.force_authenticate(user=self.recipient)
+
+        response = self.client.get('/notifications/', {'status': 'all', 'page': '1'})
+
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assert_paginated_list_contract(response)
+        self.assertEqual(
+            {payload['notification_id'] for payload in self.notification_payloads(response)},
+            {str(unread.notification_id), str(read.notification_id)},
+        )
+
+    def test_invalid_status_returns_400_without_widening_query(self):
+        self.create_notification(title='Own notification')
+        self.create_notification(recipient=self.other_recipient, title='Foreign notification')
+        self.client.force_authenticate(user=self.recipient)
+
+        response = self.client.get('/notifications/', {'status': 'archived'})
+
+        self.assertEqual(response.status_code, 400, response.data)
+        self.assertIn('status', response.data)
+        self.assertNotIn('results', response.data)
+
+    def test_invalid_page_returns_400(self):
+        self.create_notification(title='Own notification')
+        self.client.force_authenticate(user=self.recipient)
+
+        response = self.client.get('/notifications/', {'page': 'not-a-number'})
+
+        self.assertEqual(response.status_code, 400, response.data)
+        self.assertIn('page', response.data)
+
+    def test_summary_invitation_metadata_is_server_derived(self):
+        notification = self.create_notification(
+            title='Summary payload lies',
+            payload_marker={
+                'question_id': str(self.question.pk),
+                'invitation_status': 'expired',
+                'protected_window_active': False,
+                'protected_window_ended': True,
+                'cta_url': '/questions/forged',
+            },
+            expires_at=timezone.now() + timedelta(hours=10),
+        )
+        self.client.force_authenticate(user=self.recipient)
+
+        response = self.client.get('/notifications/summary/')
+
+        self.assertEqual(response.status_code, 200, response.data)
+        payload = response.data['latest'][0]
+        self.assertEqual(payload['notification_id'], str(notification.notification_id))
+        self.assertEqual(payload['payload']['cta_url'], '/questions/forged')
+        self.assertEqual(payload['invitation_status'], 'active')
+        self.assertTrue(payload['protected_window_active'])
+        self.assertFalse(payload['protected_window_ended'])
+        self.assertEqual(payload['cta_url'], f'/questions/{self.question.pk}')
+
     def test_unauthenticated_mark_read_returns_401(self):
         notification = self.create_notification()
 
@@ -471,9 +597,18 @@ class NotificationApiTests(APITestCase):
         schema = SchemaGenerator().get_schema(request=None, public=True)
 
         self.assertIn('/notifications/', schema['paths'])
+        self.assertIn('/notifications/summary/', schema['paths'])
         self.assertIn('/notifications/{notification_id}/read/', schema['paths'])
         self.assertIn('get', schema['paths']['/notifications/'])
+        self.assertIn('get', schema['paths']['/notifications/summary/'])
         self.assertIn('patch', schema['paths']['/notifications/{notification_id}/read/'])
+        list_parameters = schema['paths']['/notifications/']['get'].get('parameters', [])
+        self.assertIn('status', {parameter['name'] for parameter in list_parameters})
+        summary_schema = schema['paths']['/notifications/summary/']['get']['responses']['200']['content']['application/json']['schema']
+        if '$ref' in summary_schema:
+            summary_schema = schema['components']['schemas'][summary_schema['$ref'].rsplit('/', 1)[-1]]
+        self.assertIn('unread_count', summary_schema['properties'])
+        self.assertIn('latest', summary_schema['properties'])
         notification_schema = schema['components']['schemas']['Notification']
         for field_name in [
             'invitation_status',
