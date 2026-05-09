@@ -192,6 +192,60 @@ class NotificationServiceTests(TestCase):
         with self.assertRaises(NotificationNotFound):
             NotificationService.mark_read(uuid.uuid4(), self.recipient)
 
+    def test_mark_all_read_updates_only_recipient_unread_rows_and_returns_counters(self):
+        first = NotificationService.create_notification(
+            recipient=self.recipient,
+            notification_type=Notification.NotificationType.EXPERT_INVITATION,
+            title='First unread',
+            message='First unread message.',
+        )
+        second = NotificationService.create_notification(
+            recipient=self.recipient,
+            notification_type=Notification.NotificationType.EXPERT_INVITATION,
+            title='Second unread',
+            message='Second unread message.',
+        )
+        already_read = NotificationService.create_notification(
+            recipient=self.recipient,
+            notification_type=Notification.NotificationType.EXPERT_INVITATION,
+            title='Already read',
+            message='Already read message.',
+        )
+        NotificationService.mark_read(already_read.notification_id, self.recipient)
+        foreign = NotificationService.create_notification(
+            recipient=self.other_recipient,
+            notification_type=Notification.NotificationType.EXPERT_INVITATION,
+            title='Foreign unread',
+            message='Foreign unread message.',
+        )
+
+        result = NotificationService.mark_all_read(self.recipient)
+
+        self.assertEqual(result, {'marked_count': 2, 'unread_count': 0})
+        for notification in [first, second, already_read]:
+            notification.refresh_from_db()
+            self.assertIsNotNone(notification.read_at)
+        foreign.refresh_from_db()
+        self.assertIsNone(foreign.read_at)
+
+    def test_mark_all_read_is_idempotent_when_nothing_is_unread(self):
+        notification = NotificationService.create_notification(
+            recipient=self.recipient,
+            notification_type=Notification.NotificationType.EXPERT_INVITATION,
+            title='Only unread',
+            message='Only unread message.',
+        )
+        first_result = NotificationService.mark_all_read(self.recipient)
+        notification.refresh_from_db()
+        first_read_at = notification.read_at
+
+        second_result = NotificationService.mark_all_read(self.recipient)
+
+        notification.refresh_from_db()
+        self.assertEqual(first_result, {'marked_count': 1, 'unread_count': 0})
+        self.assertEqual(second_result, {'marked_count': 0, 'unread_count': 0})
+        self.assertEqual(notification.read_at, first_read_at)
+
 
 class NotificationApiTests(APITestCase):
     EXPECTED_NOTIFICATION_KEYS = {
@@ -593,14 +647,89 @@ class NotificationApiTests(APITestCase):
 
         self.assertEqual(response.status_code, 404, response.data)
 
+    def test_unauthenticated_mark_all_read_returns_401(self):
+        response = self.client.patch('/notifications/read-all/', {}, format='json')
+
+        self.assertEqual(response.status_code, 401, response.data)
+
+    def test_mark_all_read_mutates_only_current_user_and_returns_counters(self):
+        unread_one = self.create_notification(title='Current unread one')
+        unread_two = self.create_notification(title='Current unread two')
+        read_one = self.create_notification(title='Current already read')
+        NotificationService.mark_read(read_one.notification_id, self.recipient)
+        foreign_unread = self.create_notification(recipient=self.other_recipient, title='Foreign unread')
+        self.client.force_authenticate(user=self.recipient)
+
+        response = self.client.patch(
+            '/notifications/read-all/',
+            {'recipient': str(self.other_recipient.pk)},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.data, {'marked_count': 2, 'unread_count': 0})
+        for notification in [unread_one, unread_two, read_one]:
+            notification.refresh_from_db()
+            self.assertIsNotNone(notification.read_at)
+        foreign_unread.refresh_from_db()
+        self.assertIsNone(foreign_unread.read_at)
+
+    def test_mark_all_read_is_idempotent_and_keeps_foreign_count_private(self):
+        own = self.create_notification(title='Current unread')
+        foreign = self.create_notification(recipient=self.other_recipient, title='Foreign unread')
+        self.client.force_authenticate(user=self.recipient)
+        first_response = self.client.patch('/notifications/read-all/', {}, format='json')
+        own.refresh_from_db()
+        first_read_at = own.read_at
+
+        second_response = self.client.patch('/notifications/read-all/', {}, format='json')
+
+        own.refresh_from_db()
+        foreign.refresh_from_db()
+        self.assertEqual(first_response.status_code, 200, first_response.data)
+        self.assertEqual(first_response.data, {'marked_count': 1, 'unread_count': 0})
+        self.assertEqual(second_response.status_code, 200, second_response.data)
+        self.assertEqual(second_response.data, {'marked_count': 0, 'unread_count': 0})
+        self.assertEqual(own.read_at, first_read_at)
+        self.assertIsNone(foreign.read_at)
+
+    def test_mark_all_read_updates_list_and_summary_unread_counts(self):
+        unread_one = self.create_notification(title='Unread one')
+        unread_two = self.create_notification(title='Unread two')
+        read_one = self.create_notification(title='Read one')
+        NotificationService.mark_read(read_one.notification_id, self.recipient)
+        self.client.force_authenticate(user=self.recipient)
+
+        mark_response = self.client.patch('/notifications/read-all/', {}, format='json')
+        unread_response = self.client.get('/notifications/', {'status': 'unread'})
+        all_response = self.client.get('/notifications/', {'status': 'all'})
+        summary_response = self.client.get('/notifications/summary/')
+
+        self.assertEqual(mark_response.status_code, 200, mark_response.data)
+        self.assertEqual(mark_response.data, {'marked_count': 2, 'unread_count': 0})
+        self.assertEqual(unread_response.status_code, 200, unread_response.data)
+        self.assertEqual(unread_response.data['count'], 0)
+        self.assertEqual(unread_response.data['results'], [])
+        self.assertEqual(all_response.status_code, 200, all_response.data)
+        self.assertEqual(all_response.data['count'], 3)
+        self.assertTrue(all(payload['is_read'] for payload in all_response.data['results']))
+        self.assertEqual(summary_response.status_code, 200, summary_response.data)
+        self.assertEqual(summary_response.data['unread_count'], 0)
+        self.assertEqual(
+            {payload['notification_id'] for payload in summary_response.data['latest']},
+            {str(unread_one.notification_id), str(unread_two.notification_id), str(read_one.notification_id)},
+        )
+
     def test_openapi_documents_notification_paths(self):
         schema = SchemaGenerator().get_schema(request=None, public=True)
 
         self.assertIn('/notifications/', schema['paths'])
         self.assertIn('/notifications/summary/', schema['paths'])
+        self.assertIn('/notifications/read-all/', schema['paths'])
         self.assertIn('/notifications/{notification_id}/read/', schema['paths'])
         self.assertIn('get', schema['paths']['/notifications/'])
         self.assertIn('get', schema['paths']['/notifications/summary/'])
+        self.assertIn('patch', schema['paths']['/notifications/read-all/'])
         self.assertIn('patch', schema['paths']['/notifications/{notification_id}/read/'])
         list_parameters = schema['paths']['/notifications/']['get'].get('parameters', [])
         self.assertIn('status', {parameter['name'] for parameter in list_parameters})
@@ -609,6 +738,10 @@ class NotificationApiTests(APITestCase):
             summary_schema = schema['components']['schemas'][summary_schema['$ref'].rsplit('/', 1)[-1]]
         self.assertIn('unread_count', summary_schema['properties'])
         self.assertIn('latest', summary_schema['properties'])
+        mark_all_schema = schema['paths']['/notifications/read-all/']['patch']['responses']['200']['content']['application/json']['schema']
+        if '$ref' in mark_all_schema:
+            mark_all_schema = schema['components']['schemas'][mark_all_schema['$ref'].rsplit('/', 1)[-1]]
+        self.assertEqual(set(mark_all_schema['properties'].keys()), {'marked_count', 'unread_count'})
         notification_schema = schema['components']['schemas']['Notification']
         for field_name in [
             'invitation_status',
