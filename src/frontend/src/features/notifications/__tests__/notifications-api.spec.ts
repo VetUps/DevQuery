@@ -1,17 +1,29 @@
-import { describe, expect, it, beforeEach, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useMutation, useQuery } from '@tanstack/vue-query'
 
 import { queryClient } from '@/app/query-client'
 import {
+  fetchNotificationSummary,
   fetchNotifications,
+  markAllNotificationsRead,
   markNotificationRead,
   MalformedNotificationResponseError,
+  parseMarkAllNotificationsReadResponse,
   parseNotificationCtaUrl,
   parseNotificationEnvelope,
+  parseNotificationSummaryResponse,
   type NotificationItem,
 } from '@/features/notifications/api/notifications'
-import { useMarkNotificationReadMutation } from '@/features/notifications/mutations/useMarkNotificationReadMutation'
-import { useNotificationsQuery } from '@/features/notifications/queries/useNotificationsQuery'
+import {
+  markAllNotificationsReadMutationKey,
+  useMarkAllNotificationsReadMutation,
+  useMarkNotificationReadMutation,
+} from '@/features/notifications/mutations/useMarkNotificationReadMutation'
+import {
+  notificationQueryKeys,
+  useNotificationSummaryQuery,
+  useNotificationsQuery,
+} from '@/features/notifications/queries/useNotificationsQuery'
 import { http } from '@/shared/api/http'
 
 vi.mock('@/shared/api/http', () => ({
@@ -67,6 +79,13 @@ function buildEnvelope(results: unknown[] = [buildNotification()]) {
   }
 }
 
+function buildSummary(latest: unknown[] = [buildNotification()]) {
+  return {
+    unread_count: latest.length,
+    latest,
+  }
+}
+
 describe('notifications API contract', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -104,15 +123,45 @@ describe('notifications API contract', () => {
     })
   })
 
-  it('fetches notifications from the recipient-scoped list endpoint and parses the envelope', async () => {
+  it('parses summary responses through the item parser and supports empty latest previews', () => {
+    const latest = buildNotification({ cta_url: 'https://evil.example.test/phish' })
+
+    expect(parseNotificationSummaryResponse({ unread_count: 0, latest: [] })).toEqual({
+      unread_count: 0,
+      latest: [],
+    })
+    expect(parseNotificationSummaryResponse(buildSummary([latest]))).toEqual({
+      unread_count: 1,
+      latest: [buildNotification({ cta_url: null })],
+    })
+  })
+
+  it('parses mark-all-read counters from the server-confirmed response', () => {
+    expect(parseMarkAllNotificationsReadResponse({ marked_count: 3, unread_count: 0 })).toEqual({
+      marked_count: 3,
+      unread_count: 0,
+    })
+  })
+
+  it('fetches notifications with optional status/page query params and parses the envelope', async () => {
     mockedHttp.get.mockResolvedValue({ data: buildEnvelope() })
 
     await expect(fetchNotifications()).resolves.toEqual(buildEnvelope())
+    await expect(fetchNotifications({ status: 'unread', page: 2 })).resolves.toEqual(buildEnvelope())
 
-    expect(mockedHttp.get).toHaveBeenCalledWith('/notifications/')
+    expect(mockedHttp.get).toHaveBeenNthCalledWith(1, '/notifications/')
+    expect(mockedHttp.get).toHaveBeenNthCalledWith(2, '/notifications/', { params: { status: 'unread', page: 2 } })
   })
 
-  it('marks notifications read through the server-confirmed endpoint and parses the returned item', async () => {
+  it('fetches notification summary and parses the response', async () => {
+    mockedHttp.get.mockResolvedValue({ data: buildSummary() })
+
+    await expect(fetchNotificationSummary()).resolves.toEqual(buildSummary())
+
+    expect(mockedHttp.get).toHaveBeenCalledWith('/notifications/summary/')
+  })
+
+  it('marks one notification read and parses the returned item', async () => {
     const readNotification = buildNotification({
       read_at: '2026-05-08T11:00:00Z',
       is_read: true,
@@ -122,6 +171,14 @@ describe('notifications API contract', () => {
     await expect(markNotificationRead(readNotification.notification_id)).resolves.toEqual(readNotification)
 
     expect(mockedHttp.patch).toHaveBeenCalledWith(`/notifications/${readNotification.notification_id}/read/`)
+  })
+
+  it('marks all notifications read through the bulk endpoint and parses counters', async () => {
+    mockedHttp.patch.mockResolvedValue({ data: { marked_count: 2, unread_count: 0 } })
+
+    await expect(markAllNotificationsRead()).resolves.toEqual({ marked_count: 2, unread_count: 0 })
+
+    expect(mockedHttp.patch).toHaveBeenCalledWith('/notifications/read-all/')
   })
 
   it('rejects malformed pagination envelopes and item fields with typed parser errors', () => {
@@ -140,6 +197,24 @@ describe('notifications API contract', () => {
     )
     expect(() => parseNotificationEnvelope(buildEnvelope([{ ...buildNotification(), payload: [] }]))).toThrow(
       'results[0].payload must be an object or null',
+    )
+  })
+
+  it('rejects malformed summary and mark-all responses with field-specific parser errors', () => {
+    expect(() => parseNotificationSummaryResponse({ unread_count: '1', latest: [] })).toThrow(
+      'summary.unread_count must be a number',
+    )
+    expect(() => parseNotificationSummaryResponse({ unread_count: 1, latest: {} })).toThrow(
+      'summary.latest must be an array',
+    )
+    expect(() => parseNotificationSummaryResponse(buildSummary([{ ...buildNotification(), title: null }]))).toThrow(
+      'summary.latest[0].title must be a string',
+    )
+    expect(() => parseMarkAllNotificationsReadResponse({ unread_count: 0 })).toThrow(
+      'mark_all.marked_count must be a number',
+    )
+    expect(() => parseMarkAllNotificationsReadResponse({ marked_count: 1 })).toThrow(
+      'mark_all.unread_count must be a number',
     )
   })
 
@@ -166,33 +241,52 @@ describe('notifications API contract', () => {
     }
   })
 
-  it('propagates rejected GET and PATCH requests without hiding Vue Query error state', async () => {
-    mockedHttp.get.mockRejectedValueOnce(new Error('GET timeout'))
-    mockedHttp.patch.mockRejectedValueOnce(new Error('PATCH timeout'))
+  it('propagates rejected summary, list, and mark-all requests without hiding Vue Query error state', async () => {
+    mockedHttp.get.mockRejectedValueOnce(new Error('list timeout'))
+    mockedHttp.get.mockRejectedValueOnce(new Error('summary timeout'))
+    mockedHttp.patch.mockRejectedValueOnce(new Error('mark-all timeout'))
 
-    await expect(fetchNotifications()).rejects.toThrow('GET timeout')
-    await expect(markNotificationRead('notification-1')).rejects.toThrow('PATCH timeout')
+    await expect(fetchNotifications()).rejects.toThrow('list timeout')
+    await expect(fetchNotificationSummary()).rejects.toThrow('summary timeout')
+    await expect(markAllNotificationsRead()).rejects.toThrow('mark-all timeout')
   })
 
-  it('exposes stable query and mutation keys and invalidates only after mark-read success', async () => {
-    const queryOptions = useNotificationsQuery(false)
-    const mutationOptions = useMarkNotificationReadMutation()
+  it('exposes status/page-aware list keys and a distinct summary query key', () => {
+    const listQueryOptions = useNotificationsQuery({ status: 'unread', page: 2 }, false)
+    const legacyEnabledOnlyOptions = useNotificationsQuery(false)
+    const summaryQueryOptions = useNotificationSummaryQuery(false)
+
+    expect(useQuery).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      queryKey: ['notifications', 'list', { status: 'unread', page: 2 }],
+      enabled: false,
+    }))
+    expect(listQueryOptions.queryKey).toEqual(['notifications', 'list', { status: 'unread', page: 2 }])
+    expect(legacyEnabledOnlyOptions.queryKey).toEqual(['notifications', 'list', { status: 'all', page: 1 }])
+    expect(summaryQueryOptions.queryKey).toEqual(['notifications', 'summary'])
+    expect(notificationQueryKeys.lists()).toEqual(['notifications', 'list'])
+  })
+
+  it('invalidates all notification caches only after server-confirmed read mutations succeed', async () => {
+    const markOneOptions = useMarkNotificationReadMutation()
+    const markAllOptions = useMarkAllNotificationsReadMutation()
     const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries').mockResolvedValue(undefined)
 
-    expect(useQuery).toHaveBeenCalledWith(expect.objectContaining({
-      queryKey: ['notifications', 'list'],
-      enabled: false,
-      queryFn: fetchNotifications,
-    }))
-    expect(queryOptions.queryKey).toEqual(['notifications', 'list'])
-
-    expect(useMutation).toHaveBeenCalledWith(expect.objectContaining({
+    expect(useMutation).toHaveBeenNthCalledWith(1, expect.objectContaining({
       mutationKey: ['notifications', 'mark-read'],
       mutationFn: markNotificationRead,
     }))
+    expect(useMutation).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      mutationKey: markAllNotificationsReadMutationKey,
+      mutationFn: markAllNotificationsRead,
+    }))
 
-    await expect(mutationOptions.onSuccess?.(buildNotification(), 'notification-1', undefined)).resolves.toBeUndefined()
+    expect(invalidateSpy).not.toHaveBeenCalled()
 
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['notifications', 'list'] })
+    await expect(markOneOptions.onSuccess?.(buildNotification(), 'notification-1', undefined)).resolves.toBeUndefined()
+    await expect(markAllOptions.onSuccess?.({ marked_count: 1, unread_count: 0 }, undefined, undefined)).resolves.toBeUndefined()
+
+    expect(invalidateSpy).toHaveBeenCalledTimes(2)
+    expect(invalidateSpy).toHaveBeenNthCalledWith(1, { queryKey: ['notifications'] })
+    expect(invalidateSpy).toHaveBeenNthCalledWith(2, { queryKey: ['notifications'] })
   })
 })
