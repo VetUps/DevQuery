@@ -5,9 +5,10 @@ from django.db import IntegrityError, transaction
 from django.utils import timezone
 from drf_spectacular.generators import SchemaGenerator
 from rest_framework import status
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.test import APITestCase
 
+from apps.notifications.models import Notification
 from apps.qa.models import (
     Question,
     QuestionEditEvent,
@@ -27,11 +28,11 @@ from apps.qa.serializers import (
     TagSerializer,
 )
 from apps.qa.services.question_edit_service import QuestionChangePayload, QuestionEditService
+from apps.qa.services.question_expert_invitation_service import QuestionExpertInvitationService
 from apps.qa.services.question_protection_service import QuestionProtectionService
 from apps.qa.services.solution_edits_service import SolutionEditService
 from apps.qa.services.solution_service import BEST_SOLUTION_REPUTATION_AWARD, SolutionService
 from apps.qa.services.vote_service import VoteService
-from apps.qa.services.question_protection_service import QuestionProtectionService
 from apps.user.models import CustomUser, ReputationLevelThreshold, ReputationPolicyConfig, ReputationTransaction
 from apps.user.services.reputation_service import ReputationService
 
@@ -267,6 +268,243 @@ class QuestionProtectionServiceTests(APITestCase):
         self.assertIsNone(decision.required_level_label)
         self.assertIsNone(decision.viewer_level)
         self.assertIsNone(decision.protected_until)
+
+
+class QuestionExpertInvitationServiceTests(APITestCase):
+    def setUp(self):
+        self.author = CustomUser.objects.create_user(
+            user_email='invite-author@example.com',
+            user_name='invite-author',
+            password='password',
+        )
+        self.expert = CustomUser.objects.create_user(
+            user_email='invite-expert@example.com',
+            user_name='AlphaExpert',
+            password='password',
+        )
+        self.expert.user_reputation_score = 150
+        self.expert.save(update_fields=['user_reputation_score'])
+        self.master = CustomUser.objects.create_user(
+            user_email='invite-master@example.com',
+            user_name='BetaMaster',
+            password='password',
+        )
+        self.master.user_reputation_score = 350
+        self.master.save(update_fields=['user_reputation_score'])
+        self.participant = CustomUser.objects.create_user(
+            user_email='invite-participant@example.com',
+            user_name='CandidateParticipant',
+            password='password',
+        )
+        self.participant.user_reputation_score = 30
+        self.participant.save(update_fields=['user_reputation_score'])
+        self.inactive_expert = CustomUser.objects.create_user(
+            user_email='inactive-expert@example.com',
+            user_name='InactiveExpert',
+            password='password',
+            is_active=False,
+        )
+        self.inactive_expert.user_reputation_score = 300
+        self.inactive_expert.save(update_fields=['user_reputation_score'])
+        self.question = self.create_question(created_at=timezone.now() - timedelta(hours=1))
+
+    def create_question(self, *, author=None, created_at=None):
+        question = Question.objects.create(
+            user=author or self.author,
+            question_title='Protected invitation question',
+            question_body='Need experts to review this newcomer question.',
+        )
+        if created_at is not None:
+            Question.objects.filter(pk=question.pk).update(question_created_at=created_at)
+            question.refresh_from_db()
+        return question
+
+    def assert_validation_code(self, exc, code):
+        self.assertEqual(exc.exception.detail['code'], code)
+
+    def test_candidate_discovery_filters_searches_sorts_and_reports_slots(self):
+        already_invited = CustomUser.objects.create_user(
+            user_email='already-invited@example.com',
+            user_name='AlreadyExpert',
+            password='password',
+        )
+        already_invited.user_reputation_score = 250
+        already_invited.save(update_fields=['user_reputation_score'])
+        Notification.objects.create(
+            recipient=already_invited,
+            notification_type=Notification.NotificationType.EXPERT_INVITATION,
+            title='Existing invitation',
+            message='Existing invitation.',
+            source_question=self.question,
+            dedupe_key=QuestionExpertInvitationService.build_dedupe_key(self.question.pk, already_invited.pk),
+        )
+
+        result = QuestionExpertInvitationService.get_eligible_experts(self.question, search='expert')
+
+        self.assertEqual(result.slot_state['used'], 1)
+        self.assertEqual(result.slot_state['remaining'], 4)
+        self.assertEqual(result.slot_state['reason_code'], QuestionExpertInvitationService.SLOTS_AVAILABLE)
+        self.assertEqual([candidate['user_id'] for candidate in result.candidates], [str(self.expert.pk)])
+        self.assertEqual(result.candidates[0]['user_name'], 'AlphaExpert')
+        self.assertEqual(result.candidates[0]['reputation_level'], CustomUser.ReputationLevel.EXPERT)
+        self.assertNotIn('user_email', result.candidates[0])
+
+    def test_candidate_discovery_returns_empty_for_no_search_match(self):
+        result = QuestionExpertInvitationService.get_eligible_experts(self.question, search='no-match')
+
+        self.assertEqual(result.candidates, [])
+        self.assertEqual(result.slot_state['remaining'], 5)
+
+    def test_create_invitations_persists_notifications_with_dedupe_payload_and_custom_ttl(self):
+        ReputationPolicyConfig.objects.create(protected_newcomer_window_hours=6)
+        question = self.create_question(created_at=timezone.now() - timedelta(hours=1))
+
+        result = QuestionExpertInvitationService.create_invitations(
+            question=question,
+            requester=self.author,
+            recipient_ids=[self.expert.pk, self.master.pk],
+        )
+
+        self.assertEqual(result.slot_state['used'], 2)
+        self.assertEqual(result.slot_state['remaining'], 3)
+        self.assertEqual(len(result.invitations), 2)
+        notifications = Notification.objects.filter(source_question=question).order_by('recipient__user_name')
+        self.assertEqual(notifications.count(), 2)
+        first = notifications[0]
+        self.assertEqual(first.notification_type, Notification.NotificationType.EXPERT_INVITATION)
+        self.assertEqual(
+            first.dedupe_key,
+            QuestionExpertInvitationService.build_dedupe_key(question.pk, first.recipient_id),
+        )
+        self.assertEqual(first.expires_at, question.question_created_at + timedelta(hours=12))
+        self.assertEqual(first.payload['question_id'], str(question.pk))
+        self.assertEqual(first.payload['author_id'], str(self.author.pk))
+        self.assertNotIn('recipient_email', first.payload)
+
+    def test_exactly_five_invitations_succeeds_and_sixth_fails(self):
+        recipients = [self.expert, self.master]
+        for index in range(3):
+            user = CustomUser.objects.create_user(
+                user_email=f'extra-expert-{index}@example.com',
+                user_name=f'ExtraExpert{index}',
+                password='password',
+            )
+            user.user_reputation_score = 100 + index
+            user.save(update_fields=['user_reputation_score'])
+            recipients.append(user)
+
+        result = QuestionExpertInvitationService.create_invitations(
+            question=self.question,
+            requester=self.author,
+            recipient_ids=[user.pk for user in recipients],
+        )
+        self.assertEqual(len(result.invitations), 5)
+
+        sixth = CustomUser.objects.create_user(
+            user_email='sixth-expert@example.com',
+            user_name='SixthExpert',
+            password='password',
+        )
+        sixth.user_reputation_score = 100
+        sixth.save(update_fields=['user_reputation_score'])
+        with self.assertRaises(ValidationError) as exc:
+            QuestionExpertInvitationService.create_invitations(
+                question=self.question,
+                requester=self.author,
+                recipient_ids=[sixth.pk],
+            )
+        self.assert_validation_code(exc, QuestionExpertInvitationService.MAX_INVITES_EXCEEDED)
+        self.assertEqual(Notification.objects.filter(source_question=self.question).count(), 5)
+
+    def test_duplicate_request_recipient_ids_are_rejected_without_writes(self):
+        with self.assertRaises(ValidationError) as exc:
+            QuestionExpertInvitationService.create_invitations(
+                question=self.question,
+                requester=self.author,
+                recipient_ids=[self.expert.pk, self.expert.pk],
+            )
+
+        self.assert_validation_code(exc, QuestionExpertInvitationService.DUPLICATE_RECIPIENT)
+        self.assertFalse(Notification.objects.filter(source_question=self.question).exists())
+
+    def test_invalid_mixed_recipient_input_rolls_back_without_partial_notifications(self):
+        with self.assertRaises(ValidationError) as exc:
+            QuestionExpertInvitationService.create_invitations(
+                question=self.question,
+                requester=self.author,
+                recipient_ids=[self.expert.pk, self.participant.pk],
+            )
+
+        self.assert_validation_code(exc, QuestionExpertInvitationService.RECIPIENT_NOT_ELIGIBLE)
+        self.assertFalse(Notification.objects.filter(source_question=self.question).exists())
+
+    def test_empty_recipient_list_and_missing_recipient_are_rejected(self):
+        with self.assertRaises(ValidationError) as empty_exc:
+            QuestionExpertInvitationService.create_invitations(
+                question=self.question,
+                requester=self.author,
+                recipient_ids=[],
+            )
+        self.assert_validation_code(empty_exc, QuestionExpertInvitationService.EMPTY_RECIPIENTS)
+
+        with self.assertRaises(ValidationError) as missing_exc:
+            QuestionExpertInvitationService.create_invitations(
+                question=self.question,
+                requester=self.author,
+                recipient_ids=[self.expert.pk, '00000000-0000-0000-0000-000000000000'],
+            )
+        self.assert_validation_code(missing_exc, QuestionExpertInvitationService.RECIPIENT_NOT_ELIGIBLE)
+        self.assertFalse(Notification.objects.filter(source_question=self.question).exists())
+
+    def test_non_author_and_inactive_protected_window_are_rejected(self):
+        with self.assertRaises(ValidationError) as non_author_exc:
+            QuestionExpertInvitationService.create_invitations(
+                question=self.question,
+                requester=self.expert,
+                recipient_ids=[self.master.pk],
+            )
+        self.assert_validation_code(non_author_exc, QuestionExpertInvitationService.NOT_QUESTION_AUTHOR)
+
+        expired_question = self.create_question(created_at=timezone.now() - timedelta(hours=13))
+        with self.assertRaises(ValidationError) as inactive_exc:
+            QuestionExpertInvitationService.create_invitations(
+                question=expired_question,
+                requester=self.author,
+                recipient_ids=[self.expert.pk],
+            )
+        self.assert_validation_code(inactive_exc, QuestionExpertInvitationService.QUESTION_NOT_PROTECTED)
+        self.assertFalse(Notification.objects.filter(source_question__in=[self.question, expired_question]).exists())
+
+    def test_already_invited_recipient_is_rejected_without_new_writes(self):
+        QuestionExpertInvitationService.create_invitations(
+            question=self.question,
+            requester=self.author,
+            recipient_ids=[self.expert.pk],
+        )
+
+        with self.assertRaises(ValidationError) as exc:
+            QuestionExpertInvitationService.create_invitations(
+                question=self.question,
+                requester=self.author,
+                recipient_ids=[self.expert.pk],
+            )
+
+        self.assert_validation_code(exc, QuestionExpertInvitationService.RECIPIENT_ALREADY_INVITED)
+        self.assertEqual(Notification.objects.filter(source_question=self.question).count(), 1)
+
+    def test_notification_service_failure_rolls_back_all_invitation_writes(self):
+        with patch(
+            'apps.qa.services.question_expert_invitation_service.NotificationService.create_notification',
+            side_effect=RuntimeError('notification write failed'),
+        ):
+            with self.assertRaisesMessage(RuntimeError, 'notification write failed'):
+                QuestionExpertInvitationService.create_invitations(
+                    question=self.question,
+                    requester=self.author,
+                    recipient_ids=[self.expert.pk, self.master.pk],
+                )
+
+        self.assertFalse(Notification.objects.filter(source_question=self.question).exists())
 
 
 class QuestionTagModelTests(APITestCase):
@@ -1579,6 +1817,11 @@ class ProtectedQuestionAnswerApiTests(APITestCase):
             password='password',
             user_reputation_score=30,
         )
+        self.newcomer_answerer = CustomUser.objects.create_user(
+            user_email='newcomer-answerer@example.com',
+            user_name='newcomer-answerer',
+            password='password',
+        )
         self.expert = CustomUser.objects.create_user(
             user_email='expert-answerer@example.com',
             user_name='expert-answerer',
@@ -1605,9 +1848,19 @@ class ProtectedQuestionAnswerApiTests(APITestCase):
         self.client.force_authenticate(actor)
         return self.client.post('/solution/', self.solution_payload, format='json')
 
-    def test_participant_cannot_answer_protected_newcomer_question_during_window(self):
-        response = self._create_solution(self.participant)
+    def _create_manual_invitation(self, *, recipient, expires_at=None, payload=None):
+        return Notification.objects.create(
+            recipient=recipient,
+            notification_type=Notification.NotificationType.EXPERT_INVITATION,
+            title='Manual invitation for answer authorization regression coverage',
+            message='This forged fixture must never authorize an answer.',
+            payload=payload if payload is not None else {'forged_role': 'expert', 'question_id': str(self.question.pk)},
+            source_question=self.question,
+            expires_at=expires_at,
+            dedupe_key=QuestionExpertInvitationService.build_dedupe_key(self.question.pk, recipient.pk),
+        )
 
+    def assert_protected_answer_rejected(self, response, actor):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.data)
         self.assertEqual(
             response.data,
@@ -1616,9 +1869,61 @@ class ProtectedQuestionAnswerApiTests(APITestCase):
                 'code': 'protected_newcomer_answer_required',
             },
         )
-        self.assertFalse(Solution.objects.filter(user=self.participant, question=self.question).exists())
+        self.assertFalse(Solution.objects.filter(user=actor, question=self.question).exists())
+
+    def test_participant_cannot_answer_protected_newcomer_question_during_window(self):
+        response = self._create_solution(self.participant)
+
+        self.assert_protected_answer_rejected(response, self.participant)
         self.assertEqual(Solution.objects.count(), 0)
         self.assertEqual(ReputationTransaction.objects.count(), 0)
+
+    def test_forged_participant_invitation_does_not_authorize_protected_answer(self):
+        self._create_manual_invitation(recipient=self.participant)
+
+        response = self._create_solution(self.participant)
+
+        self.assert_protected_answer_rejected(response, self.participant)
+        self.assertEqual(Solution.objects.count(), 0)
+        self.assertEqual(ReputationTransaction.objects.count(), 0)
+
+    def test_forged_newcomer_invitation_does_not_authorize_protected_answer(self):
+        self._create_manual_invitation(recipient=self.newcomer_answerer)
+
+        response = self._create_solution(self.newcomer_answerer)
+
+        self.assert_protected_answer_rejected(response, self.newcomer_answerer)
+        self.assertEqual(Solution.objects.count(), 0)
+        self.assertEqual(ReputationTransaction.objects.count(), 0)
+
+    def test_expired_invitation_does_not_authorize_protected_answer(self):
+        self._create_manual_invitation(
+            recipient=self.participant,
+            expires_at=timezone.now() - timedelta(minutes=1),
+            payload={'invitation_status': 'expired', 'viewer_level': CustomUser.ReputationLevel.EXPERT},
+        )
+
+        response = self._create_solution(self.participant)
+
+        self.assert_protected_answer_rejected(response, self.participant)
+        self.assertEqual(Solution.objects.count(), 0)
+        self.assertEqual(ReputationTransaction.objects.count(), 0)
+
+    def test_ttl_active_invitation_after_protected_window_follows_normal_policy(self):
+        Question.objects.filter(pk=self.question.pk).update(
+            question_created_at=timezone.now() - timedelta(hours=13)
+        )
+        self.question.refresh_from_db()
+        self._create_manual_invitation(
+            recipient=self.participant,
+            expires_at=timezone.now() + timedelta(hours=1),
+            payload={'protected_window_ended': True, 'viewer_level': CustomUser.ReputationLevel.PARTICIPANT},
+        )
+
+        response = self._create_solution(self.participant)
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertTrue(Solution.objects.filter(user=self.participant, question=self.question).exists())
 
     def test_expert_can_answer_protected_newcomer_question_during_window(self):
         response = self._create_solution(self.expert)
@@ -2029,6 +2334,597 @@ class SolutionEditLifecycleTests(APITestCase):
         self.assertTrue(SolutionEdits.objects.get(solution_edit_id=response.data['solution_edit_id']).solution_edit_is_approved)
 
 
+class QuestionEligibleExpertsApiTests(APITestCase):
+    def setUp(self):
+        self.author = CustomUser.objects.create_user(
+            user_email='eligible-author@example.com',
+            user_name='eligible-author',
+            password='password',
+        )
+        self.other_user = CustomUser.objects.create_user(
+            user_email='eligible-other@example.com',
+            user_name='eligible-other',
+            password='password',
+        )
+        self.expert = self.create_user('eligible-alpha@example.com', 'AlphaExpert', 150)
+        self.master = self.create_user('eligible-master@example.com', 'BetaMaster', 350)
+        self.participant = self.create_user('eligible-participant@example.com', 'CandidateParticipant', 30)
+        self.manual_expert = self.create_user(
+            'manual-expert@example.com',
+            'ManualExpert',
+            0,
+            manual_reputation_level=CustomUser.ReputationLevel.EXPERT,
+        )
+        self.question = self.create_question(created_at=timezone.now() - timedelta(hours=1))
+        self.url = f'/question/{self.question.question_id}/eligible-experts/'
+
+    def create_user(self, email, name, score, **extra_fields):
+        user = CustomUser.objects.create_user(
+            user_email=email,
+            user_name=name,
+            password='password',
+            **extra_fields,
+        )
+        user.user_reputation_score = score
+        user.save(update_fields=['user_reputation_score'])
+        return user
+
+    def create_question(self, *, author=None, created_at=None):
+        question = Question.objects.create(
+            user=author or self.author,
+            question_title='Protected eligible experts question',
+            question_body='Need expert candidates for the protected selector.',
+        )
+        if created_at is not None:
+            Question.objects.filter(pk=question.pk).update(question_created_at=created_at)
+            question.refresh_from_db()
+        return question
+
+    def get_candidate_names(self, response):
+        return [candidate['user_name'] for candidate in response.data['results']]
+
+    def test_unauthenticated_request_is_rejected(self):
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED, response.data)
+
+    def test_non_author_request_is_forbidden_with_reason_code(self):
+        self.client.force_authenticate(self.other_user)
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.data)
+        self.assertEqual(response.data['code'], QuestionExpertInvitationService.NOT_QUESTION_AUTHOR)
+
+    def test_nonexistent_question_returns_not_found(self):
+        self.client.force_authenticate(self.author)
+
+        response = self.client.get('/question/00000000-0000-0000-0000-000000000000/eligible-experts/')
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND, response.data)
+
+    def test_inactive_protected_window_returns_stable_reason_code(self):
+        expired_question = self.create_question(created_at=timezone.now() - timedelta(hours=13))
+        self.client.force_authenticate(self.author)
+
+        response = self.client.get(f'/question/{expired_question.question_id}/eligible-experts/')
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.data)
+        self.assertEqual(response.data['code'], QuestionExpertInvitationService.QUESTION_NOT_PROTECTED)
+
+    def test_author_gets_paginated_candidates_metadata_and_no_email_leakage(self):
+        self.client.force_authenticate(self.author)
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual(set(['count', 'next', 'previous', 'results']).issubset(response.data.keys()), True)
+        self.assertEqual(response.data['question_id'], str(self.question.pk))
+        self.assertEqual(response.data['max_invites'], 5)
+        self.assertEqual(response.data['invited_count'], 0)
+        self.assertEqual(response.data['remaining_slots'], 5)
+        self.assertTrue(response.data['can_invite'])
+        self.assertEqual(response.data['reason_code'], QuestionExpertInvitationService.SLOTS_AVAILABLE)
+        self.assertEqual(
+            self.get_candidate_names(response),
+            ['BetaMaster', 'AlphaExpert', 'ManualExpert'],
+        )
+        for candidate in response.data['results']:
+            self.assertIn('is_manual_override', candidate)
+            self.assertNotIn('user_email', candidate)
+            self.assertNotIn('email', candidate)
+        manual_candidate = next(candidate for candidate in response.data['results'] if candidate['user_name'] == 'ManualExpert')
+        self.assertTrue(manual_candidate['is_manual_override'])
+        self.assertEqual(manual_candidate['reputation_level'], CustomUser.ReputationLevel.EXPERT)
+
+    def test_search_filters_by_username_without_private_fields(self):
+        self.client.force_authenticate(self.author)
+
+        response = self.client.get(self.url, {'search': 'alpha'})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual(self.get_candidate_names(response), ['AlphaExpert'])
+        self.assertNotIn('user_email', response.data['results'][0])
+
+    def test_empty_and_short_search_are_safe(self):
+        self.client.force_authenticate(self.author)
+
+        empty_response = self.client.get(self.url, {'search': ''})
+        short_response = self.client.get(self.url, {'search': 'a'})
+
+        self.assertEqual(empty_response.status_code, status.HTTP_200_OK, empty_response.data)
+        self.assertEqual(short_response.status_code, status.HTTP_200_OK, short_response.data)
+        self.assertGreaterEqual(empty_response.data['count'], 3)
+        for response in [empty_response, short_response]:
+            for candidate in response.data['results']:
+                self.assertNotIn('user_email', candidate)
+
+    def test_author_non_experts_and_already_invited_users_are_excluded(self):
+        Notification.objects.create(
+            recipient=self.expert,
+            notification_type=Notification.NotificationType.EXPERT_INVITATION,
+            title='Existing invitation',
+            message='Existing invitation.',
+            source_question=self.question,
+            dedupe_key=QuestionExpertInvitationService.build_dedupe_key(self.question.pk, self.expert.pk),
+        )
+        self.client.force_authenticate(self.author)
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        names = self.get_candidate_names(response)
+        self.assertNotIn(self.author.user_name, names)
+        self.assertNotIn(self.participant.user_name, names)
+        self.assertNotIn(self.expert.user_name, names)
+        self.assertEqual(response.data['invited_count'], 1)
+        self.assertEqual(response.data['remaining_slots'], 4)
+
+    def test_zero_remaining_slots_keeps_metadata_and_candidates_exclude_invited(self):
+        recipients = [self.expert, self.master, self.manual_expert]
+        for index in range(2):
+            recipients.append(self.create_user(f'eligible-extra-{index}@example.com', f'ExtraExpert{index}', 200 + index))
+
+        for recipient in recipients:
+            Notification.objects.create(
+                recipient=recipient,
+                notification_type=Notification.NotificationType.EXPERT_INVITATION,
+                title='Existing invitation',
+                message='Existing invitation.',
+                source_question=self.question,
+                dedupe_key=QuestionExpertInvitationService.build_dedupe_key(self.question.pk, recipient.pk),
+            )
+        self.client.force_authenticate(self.author)
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual(response.data['invited_count'], 5)
+        self.assertEqual(response.data['remaining_slots'], 0)
+        self.assertFalse(response.data['can_invite'])
+        self.assertEqual(response.data['reason_code'], QuestionExpertInvitationService.MAX_INVITES_EXCEEDED)
+        self.assertEqual(response.data['results'], [])
+
+
+class QuestionExpertInvitationsApiTests(APITestCase):
+    def setUp(self):
+        ReputationPolicyConfig.objects.create(protected_newcomer_window_hours=6)
+        self.author = CustomUser.objects.create_user(
+            user_email='invite-author@example.com',
+            user_name='invite-author',
+            password='password',
+        )
+        self.other_user = CustomUser.objects.create_user(
+            user_email='invite-other@example.com',
+            user_name='invite-other',
+            password='password',
+        )
+        self.expert = self.create_user('invite-expert@example.com', 'InviteExpert', 150)
+        self.master = self.create_user('invite-master@example.com', 'InviteMaster', 350)
+        self.participant = self.create_user('invite-participant@example.com', 'InviteParticipant', 30)
+        self.newcomer = self.create_user('invite-newcomer@example.com', 'InviteNewcomer', 0)
+        self.question = self.create_question(created_at=timezone.now() - timedelta(hours=1))
+        self.url = f'/question/{self.question.question_id}/expert-invitations/'
+
+    def create_user(self, email, name, score, **extra_fields):
+        user = CustomUser.objects.create_user(
+            user_email=email,
+            user_name=name,
+            password='password',
+            **extra_fields,
+        )
+        user.user_reputation_score = score
+        user.save(update_fields=['user_reputation_score'])
+        return user
+
+    def create_question(self, *, author=None, created_at=None):
+        question = Question.objects.create(
+            user=author or self.author,
+            question_title='Protected expert invitation question',
+            question_body='Need expert invitations for protected answer support.',
+        )
+        if created_at is not None:
+            Question.objects.filter(pk=question.pk).update(question_created_at=created_at)
+            question.refresh_from_db()
+        return question
+
+    def invite(self, recipients, *, actor=None, url=None):
+        self.client.force_authenticate(actor or self.author)
+        return self.client.post(
+            url or self.url,
+            {'recipient_ids': [str(recipient.pk) for recipient in recipients]},
+            format='json',
+        )
+
+    def create_existing_invitation(self, recipient, *, question=None):
+        question = question or self.question
+        return Notification.objects.create(
+            recipient=recipient,
+            notification_type=Notification.NotificationType.EXPERT_INVITATION,
+            title='Existing invitation',
+            message='Existing invitation.',
+            source_question=question,
+            dedupe_key=QuestionExpertInvitationService.build_dedupe_key(question.pk, recipient.pk),
+        )
+
+    def assert_reason_code(self, response, status_code, code):
+        self.assertEqual(response.status_code, status_code, response.data)
+        self.assertEqual(response.data['code'], code)
+
+    def test_author_creates_multiple_expert_invitations_with_slot_and_notification_state(self):
+        response = self.invite([self.expert, self.master])
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertEqual(response.data['question_id'], str(self.question.pk))
+        self.assertEqual(response.data['max_invites'], 5)
+        self.assertEqual(response.data['invited_count'], 2)
+        self.assertEqual(response.data['remaining_slots'], 3)
+        self.assertEqual(response.data['created_count'], 2)
+        self.assertEqual(len(response.data['invitations']), 2)
+
+        notifications = Notification.objects.filter(
+            notification_type=Notification.NotificationType.EXPERT_INVITATION,
+            source_question=self.question,
+        ).order_by('recipient__user_name')
+        self.assertEqual(notifications.count(), 2)
+        expected_expires_at = self.question.question_created_at + timedelta(hours=12)
+        for notification in notifications:
+            self.assertIn(notification.recipient_id, {self.expert.pk, self.master.pk})
+            self.assertEqual(
+                notification.dedupe_key,
+                QuestionExpertInvitationService.build_dedupe_key(self.question.pk, notification.recipient_id),
+            )
+            self.assertAlmostEqual(notification.expires_at, expected_expires_at, delta=timedelta(seconds=1))
+            self.assertIsInstance(notification.payload, dict)
+            self.assertEqual(notification.payload['question_id'], str(self.question.pk))
+            self.assertNotIn('user_email', notification.payload)
+
+    def test_invitation_payload_contains_curated_question_author_ttl_and_protection_metadata(self):
+        django_tag = Tag.objects.create(name='django')
+        vue_tag = Tag.objects.create(name='vue')
+        self.question.tags.add(vue_tag, django_tag)
+        expected_expires_at = self.question.question_created_at + timedelta(hours=12)
+        expected_protected_until = self.question.question_created_at + timedelta(hours=6)
+
+        response = self.invite([self.expert])
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        notification = Notification.objects.get(source_question=self.question, recipient=self.expert)
+        payload = notification.payload
+        self.assertEqual(response.data['invitations'][0]['payload'], payload)
+        self.assertEqual(payload['question_id'], str(self.question.pk))
+        self.assertEqual(payload['question_title'], self.question.question_title)
+        self.assertEqual(payload['question_status'], Question.Status.OPEN_STATUS)
+        self.assertEqual(payload['question_tags'], ['django', 'vue'])
+        self.assertEqual(payload['author_id'], str(self.author.pk))
+        self.assertEqual(payload['author_name'], self.author.user_name)
+        self.assertEqual(payload['author_reputation_level'], CustomUser.ReputationLevel.NEWCOMER)
+        self.assertEqual(payload['author_reputation_level_label'], CustomUser.ReputationLevel.NEWCOMER.label)
+        self.assertEqual(payload['author_points_to_next_level'], 30)
+        self.assertEqual(payload['author_next_level'], CustomUser.ReputationLevel.PARTICIPANT)
+        self.assertEqual(payload['recipient_id'], str(self.expert.pk))
+        self.assertEqual(payload['recipient_reputation_level'], CustomUser.ReputationLevel.EXPERT)
+        self.assertEqual(payload['invitation_type'], Notification.NotificationType.EXPERT_INVITATION)
+        self.assertEqual(payload['invitation_status'], 'active')
+        self.assertEqual(payload['cta_url'], f'/questions/{self.question.pk}')
+        self.assertEqual(payload['expires_at'], expected_expires_at.isoformat())
+        self.assertTrue(payload['is_protected'])
+        self.assertEqual(payload['protection_reason_code'], QuestionProtectionService.PROTECTED_NEWCOMER)
+        self.assertEqual(payload['protected_until'], expected_protected_until.isoformat())
+        self.assertFalse(payload['protected_window_ended'])
+        self.assertNotIn('user_email', payload)
+        self.assertNotIn('recipient_email', payload)
+
+    def test_invitation_payload_serializes_untagged_questions_as_empty_tag_list(self):
+        response = self.invite([self.expert])
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        notification = Notification.objects.get(source_question=self.question, recipient=self.expert)
+        self.assertEqual(notification.payload['question_tags'], [])
+
+    def test_get_notifications_exposes_created_invitation_to_recipient(self):
+        self.invite([self.expert])
+        self.client.force_authenticate(self.expert)
+
+        response = self.client.get('/notifications/')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual(response.data['count'], 1)
+        invitation = response.data['results'][0]
+        self.assertEqual(invitation['notification_type'], Notification.NotificationType.EXPERT_INVITATION)
+        self.assertEqual(invitation['source_question_id'], str(self.question.pk))
+        self.assertEqual(invitation['payload']['question_id'], str(self.question.pk))
+        self.assertEqual(invitation['payload']['recipient_id'], str(self.expert.pk))
+        self.assertEqual(invitation['invitation_status'], 'active')
+        self.assertTrue(invitation['protected_window_active'])
+        self.assertFalse(invitation['protected_window_ended'])
+        self.assertEqual(invitation['protected_until'], (self.question.question_created_at + timedelta(hours=6)).isoformat())
+        self.assertEqual(invitation['cta_url'], f'/questions/{self.question.pk}')
+
+    def test_duplicate_recipient_ids_in_one_request_are_rejected_without_partial_writes(self):
+        self.client.force_authenticate(self.author)
+        response = self.client.post(
+            self.url,
+            {'recipient_ids': [str(self.expert.pk), str(self.expert.pk)]},
+            format='json',
+        )
+
+        self.assert_reason_code(response, status.HTTP_400_BAD_REQUEST, QuestionExpertInvitationService.DUPLICATE_RECIPIENT)
+        self.assertFalse(Notification.objects.exists())
+
+    def test_already_invited_recipient_is_rejected_without_partial_writes(self):
+        self.create_existing_invitation(self.expert)
+
+        response = self.invite([self.expert, self.master])
+
+        self.assert_reason_code(response, status.HTTP_400_BAD_REQUEST, QuestionExpertInvitationService.RECIPIENT_ALREADY_INVITED)
+        self.assertEqual(Notification.objects.count(), 1)
+        self.assertFalse(Notification.objects.filter(recipient=self.master).exists())
+
+    def test_max_five_total_cap_is_enforced_across_existing_and_new_invitations(self):
+        existing = [
+            self.expert,
+            self.master,
+            self.create_user('invite-extra-1@example.com', 'InviteExtra1', 200),
+            self.create_user('invite-extra-2@example.com', 'InviteExtra2', 210),
+        ]
+        for recipient in existing:
+            self.create_existing_invitation(recipient)
+        new_one = self.create_user('invite-extra-3@example.com', 'InviteExtra3', 220)
+        sixth = self.create_user('invite-extra-4@example.com', 'InviteExtra4', 230)
+
+        success = self.invite([new_one])
+        rejection = self.invite([sixth])
+
+        self.assertEqual(success.status_code, status.HTTP_201_CREATED, success.data)
+        self.assertEqual(success.data['remaining_slots'], 0)
+        self.assert_reason_code(rejection, status.HTTP_400_BAD_REQUEST, QuestionExpertInvitationService.MAX_INVITES_EXCEEDED)
+        self.assertEqual(Notification.objects.filter(source_question=self.question).count(), 5)
+
+    def test_ineligible_participant_newcomer_self_and_unknown_recipients_are_rejected(self):
+        missing_uuid = '00000000-0000-0000-0000-000000000000'
+        cases = [
+            [str(self.participant.pk)],
+            [str(self.newcomer.pk)],
+            [str(self.author.pk)],
+            [missing_uuid],
+        ]
+        self.client.force_authenticate(self.author)
+        for recipient_ids in cases:
+            with self.subTest(recipient_ids=recipient_ids):
+                response = self.client.post(self.url, {'recipient_ids': recipient_ids}, format='json')
+                self.assert_reason_code(response, status.HTTP_400_BAD_REQUEST, QuestionExpertInvitationService.RECIPIENT_NOT_ELIGIBLE)
+        self.assertFalse(Notification.objects.exists())
+
+    def test_non_author_and_inactive_protected_window_are_rejected_with_stable_codes(self):
+        non_author_response = self.invite([self.expert], actor=self.other_user)
+        expired_question = self.create_question(created_at=timezone.now() - timedelta(hours=7))
+        inactive_response = self.invite(
+            [self.expert],
+            url=f'/question/{expired_question.question_id}/expert-invitations/',
+        )
+
+        self.assert_reason_code(non_author_response, status.HTTP_403_FORBIDDEN, QuestionExpertInvitationService.NOT_QUESTION_AUTHOR)
+        self.assert_reason_code(inactive_response, status.HTTP_400_BAD_REQUEST, QuestionExpertInvitationService.QUESTION_NOT_PROTECTED)
+        self.assertFalse(Notification.objects.exists())
+
+    def test_unauthenticated_nonexistent_question_and_malformed_shapes_are_rejected(self):
+        unauthenticated = self.client.post(self.url, {'recipient_ids': [str(self.expert.pk)]}, format='json')
+        self.client.force_authenticate(self.author)
+        nonexistent = self.client.post(
+            '/question/00000000-0000-0000-0000-000000000000/expert-invitations/',
+            {'recipient_ids': [str(self.expert.pk)]},
+            format='json',
+        )
+        malformed_cases = [
+            {},
+            {'recipient_ids': 'not-a-list'},
+            {'recipient_ids': []},
+            {'recipient_ids': ['not-a-uuid']},
+            {'recipient_ids': [str(self.create_user(f'invite-over-{index}@example.com', f'InviteOver{index}', 250 + index).pk) for index in range(6)]},
+        ]
+
+        self.assertEqual(unauthenticated.status_code, status.HTTP_401_UNAUTHORIZED, unauthenticated.data)
+        self.assertEqual(nonexistent.status_code, status.HTTP_404_NOT_FOUND, nonexistent.data)
+        for payload in malformed_cases:
+            with self.subTest(payload=payload):
+                response = self.client.post(self.url, payload, format='json')
+                self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.data)
+        self.assertFalse(Notification.objects.exists())
+
+    def test_invitation_notification_does_not_grant_participant_answer_permission(self):
+        Notification.objects.create(
+            recipient=self.participant,
+            notification_type=Notification.NotificationType.EXPERT_INVITATION,
+            title='Manual invitation for regression coverage',
+            message='Regression fixture.',
+            source_question=self.question,
+            dedupe_key=QuestionExpertInvitationService.build_dedupe_key(self.question.pk, self.participant.pk),
+        )
+        self.client.force_authenticate(self.participant)
+        blocked_response = self.client.post(
+            '/solution/',
+            {'question': str(self.question.question_id), 'solution_body': 'Participant should remain blocked.'},
+            format='json',
+        )
+        self.client.force_authenticate(self.expert)
+        allowed_response = self.client.post(
+            '/solution/',
+            {'question': str(self.question.question_id), 'solution_body': 'Expert remains allowed.'},
+            format='json',
+        )
+
+        self.assertEqual(blocked_response.status_code, status.HTTP_403_FORBIDDEN, blocked_response.data)
+        self.assertEqual(blocked_response.data['code'], 'protected_newcomer_answer_required')
+        self.assertFalse(Solution.objects.filter(user=self.participant, question=self.question).exists())
+        self.assertEqual(allowed_response.status_code, status.HTTP_201_CREATED, allowed_response.data)
+        self.assertTrue(Solution.objects.filter(user=self.expert, question=self.question).exists())
+
+
+class QuestionExpertInvitedExpertsApiTests(APITestCase):
+    def setUp(self):
+        ReputationPolicyConfig.objects.create(protected_newcomer_window_hours=6)
+        self.author = CustomUser.objects.create_user(
+            user_email='invited-author@example.com',
+            user_name='invited-author',
+            password='password',
+        )
+        self.other_user = CustomUser.objects.create_user(
+            user_email='invited-other@example.com',
+            user_name='invited-other',
+            password='password',
+        )
+        self.expert = self.create_user('invited-expert@example.com', 'InvitedExpert', 150)
+        self.master = self.create_user('invited-master@example.com', 'InvitedMaster', 350)
+        self.other_question_expert = self.create_user('other-question-expert@example.com', 'OtherQuestionExpert', 200)
+        self.question = self.create_question(created_at=timezone.now() - timedelta(hours=1))
+        self.url = f'/question/{self.question.question_id}/expert-invitations/'
+
+    def create_user(self, email, name, score):
+        user = CustomUser.objects.create_user(
+            user_email=email,
+            user_name=name,
+            password='password',
+        )
+        user.user_reputation_score = score
+        user.save(update_fields=['user_reputation_score'])
+        return user
+
+    def create_question(self, *, author=None, created_at=None):
+        question = Question.objects.create(
+            user=author or self.author,
+            question_title='Protected invited experts question',
+            question_body='Need invited experts read contract coverage.',
+        )
+        if created_at is not None:
+            Question.objects.filter(pk=question.pk).update(question_created_at=created_at)
+            question.refresh_from_db()
+        return question
+
+    def create_existing_invitation(self, recipient, *, question=None, read_at=None, notification_type=None):
+        question = question or self.question
+        return Notification.objects.create(
+            recipient=recipient,
+            notification_type=notification_type or Notification.NotificationType.EXPERT_INVITATION,
+            title='Existing invitation',
+            message='Existing invitation.',
+            payload={
+                'question_id': str(question.pk),
+                'recipient_email': recipient.user_email,
+                'raw_marker': 'must not leak through author GET',
+            },
+            source_question=question,
+            read_at=read_at,
+            expires_at=question.question_created_at + timedelta(hours=12),
+            dedupe_key=QuestionExpertInvitationService.build_dedupe_key(question.pk, recipient.pk),
+        )
+
+    def authenticate_author(self):
+        self.client.force_authenticate(self.author)
+
+    def test_author_lists_invited_experts_with_read_and_protection_status(self):
+        unread = self.create_existing_invitation(self.expert)
+        read_at = timezone.now() - timedelta(minutes=5)
+        read = self.create_existing_invitation(self.master, read_at=read_at)
+        other_question = self.create_question(created_at=timezone.now() - timedelta(hours=1))
+        self.create_existing_invitation(self.other_question_expert, question=other_question)
+        self.authenticate_author()
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual(response.data['question_id'], str(self.question.pk))
+        self.assertEqual(response.data['count'], 2)
+        self.assertEqual(response.data['invited_count'], 2)
+        by_recipient_id = {item['recipient_id']: item for item in response.data['results']}
+        self.assertEqual(set(by_recipient_id.keys()), {str(self.expert.pk), str(self.master.pk)})
+
+        unread_item = by_recipient_id[str(self.expert.pk)]
+        self.assertEqual(unread_item['recipient_name'], self.expert.user_name)
+        self.assertEqual(unread_item['recipient_reputation_score'], 150)
+        self.assertEqual(unread_item['reputation_level'], CustomUser.ReputationLevel.EXPERT)
+        self.assertEqual(unread_item['reputation_level_label'], CustomUser.ReputationLevel.EXPERT.label)
+        self.assertEqual(unread_item['notification_id'], str(unread.pk))
+        self.assertFalse(unread_item['is_read'])
+        self.assertIsNone(unread_item['read_at'])
+        self.assertEqual(unread_item['invitation_status'], 'active')
+        self.assertTrue(unread_item['protected_window_active'])
+        self.assertEqual(unread_item['protected_until'], (self.question.question_created_at + timedelta(hours=6)).isoformat())
+
+        read_item = by_recipient_id[str(self.master.pk)]
+        self.assertEqual(read_item['notification_id'], str(read.pk))
+        self.assertTrue(read_item['is_read'])
+        self.assertEqual(read_item['read_at'], read_at.isoformat().replace('+00:00', 'Z'))
+        self.assertEqual(read_item['reputation_level'], CustomUser.ReputationLevel.MASTER)
+
+        for item in response.data['results']:
+            self.assertEqual(
+                set(item.keys()),
+                {
+                    'recipient_id',
+                    'recipient_name',
+                    'recipient_reputation_score',
+                    'reputation_level',
+                    'reputation_level_label',
+                    'notification_id',
+                    'is_read',
+                    'read_at',
+                    'invitation_status',
+                    'protected_window_active',
+                    'protected_until',
+                },
+            )
+            self.assertNotIn('user_email', item)
+            self.assertNotIn('recipient_email', item)
+            self.assertNotIn('payload', item)
+            self.assertNotIn('dedupe_key', item)
+
+    def test_author_get_empty_invitation_list_returns_paginated_envelope(self):
+        self.authenticate_author()
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual(response.data['count'], 0)
+        self.assertIsNone(response.data['next'])
+        self.assertIsNone(response.data['previous'])
+        self.assertEqual(response.data['results'], [])
+        self.assertEqual(response.data['question_id'], str(self.question.pk))
+        self.assertEqual(response.data['invited_count'], 0)
+
+    def test_get_rejects_unauthenticated_non_author_and_nonexistent_question(self):
+        unauthenticated = self.client.get(self.url)
+        self.client.force_authenticate(self.other_user)
+        non_author = self.client.get(self.url)
+        self.authenticate_author()
+        nonexistent = self.client.get('/question/00000000-0000-0000-0000-000000000000/expert-invitations/')
+
+        self.assertEqual(unauthenticated.status_code, status.HTTP_401_UNAUTHORIZED, unauthenticated.data)
+        self.assertEqual(non_author.status_code, status.HTTP_403_FORBIDDEN, non_author.data)
+        self.assertEqual(non_author.data['code'], QuestionExpertInvitationService.NOT_QUESTION_AUTHOR)
+        self.assertEqual(nonexistent.status_code, status.HTTP_404_NOT_FOUND, nonexistent.data)
+
+
 class OpenApiSchemaTests(APITestCase):
     def test_question_list_schema_uses_paginated_envelope(self):
         schema = SchemaGenerator().get_schema(request=None, public=True)
@@ -2046,6 +2942,101 @@ class OpenApiSchemaTests(APITestCase):
         self.assertEqual(
             paginated_schema['properties']['results']['items']['$ref'],
             '#/components/schemas/QuestionList',
+        )
+
+
+    def test_eligible_experts_schema_exposes_path_search_and_stable_envelope(self):
+        schema = SchemaGenerator().get_schema(request=None, public=True)
+        operation = schema['paths']['/question/{question_id}/eligible-experts/']['get']
+
+        parameter_names = {(parameter['in'], parameter['name']) for parameter in operation['parameters']}
+        self.assertIn(('query', 'search'), parameter_names)
+        response_schema_ref = operation['responses']['200']['content']['application/json']['schema']['$ref']
+        self.assertEqual(response_schema_ref, '#/components/schemas/EligibleExpertsResponse')
+        response_schema = schema['components']['schemas']['EligibleExpertsResponse']
+        self.assertEqual(
+            set(response_schema['properties'].keys()),
+            {
+                'count',
+                'next',
+                'previous',
+                'results',
+                'question_id',
+                'max_invites',
+                'invited_count',
+                'remaining_slots',
+                'can_invite',
+                'reason_code',
+            },
+        )
+        candidate_ref = response_schema['properties']['results']['items']['$ref']
+        candidate_schema = schema['components']['schemas'][candidate_ref.split('/')[-1]]
+        self.assertNotIn('user_email', candidate_schema['properties'])
+
+    def test_expert_invitations_schema_exposes_get_and_post_contract(self):
+        schema = SchemaGenerator().get_schema(request=None, public=True)
+        path = schema['paths']['/question/{question_id}/expert-invitations/']
+        get_operation = path['get']
+        post_operation = path['post']
+
+        get_response_schema_ref = get_operation['responses']['200']['content']['application/json']['schema']['$ref']
+        self.assertEqual(get_response_schema_ref, '#/components/schemas/ExpertInvitationListResponse')
+        get_response_schema = schema['components']['schemas']['ExpertInvitationListResponse']
+        self.assertEqual(
+            set(get_response_schema['properties'].keys()),
+            {
+                'count',
+                'next',
+                'previous',
+                'results',
+                'question_id',
+                'invited_count',
+            },
+        )
+        invited_item_ref = get_response_schema['properties']['results']['items']['$ref']
+        invited_item_schema = schema['components']['schemas'][invited_item_ref.split('/')[-1]]
+        self.assertEqual(
+            set(invited_item_schema['properties'].keys()),
+            {
+                'recipient_id',
+                'recipient_name',
+                'recipient_reputation_score',
+                'reputation_level',
+                'reputation_level_label',
+                'notification_id',
+                'is_read',
+                'read_at',
+                'invitation_status',
+                'protected_window_active',
+                'protected_until',
+            },
+        )
+        self.assertNotIn('user_email', invited_item_schema['properties'])
+        self.assertNotIn('recipient_email', invited_item_schema['properties'])
+        self.assertNotIn('payload', invited_item_schema['properties'])
+        self.assertNotIn('dedupe_key', invited_item_schema['properties'])
+
+        request_schema_ref = post_operation['requestBody']['content']['application/json']['schema']['$ref']
+        response_schema_ref = post_operation['responses']['201']['content']['application/json']['schema']['$ref']
+        self.assertEqual(request_schema_ref, '#/components/schemas/ExpertInvitationCreateRequest')
+        self.assertEqual(response_schema_ref, '#/components/schemas/ExpertInvitationCreateResponse')
+        response_schema = schema['components']['schemas']['ExpertInvitationCreateResponse']
+        self.assertEqual(
+            set(response_schema['properties'].keys()),
+            {
+                'question_id',
+                'max_invites',
+                'invited_count',
+                'remaining_slots',
+                'created_count',
+                'invitations',
+            },
+        )
+        invitation_ref = response_schema['properties']['invitations']['items']['$ref']
+        invitation_schema = schema['components']['schemas'][invitation_ref.split('/')[-1]]
+        self.assertEqual(
+            set(invitation_schema['properties'].keys()),
+            {'recipient_id', 'notification_id', 'dedupe_key', 'expires_at', 'payload'},
         )
 
 

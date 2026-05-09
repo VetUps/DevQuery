@@ -40,8 +40,8 @@ const currentVoteLabel = computed(() => {
     return 'Свой контент нельзя оценивать собственным голосом.'
   }
 
-  if (props.downvoteBlocked && props.blockedNote) {
-    return props.blockedNote
+  if (props.downvoteBlocked) {
+    return 'Даунвоут временно отключён для защищённого вопроса.'
   }
 
   if (props.userVote === 'up') {

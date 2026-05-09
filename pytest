@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Compatibility shim for agent verification environments that invoke bare `pytest` from POSIX shells.
+# This project uses Django's test runner rather than pytest.
+# Agent/local verification runs outside Docker Compose, so use a disposable SQLite test DB
+# instead of the Compose-only MySQL host from .env (DATABASE_HOST=db).
+set -euo pipefail
+
+export DJANGO_TEST_SQLITE=1
+export PYTHONPATH="src/backend${PYTHONPATH:+:$PYTHONPATH}"
+
+python_exe="src/backend/venv/bin/python"
+if [[ ! -x "$python_exe" ]]; then
+  python_exe="python3"
+fi
+
+if [[ $# -gt 0 ]]; then
+  exec "$python_exe" src/backend/manage.py test "$@"
+fi
+
+exec "$python_exe" src/backend/manage.py test apps.qa apps.user

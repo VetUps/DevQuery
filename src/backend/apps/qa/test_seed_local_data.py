@@ -3,6 +3,7 @@ from io import StringIO
 from django.core.management import CommandError, call_command
 from django.test import TestCase, override_settings
 
+from apps.notifications.models import Notification
 from apps.qa.models import Comment, Question, QuestionEditProposal, QuestionRevision, Solution, SolutionEdits, Tag, Vote
 from apps.user.models import CustomUser, ReputationPolicyConfig, ReputationTransaction
 
@@ -19,15 +20,37 @@ class SeedLocalDataCommandTests(TestCase):
 
         self.assertIn('Локальные тестовые данные готовы.', output)
         self.assertIn('admin.local@example.com / Password123!', output)
-        self.assertEqual(CustomUser.objects.filter(user_email__endswith='.local@example.com').count(), 5)
+        self.assertEqual(CustomUser.objects.filter(user_email__endswith='.local@example.com').count(), 7)
         self.assertTrue(CustomUser.objects.get(user_email='admin.local@example.com').is_superuser)
+        self.assertEqual(CustomUser.objects.get(user_email='master.local@example.com').user_reputation_score, 360)
+        self.assertEqual(CustomUser.objects.get(user_email='blocked.local@example.com').user_reputation_score, 35)
         self.assertEqual(
             CustomUser.objects.get(user_email='moderated.local@example.com').manual_reputation_level,
             CustomUser.ReputationLevel.EXPERT,
         )
-        self.assertEqual(Question.objects.filter(question_title__startswith='[seed]').count(), 3)
+        self.assertEqual(Question.objects.filter(question_title__startswith='[seed]').count(), 7)
         self.assertEqual(Solution.objects.count(), 3)
-        self.assertGreaterEqual(Comment.objects.count(), 3)
+        self.assertEqual(Notification.objects.filter(notification_type=Notification.NotificationType.EXPERT_INVITATION).count(), 4)
+        self.assertTrue(
+            Notification.objects.filter(
+                recipient__user_email='expert.local@example.com',
+                source_question__question_title='[seed][m008] Активное приглашение эксперту: проверить уведомление и ответ',
+                read_at__isnull=True,
+            ).exists()
+        )
+        self.assertTrue(
+            Notification.objects.filter(
+                recipient__user_email='master.local@example.com',
+                source_question__question_title='[seed][m008] Активное приглашение эксперту: проверить уведомление и ответ',
+                read_at__isnull=False,
+            ).exists()
+        )
+        self.assertFalse(
+            Solution.objects.filter(
+                user__user_email='blocked.local@example.com',
+                question__question_title__contains='[m008]',
+            ).exists()
+        )
         self.assertGreaterEqual(Vote.objects.count(), 6)
         self.assertEqual(QuestionEditProposal.objects.count(), 1)
         self.assertEqual(QuestionRevision.objects.count(), 1)
@@ -52,9 +75,10 @@ class SeedLocalDataCommandTests(TestCase):
 
         self.call_seed('--reset')
 
-        self.assertEqual(CustomUser.objects.filter(user_email__endswith='.local@example.com').count(), 5)
-        self.assertEqual(Question.objects.filter(question_title__startswith='[seed]').count(), 3)
+        self.assertEqual(CustomUser.objects.filter(user_email__endswith='.local@example.com').count(), 7)
+        self.assertEqual(Question.objects.filter(question_title__startswith='[seed]').count(), 7)
         self.assertEqual(Solution.objects.count(), 3)
+        self.assertEqual(Notification.objects.filter(notification_type=Notification.NotificationType.EXPERT_INVITATION).count(), 4)
 
     @override_settings(
         DEBUG=False,
@@ -82,4 +106,5 @@ class SeedLocalDataCommandTests(TestCase):
             'question_revisions': QuestionRevision.objects.count(),
             'solution_edits': SolutionEdits.objects.count(),
             'reputation_transactions': ReputationTransaction.objects.count(),
+            'notifications': Notification.objects.count(),
         }

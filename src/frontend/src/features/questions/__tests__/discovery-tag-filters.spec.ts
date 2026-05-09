@@ -15,6 +15,13 @@ const queryState = {
   refetch: vi.fn(),
 }
 
+const notificationsQueryState = {
+  data: ref<any>({ count: 0, next: null, previous: null, results: [] }),
+  isPending: ref(false),
+  isError: ref(false),
+  refetch: vi.fn(),
+}
+
 vi.mock('@/features/questions/queries/useQuestionListQuery', () => ({
   useQuestionListQuery: vi.fn(() => queryState),
 }))
@@ -25,6 +32,10 @@ vi.mock('@/features/questions/queries/useTagAutocompleteQuery', () => ({
     isError: ref(false),
     isFetching: ref(false),
   })),
+}))
+
+vi.mock('@/features/notifications/queries/useNotificationsQuery', () => ({
+  useNotificationsQuery: vi.fn(() => notificationsQueryState),
 }))
 
 vi.mock('@/features/auth/queries/useCurrentUserQuery', () => ({
@@ -83,6 +94,10 @@ describe('discovery tag filters', () => {
     queryState.isError.value = false
     queryState.isPlaceholderData.value = false
     queryState.refetch.mockReset()
+    notificationsQueryState.data.value = { count: 0, next: null, previous: null, results: [] }
+    notificationsQueryState.isPending.value = false
+    notificationsQueryState.isError.value = false
+    notificationsQueryState.refetch.mockReset()
     vi.mocked(useQuestionListQuery).mockClear()
   })
 

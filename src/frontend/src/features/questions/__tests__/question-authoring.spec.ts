@@ -29,12 +29,23 @@ const tagAutocompleteQueryState = {
   isError: ref(false),
 }
 
+const notificationsQueryState = {
+  data: ref<any>({ count: 0, next: null, previous: null, results: [] }),
+  isPending: ref(false),
+  isError: ref(false),
+  refetch: vi.fn(),
+}
+
 vi.mock('@/features/questions/queries/useQuestionListQuery', () => ({
   useQuestionListQuery: vi.fn(() => listQueryState),
 }))
 
 vi.mock('@/features/questions/queries/useTagAutocompleteQuery', () => ({
   useTagAutocompleteQuery: vi.fn(() => tagAutocompleteQueryState),
+}))
+
+vi.mock('@/features/notifications/queries/useNotificationsQuery', () => ({
+  useNotificationsQuery: vi.fn(() => notificationsQueryState),
 }))
 
 vi.mock('@/features/questions/mutations/useCreateQuestionMutation', () => ({
@@ -125,6 +136,11 @@ describe('question authoring flow', () => {
     tagAutocompleteQueryState.data.value = []
     tagAutocompleteQueryState.isPending.value = false
     tagAutocompleteQueryState.isError.value = false
+
+    notificationsQueryState.data.value = { count: 0, next: null, previous: null, results: [] }
+    notificationsQueryState.isPending.value = false
+    notificationsQueryState.isError.value = false
+    notificationsQueryState.refetch.mockReset()
   })
 
   it('registers the protected ask-question route', () => {

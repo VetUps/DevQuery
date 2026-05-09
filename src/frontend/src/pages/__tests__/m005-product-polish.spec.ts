@@ -35,6 +35,13 @@ const tagAutocompleteState = vi.hoisted(() => ({
   isFetching: false,
 }))
 
+const notificationsQueryState = vi.hoisted(() => ({
+  data: { value: { count: 0, next: null, previous: null, results: [] } },
+  isPending: { value: false },
+  isError: { value: false },
+  refetch: vi.fn(),
+}))
+
 const mountedWrappers: VueWrapper[] = []
 
 vi.mock('@/features/auth/queries/useCurrentUserQuery', () => ({
@@ -51,6 +58,10 @@ vi.mock('@/features/questions/queries/useQuestionListQuery', () => ({
 
 vi.mock('@/features/questions/queries/useTagAutocompleteQuery', () => ({
   useTagAutocompleteQuery: vi.fn(() => tagAutocompleteState),
+}))
+
+vi.mock('@/features/notifications/queries/useNotificationsQuery', () => ({
+  useNotificationsQuery: vi.fn(() => notificationsQueryState),
 }))
 
 vi.mock('@/features/solutions/components/ProfileEditReviewQueue.vue', () => ({
@@ -180,6 +191,10 @@ function resetFrontendState() {
   tagAutocompleteState.data = []
   tagAutocompleteState.isError = false
   tagAutocompleteState.isFetching = false
+  notificationsQueryState.data.value = { count: 0, next: null, previous: null, results: [] }
+  notificationsQueryState.isPending.value = false
+  notificationsQueryState.isError.value = false
+  notificationsQueryState.refetch.mockReset()
 }
 
 async function flushUi() {
