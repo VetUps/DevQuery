@@ -10,6 +10,29 @@ VOTE_TYPE_CHOICES = [
     ('down', 'Downvote'),
 ]
 
+
+def get_float_env(name, default):
+    raw_value = os.getenv(name)
+    if raw_value is None or raw_value.strip() == '':
+        return default
+    try:
+        value = float(raw_value)
+    except ValueError:
+        return default
+    return value if value > 0 else default
+
+
+QUESTION_DRAFT_ASSISTANT_OPENAI_API_KEY = os.getenv('QUESTION_DRAFT_ASSISTANT_OPENAI_API_KEY')
+QUESTION_DRAFT_ASSISTANT_OPENAI_BASE_URL = os.getenv(
+    'QUESTION_DRAFT_ASSISTANT_OPENAI_BASE_URL',
+    'https://api.openai.com/v1/chat/completions',
+)
+QUESTION_DRAFT_ASSISTANT_OPENAI_MODEL = os.getenv('QUESTION_DRAFT_ASSISTANT_OPENAI_MODEL')
+QUESTION_DRAFT_ASSISTANT_OPENAI_TIMEOUT_SECONDS = get_float_env(
+    'QUESTION_DRAFT_ASSISTANT_OPENAI_TIMEOUT_SECONDS',
+    10.0,
+)
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
