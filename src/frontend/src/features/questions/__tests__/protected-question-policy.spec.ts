@@ -262,16 +262,25 @@ describe('protected newcomer question integrated policy proof', () => {
 
     expect(wrapper.text()).toContain('Как защитить вопрос новичка от ранних минусов?')
     expect(wrapper.text()).toContain('Читаемый текст вопроса должен оставаться доступным')
-    expect(wrapper.get('[data-testid="question-protection-badge"]').text()).toContain('Защищённый вопрос')
-    expect(wrapper.get('[data-testid="question-protection-badge"]').text()).toContain('Эксперт+ отвечают первые 12 часов')
-    expect(wrapper.get('[data-testid="question-protection-panel"]').text()).toContain('Защита новых авторов включена')
-    expect(wrapper.get('[data-testid="question-protection-panel"]').text()).toContain('В течение первых 12 часов после публикации отвечать могут только эксперты и мастера.')
+    expect(wrapper.get('[data-testid="protected-question-chip"]').text()).toBe('Защита 12 часов')
+    expect(wrapper.find('[data-testid="question-protection-badge"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="question-protection-panel"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="protected-question-info-dialog"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('Защита новых авторов включена')
+    expect(wrapper.text()).not.toContain('даунвоуты, чтобы обсуждение начиналось с содержательной обратной связи')
     expect(wrapper.get('[data-testid="solution-composer-blocked-reason"]').text()).toContain('Отвечать сейчас могут только участники уровня Эксперт или Мастер')
     expect(wrapper.get('[data-testid="solution-composer-progress-hint"]').text()).toContain('не хватает 70 очков до уровня Эксперт')
     expect(wrapper.find('[data-testid="vote-downvote-blocked"]').exists()).toBe(true)
-    expect(wrapper.text()).toContain('даунвоуты, чтобы обсуждение начиналось с содержательной обратной связи')
     expect(wrapper.findAll('button').some((button) => button.text() === 'Против')).toBe(false)
     expect(wrapper.text()).not.toContain('Написать решение')
+
+    await wrapper.get('[data-testid="protected-question-chip"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="protected-question-info-body"]').text()).toContain('В течение первых 12 часов после публикации')
+    expect(wrapper.get('[data-testid="protected-question-info-votes"]').text()).toContain('Даунвоуты на защищённый вопрос временно отключены')
+    expect(wrapper.get('[data-testid="protected-question-info-policy"]').text()).toContain('Эксперт и выше')
+    expect(wrapper.get('[data-testid="protected-question-info-policy"]').text()).not.toContain('Эксперт и Мастер')
   })
 
   it('updates protected-question copy when the backend window expands beyond the default duration', async () => {
@@ -281,10 +290,15 @@ describe('protected newcomer question integrated policy proof', () => {
       viewer_downvote_reason_message: 'В первые 24 часа после публикации у вопросов новичков отключены даунвоуты, чтобы обсуждение начиналось с содержательной обратной связи.',
     }))
 
-    expect(wrapper.get('[data-testid="question-protection-badge"]').text()).toContain('Эксперт+ отвечают первые 24 часа')
-    expect(wrapper.get('[data-testid="question-protection-panel"]').text()).toContain('В течение первых 24 часов после публикации отвечать могут только эксперты и мастера.')
+    expect(wrapper.get('[data-testid="protected-question-chip"]').text()).toBe('Защита 24 часа')
+    expect(wrapper.find('[data-testid="question-protection-panel"]').exists()).toBe(false)
     expect(wrapper.get('[data-testid="solution-composer-blocked-reason"]').text()).toContain('первые 24 часа')
-    expect(wrapper.text()).toContain('В первые 24 часа после публикации у вопросов новичков отключены даунвоуты')
+    expect(wrapper.text()).not.toContain('В первые 24 часа после публикации у вопросов новичков отключены даунвоуты')
+
+    await wrapper.get('[data-testid="protected-question-chip"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="protected-question-info-body"]').text()).toContain('В течение первых 24 часов после публикации')
   })
 
   it('uses backend-provided required level labels for non-default protected newcomer fixtures', async () => {
@@ -299,10 +313,16 @@ describe('protected newcomer question integrated policy proof', () => {
       viewer_next_level_label: 'Участник',
     }))
 
-    expect(wrapper.get('[data-testid="question-protection-badge"]').text()).toContain('Участник+ отвечают первые 12 часов')
-    expect(wrapper.get('[data-testid="question-protection-panel"]').text()).toContain('В течение первых 12 часов после публикации отвечать могут только участники и мастера.')
+    expect(wrapper.get('[data-testid="protected-question-chip"]').text()).toBe('Защита 12 часов')
+    expect(wrapper.find('[data-testid="question-protection-panel"]').exists()).toBe(false)
     expect(wrapper.get('[data-testid="solution-composer-blocked-reason"]').text()).toContain('Отвечать сейчас могут только участники уровня Участник или Мастер')
     expect(wrapper.get('[data-testid="solution-composer-progress-hint"]').text()).toContain('не хватает 12 очков до уровня Участник')
+
+    await wrapper.get('[data-testid="protected-question-chip"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="protected-question-info-policy"]').text()).toContain('Участник и выше')
+    expect(wrapper.get('[data-testid="protected-question-info-policy"]').text()).not.toContain('Участник и Мастер')
   })
 
   it('keeps answer authoring available for experts while downvote protection remains visible', async () => {
@@ -318,7 +338,7 @@ describe('protected newcomer question integrated policy proof', () => {
     }))
 
     expect(wrapper.text()).toContain('Читаемый текст вопроса должен оставаться доступным')
-    expect(wrapper.get('[data-testid="question-protection-badge"]').text()).toContain('Защищённый вопрос')
+    expect(wrapper.get('[data-testid="protected-question-chip"]').text()).toBe('Защита 12 часов')
     expect(wrapper.text()).toContain('Написать решение')
     expect(wrapper.find('[data-testid="solution-composer-blocked-reason"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="vote-downvote-blocked"]').exists()).toBe(true)
@@ -338,6 +358,7 @@ describe('protected newcomer question integrated policy proof', () => {
     }))
 
     expect(wrapper.text()).toContain('Читаемый текст вопроса должен оставаться доступным')
+    expect(wrapper.find('[data-testid="protected-question-chip"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="question-protection-badge"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="question-protection-panel"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="question-invitation-context-panel"]').exists()).toBe(false)

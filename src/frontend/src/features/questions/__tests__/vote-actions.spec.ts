@@ -55,7 +55,7 @@ describe('vote actions', () => {
     expect(wrapper.findAll('button')).toHaveLength(0)
   })
 
-  it('replaces the downvote action with an explanation for protected questions', () => {
+  it('replaces the downvote action with a short blocked state for protected questions', () => {
     const wrapper = mount(SignalVoteRail, {
       global: {
         plugins: [[VueQueryPlugin, { queryClient }]],
@@ -74,7 +74,8 @@ describe('vote actions', () => {
     })
 
     expect(wrapper.text()).toContain('Даунвоут временно отключён')
-    expect(wrapper.text()).toContain('у вопросов новичков отключены даунвоуты')
+    expect(wrapper.text()).toContain('Даунвоут временно отключён для защищённого вопроса.')
+    expect(wrapper.text()).not.toContain('у вопросов новичков отключены даунвоуты')
     expect(wrapper.find('[data-testid="vote-downvote-blocked"]').exists()).toBe(true)
     expect(wrapper.findAll('button').map((button) => button.text())).toEqual(['Поддержать'])
   })
