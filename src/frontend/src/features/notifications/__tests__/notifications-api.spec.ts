@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { useMutation, useQuery } from '@tanstack/vue-query'
+import { ref } from 'vue'
+import { useInfiniteQuery, useMutation, useQuery } from '@tanstack/vue-query'
 
 import { queryClient } from '@/app/query-client'
 import {
@@ -23,6 +24,7 @@ import {
   notificationQueryKeys,
   useNotificationSummaryQuery,
   useNotificationsQuery,
+  useProfileNotificationsQuery,
 } from '@/features/notifications/queries/useNotificationsQuery'
 import { http } from '@/shared/api/http'
 
@@ -39,6 +41,7 @@ vi.mock('@tanstack/vue-query', async (importOriginal) => {
   return {
     ...actual,
     useQuery: vi.fn((options) => options),
+    useInfiniteQuery: vi.fn((options) => options),
     useMutation: vi.fn((options) => options),
   }
 })
@@ -251,19 +254,93 @@ describe('notifications API contract', () => {
     await expect(markAllNotificationsRead()).rejects.toThrow('mark-all timeout')
   })
 
-  it('exposes status/page-aware list keys and a distinct summary query key', () => {
+  it('exposes status/page-aware list keys, status-separated profile keys, and a distinct summary query key', () => {
     const listQueryOptions = useNotificationsQuery({ status: 'unread', page: 2 }, false)
     const legacyEnabledOnlyOptions = useNotificationsQuery(false)
+    const profileAllOptions = useProfileNotificationsQuery('all', false)
+    const profileUnreadOptions = useProfileNotificationsQuery('unread', false)
     const summaryQueryOptions = useNotificationSummaryQuery(false)
 
     expect(useQuery).toHaveBeenNthCalledWith(1, expect.objectContaining({
       queryKey: ['notifications', 'list', { status: 'unread', page: 2 }],
       enabled: false,
     }))
+    expect(useInfiniteQuery).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      queryKey: ['notifications', 'profile-list', { status: 'all' }],
+      initialPageParam: 1,
+      enabled: false,
+    }))
+    expect(useInfiniteQuery).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      queryKey: ['notifications', 'profile-list', { status: 'unread' }],
+      initialPageParam: 1,
+      enabled: false,
+    }))
     expect(listQueryOptions.queryKey).toEqual(['notifications', 'list', { status: 'unread', page: 2 }])
     expect(legacyEnabledOnlyOptions.queryKey).toEqual(['notifications', 'list', { status: 'all', page: 1 }])
+    expect(profileAllOptions.queryKey).toEqual(['notifications', 'profile-list', { status: 'all' }])
+    expect(profileUnreadOptions.queryKey).toEqual(['notifications', 'profile-list', { status: 'unread' }])
     expect(summaryQueryOptions.queryKey).toEqual(['notifications', 'summary'])
     expect(notificationQueryKeys.lists()).toEqual(['notifications', 'list'])
+    expect(notificationQueryKeys.profileList('unread')).toEqual(['notifications', 'profile-list', { status: 'unread' }])
+  })
+
+  it('fetches profile notification pages through explicit page params and derives the next page from the envelope', async () => {
+    const profileOptions = useProfileNotificationsQuery('unread', false)
+    const firstPage = buildEnvelope([buildNotification()])
+    firstPage.next = 'http://localhost/api/notifications/?status=unread&page=2'
+    const secondPage = buildEnvelope([buildNotification({ notification_id: '33333333-3333-4333-8333-333333333333' })])
+
+    mockedHttp.get.mockResolvedValueOnce({ data: firstPage })
+    await expect(profileOptions.queryFn({ pageParam: 1 })).resolves.toEqual(firstPage)
+    expect(mockedHttp.get).toHaveBeenCalledWith('/notifications/', { params: { status: 'unread', page: 1 } })
+    expect(profileOptions.getNextPageParam(firstPage, [firstPage])).toBe(2)
+
+    mockedHttp.get.mockResolvedValueOnce({ data: secondPage })
+    await expect(profileOptions.queryFn({ pageParam: 2 })).resolves.toEqual(secondPage)
+    expect(mockedHttp.get).toHaveBeenLastCalledWith('/notifications/', { params: { status: 'unread', page: 2 } })
+  })
+
+  it('keeps empty terminal profile pages intact without scheduling extra fetches', () => {
+    const profileOptions = useProfileNotificationsQuery('all', false)
+    const emptyPage = buildEnvelope([])
+
+    expect(profileOptions.getNextPageParam(emptyPage, [emptyPage])).toBeUndefined()
+  })
+
+  it('propagates malformed and rejected profile list pages through Vue Query', async () => {
+    const profileOptions = useProfileNotificationsQuery('unread', false)
+
+    mockedHttp.get.mockResolvedValueOnce({ data: { count: 1, next: null, previous: null, results: {} } })
+    mockedHttp.get.mockRejectedValueOnce(new Error('profile list timeout'))
+
+    await expect(profileOptions.queryFn({ pageParam: 1 })).rejects.toThrow(MalformedNotificationResponseError)
+    await expect(profileOptions.queryFn({ pageParam: 2 })).rejects.toThrow('profile list timeout')
+  })
+
+  it('exposes flattened profile notifications and initial/stale/load-more state refs', () => {
+    const firstNotification = buildNotification()
+    const secondNotification = buildNotification({ notification_id: '33333333-3333-4333-8333-333333333333' })
+
+    vi.mocked(useInfiniteQuery).mockReturnValueOnce({
+      data: ref({ pages: [buildEnvelope([firstNotification]), buildEnvelope([secondNotification])] }),
+      isPending: ref(false),
+      isError: ref(true),
+      isFetchingNextPage: ref(true),
+      isFetchNextPageError: ref(true),
+    } as never)
+
+    const profileQuery = useProfileNotificationsQuery('unread', false)
+
+    expect(profileQuery.pages.value).toHaveLength(2)
+    expect(profileQuery.notifications.value).toEqual([firstNotification, secondNotification])
+    expect(profileQuery.totalCount.value).toBe(1)
+    expect(profileQuery.hasLoadedPages.value).toBe(true)
+    expect(profileQuery.hasLoadedNotifications.value).toBe(true)
+    expect(profileQuery.isInitialLoading.value).toBe(false)
+    expect(profileQuery.isInitialError.value).toBe(false)
+    expect(profileQuery.isStaleError.value).toBe(true)
+    expect(profileQuery.isLoadMorePending.value).toBe(true)
+    expect(profileQuery.isLoadMoreError.value).toBe(true)
   })
 
   it('invalidates all notification caches only after server-confirmed read mutations succeed', async () => {
