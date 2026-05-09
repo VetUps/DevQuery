@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, shallowRef, watch } from 'vue'
+import { storeToRefs } from 'pinia'
 import { useRoute, useRouter } from 'vue-router'
 
+import { useSessionStore } from '@/features/auth/stores/session'
+import { useNotificationsQuery } from '@/features/notifications/queries/useNotificationsQuery'
 import { useQuestionListQuery } from '@/features/questions/queries/useQuestionListQuery'
 import DiscoverySearchReserve from '@/features/questions/components/DiscoverySearchReserve.vue'
 import PublicDiscoveryIntro from '@/features/questions/components/PublicDiscoveryIntro.vue'
@@ -47,6 +50,8 @@ function areTagListsEqual(left: string[], right: string[]) {
 
 const route = useRoute()
 const router = useRouter()
+const sessionStore = useSessionStore()
+const { isAuthenticated } = storeToRefs(sessionStore)
 
 const currentPage = computed(() => normalizePage(route.query.page))
 const activeSearch = computed(() => normalizeSearch(route.query.search))
@@ -83,6 +88,23 @@ const questionListQuery = useQuestionListQuery(computed(() => ({
   ordering: activeOrdering.value,
   tags: activeTags.value,
 })))
+const notificationsQuery = useNotificationsQuery(isAuthenticated)
+
+const invitedQuestionIds = computed(() => {
+  if (!isAuthenticated.value || notificationsQuery.isPending.value || notificationsQuery.isError.value) {
+    return new Set<string>()
+  }
+
+  return new Set(
+    (notificationsQuery.data.value?.results ?? [])
+      .filter((notification) => (
+        notification.notification_type === 'expert_invitation' &&
+        typeof notification.source_question_id === 'string' &&
+        notification.source_question_id.length > 0
+      ))
+      .map((notification) => notification.source_question_id as string),
+  )
+})
 
 const questionList = computed(() => questionListQuery.data.value?.results ?? [])
 const totalQuestions = computed(() => questionListQuery.data.value?.count ?? 0)
@@ -270,6 +292,7 @@ onBeforeUnmount(clearSearchDebounceTimer)
                 v-for="question in questionList"
                 :key="question.question_id"
                 :question="question"
+                :is-invited-for-current-user="invitedQuestionIds.has(question.question_id)"
               />
             </div>
 
