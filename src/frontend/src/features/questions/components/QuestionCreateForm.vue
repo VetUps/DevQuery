@@ -2,7 +2,9 @@
 import { reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
+import type { DraftAssistantResponse } from '@/features/questions/api/questionDraftAssistant'
 import { useCreateQuestionMutation } from '@/features/questions/mutations/useCreateQuestionMutation'
+import { useQuestionDraftAssistantMutation } from '@/features/questions/mutations/useQuestionDraftAssistantMutation'
 import {
   extractQuestionFieldErrors,
   normalizeQuestionSubmitError,
@@ -11,10 +13,14 @@ import AppButton from '@/shared/ui/AppButton.vue'
 import AppInput from '@/shared/ui/AppInput.vue'
 
 import MarkdownComposer from './MarkdownComposer.vue'
+import QuestionDraftAssistantPanel from './QuestionDraftAssistantPanel.vue'
 import QuestionTagInput from './QuestionTagInput.vue'
 
 const router = useRouter()
 const createQuestionMutation = useCreateQuestionMutation()
+const draftAssistantMutation = useQuestionDraftAssistantMutation()
+const latestDraftAssistantResult = ref<DraftAssistantResponse | null>(null)
+const latestDraftAssistantError = ref<unknown>(null)
 
 const form = reactive({
   question_title: '',
@@ -29,6 +35,34 @@ const fieldErrors = reactive({
 })
 
 const formError = ref('')
+
+async function requestDraftAssistantFeedback() {
+  latestDraftAssistantError.value = null
+
+  try {
+    latestDraftAssistantResult.value = await draftAssistantMutation.mutateAsync({
+      question_title: form.question_title,
+      question_body: form.question_body,
+      tags: [...form.tags],
+      mode: 'create',
+    })
+  } catch (error) {
+    latestDraftAssistantError.value = error
+    // The panel renders a redacted, non-blocking error state.
+  }
+}
+
+function applySuggestedTitle(title: string) {
+  form.question_title = title
+}
+
+function applySuggestedBody(body: string) {
+  form.question_body = body
+}
+
+function applySuggestedTags(tags: string[]) {
+  form.tags = [...tags]
+}
 
 function validate() {
   fieldErrors.question_title = form.question_title.trim() ? '' : 'Добавьте короткий заголовок вопроса.'
@@ -94,6 +128,16 @@ async function handleSubmit() {
     />
 
     <QuestionTagInput id="question-tags" v-model="form.tags" label="Теги" :error="fieldErrors.tags" />
+
+    <QuestionDraftAssistantPanel
+      :result="latestDraftAssistantResult"
+      :is-pending="draftAssistantMutation.isPending.value"
+      :error="latestDraftAssistantError"
+      @request="requestDraftAssistantFeedback"
+      @apply-title="applySuggestedTitle"
+      @apply-body="applySuggestedBody"
+      @apply-tags="applySuggestedTags"
+    />
 
     <div class="question-create-form__footer">
       <p class="question-create-form__hint">
