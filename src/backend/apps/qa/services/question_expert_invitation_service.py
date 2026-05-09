@@ -7,6 +7,7 @@ from django.db import transaction
 from rest_framework.exceptions import ValidationError
 
 from apps.notifications.models import Notification
+from apps.notifications.serializers import NotificationSerializer
 from apps.notifications.services import NotificationService
 from apps.qa.models import Question
 from apps.qa.services.question_protection_service import QuestionProtectionService
@@ -23,6 +24,11 @@ class EligibleExpertsResult:
 @dataclass(frozen=True)
 class InvitationCreationResult:
     slot_state: dict
+    invitations: list[dict]
+
+
+@dataclass(frozen=True)
+class InvitedExpertsResult:
     invitations: list[dict]
 
 
@@ -75,6 +81,22 @@ class QuestionExpertInvitationService:
             slot_state=cls._build_slot_state(question),
             candidates=serialized_candidates,
         )
+
+    @classmethod
+    def get_invited_experts(
+        cls,
+        question: Question,
+        *,
+        requester: CustomUser,
+    ) -> InvitedExpertsResult:
+        cls._validate_author(question, requester)
+        invitations = [
+            cls._serialize_invited_expert(notification)
+            for notification in cls._existing_invitation_queryset(question)
+            .select_related('recipient', 'source_question')
+            .order_by('-created_at', 'notification_id')
+        ]
+        return InvitedExpertsResult(invitations=invitations)
 
     @classmethod
     def create_invitations(
@@ -278,6 +300,25 @@ class QuestionExpertInvitationService:
             }
         )
         return payload
+
+    @classmethod
+    def _serialize_invited_expert(cls, notification: Notification) -> dict:
+        recipient = notification.recipient
+        recipient_resolution = ReputationService.resolve_level(user=recipient)
+        notification_metadata = NotificationSerializer(notification).data
+        return {
+            'recipient_id': str(recipient.pk),
+            'recipient_name': recipient.user_name,
+            'recipient_reputation_score': recipient.user_reputation_score,
+            'reputation_level': recipient_resolution.value,
+            'reputation_level_label': recipient_resolution.label,
+            'notification_id': str(notification.pk),
+            'is_read': notification.read_at is not None,
+            'read_at': notification.read_at,
+            'invitation_status': notification_metadata['invitation_status'],
+            'protected_window_active': notification_metadata['protected_window_active'],
+            'protected_until': notification_metadata['protected_until'],
+        }
 
     @classmethod
     def _serialize_invitation(cls, notification: Notification) -> dict:
