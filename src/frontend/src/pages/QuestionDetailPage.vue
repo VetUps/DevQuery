@@ -55,6 +55,7 @@ const solutionSuccessMessage = ref('')
 const freshSolutionId = ref<string | null>(null)
 const activeInlineComposerKey = ref<string | null>(null)
 const isQuestionDiscussionOpen = ref(false)
+const isExpertInvitationOpen = ref(false)
 
 let clearFreshSolutionTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -78,7 +79,11 @@ const canProposeQuestionEdit = computed(
     !currentUserQuery.isError.value,
 )
 const canShowExpertInvitationPanel = computed(
-  () => isQuestionAuthor.value && Boolean(questionDetailQuery.data.value?.is_protected),
+  () =>
+    isQuestionAuthor.value &&
+    !currentUserQuery.isPending.value &&
+    !currentUserQuery.isError.value &&
+    Boolean(questionDetailQuery.data.value?.is_protected),
 )
 const canShowInvitationContextPanel = computed(
   () => isAuthenticated.value && !isQuestionAuthor.value && Boolean(questionDetailQuery.data.value?.is_protected),
@@ -148,6 +153,18 @@ function closeQuestionProposal() {
   isQuestionProposalOpen.value = false
 }
 
+function openExpertInvitation() {
+  if (!canShowExpertInvitationPanel.value) {
+    return
+  }
+
+  isExpertInvitationOpen.value = true
+}
+
+function closeExpertInvitation() {
+  isExpertInvitationOpen.value = false
+}
+
 async function handleQuestionEditSaved(_updatedQuestion: QuestionDetail) {
   await questionDetailQuery.refetch()
   isQuestionEditOpen.value = false
@@ -198,10 +215,20 @@ watch(
     freshSolutionId.value = null
     activeInlineComposerKey.value = null
     isQuestionDiscussionOpen.value = false
+    isExpertInvitationOpen.value = false
 
     if (clearFreshSolutionTimer) {
       clearTimeout(clearFreshSolutionTimer)
       clearFreshSolutionTimer = null
+    }
+  },
+)
+
+watch(
+  canShowExpertInvitationPanel,
+  (canShow) => {
+    if (!canShow) {
+      isExpertInvitationOpen.value = false
     }
   },
 )
@@ -253,14 +280,10 @@ onBeforeUnmount(() => {
           :can-vote="isAuthenticated"
           :can-edit="canEditQuestion"
           :can-propose-edit="canProposeQuestionEdit"
+          :can-invite-experts="canShowExpertInvitationPanel"
           @request-edit="openQuestionEdit"
           @request-proposal="openQuestionProposal"
-        />
-
-        <QuestionExpertInvitationPanel
-          v-if="canShowExpertInvitationPanel"
-          :question-id="questionId"
-          :enabled="canShowExpertInvitationPanel"
+          @request-expert-invitation="openExpertInvitation"
         />
 
         <QuestionInvitationContextPanel
@@ -369,6 +392,22 @@ onBeforeUnmount(() => {
           <QuestionEditForm
             :question="questionDetailQuery.data.value"
             @saved="handleQuestionEditSaved"
+          />
+        </AppDialog>
+
+        <AppDialog
+          v-if="questionDetailQuery.data.value"
+          :open="isExpertInvitationOpen && canShowExpertInvitationPanel"
+          title="Позвать эксперта"
+          :description="`Выберите экспертов и мастеров для защищённого вопроса: ${questionDetailQuery.data.value.question_title}`"
+          size="wide"
+          data-testid="question-expert-invitation-dialog"
+          @close="closeExpertInvitation"
+        >
+          <QuestionExpertInvitationPanel
+            v-if="isExpertInvitationOpen && canShowExpertInvitationPanel"
+            :question-id="questionId"
+            :enabled="isExpertInvitationOpen && canShowExpertInvitationPanel"
           />
         </AppDialog>
 
