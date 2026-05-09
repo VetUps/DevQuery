@@ -13,6 +13,8 @@ import type { QuestionDetail } from '@/features/questions/api/questions'
 import type {
   EligibleExpertsEnvelope,
   ExpertInvitationCreateResponse,
+  InvitedExpertInvitation,
+  InvitedExpertInvitationsEnvelope,
 } from '@/features/questions/api/questionExpertInvitations'
 import VoteBalanceMeter from '@/features/questions/components/VoteBalanceMeter.vue'
 import SignalVoteRail from '@/features/votes/components/SignalVoteRail.vue'
@@ -88,6 +90,14 @@ const eligibleExpertsState = {
   refetch: vi.fn(),
 }
 
+const invitedExpertsState = {
+  data: ref<InvitedExpertInvitationsEnvelope | undefined>(undefined),
+  isPending: ref(false),
+  isError: ref(false),
+  error: ref<unknown>(null),
+  refetch: vi.fn(),
+}
+
 const createExpertInvitationsMutationState = {
   isPending: ref(false),
   mutateAsync: vi.fn(),
@@ -135,6 +145,10 @@ vi.mock('@/features/questions/queries/useTagAutocompleteQuery', () => ({
 
 vi.mock('@/features/questions/queries/useEligibleExpertsQuery', () => ({
   useEligibleExpertsQuery: vi.fn(() => eligibleExpertsState),
+}))
+
+vi.mock('@/features/questions/queries/useInvitedExpertInvitationsQuery', () => ({
+  useInvitedExpertInvitationsQuery: vi.fn(() => invitedExpertsState),
 }))
 
 vi.mock('@/features/questions/mutations/useCreateExpertInvitationsMutation', () => ({
@@ -197,6 +211,37 @@ function buildQuestionDetail(overrides: Partial<QuestionDetail> = {}): QuestionD
     viewer_can_downvote: true,
     viewer_downvote_reason_code: 'question_downvote_allowed',
     viewer_downvote_reason_message: '',
+    ...overrides,
+  }
+}
+
+function buildInvitedExpertInvitation(overrides: Partial<InvitedExpertInvitation> = {}): InvitedExpertInvitation {
+  return {
+    recipient_id: 'expert-2',
+    recipient_name: 'Invited Eve',
+    recipient_reputation_score: 820,
+    reputation_level: 'expert',
+    reputation_level_label: 'Эксперт',
+    notification_id: 'notification-2',
+    is_read: false,
+    read_at: null,
+    invitation_status: 'active',
+    protected_window_active: true,
+    protected_until: '2026-03-02T00:00:00Z',
+    ...overrides,
+  }
+}
+
+function buildInvitedExpertsEnvelope(
+  overrides: Partial<InvitedExpertInvitationsEnvelope> = {},
+): InvitedExpertInvitationsEnvelope {
+  return {
+    count: 1,
+    next: null,
+    previous: null,
+    results: [buildInvitedExpertInvitation()],
+    question_id: 'question-1',
+    invited_count: 1,
     ...overrides,
   }
 }
@@ -280,12 +325,18 @@ async function mountQuestionDetailPage(authenticated = false) {
 
   await flushPromises()
 
-  return { wrapper }
+  return { wrapper, router }
+}
+
+async function openExpertInvitationDialog(wrapper: Awaited<ReturnType<typeof mountQuestionDetailPage>>['wrapper']) {
+  await wrapper.get('[data-testid="question-expert-invitation-trigger"]').trigger('click')
+  await flushPromises()
 }
 
 describe('question detail page', () => {
   beforeEach(() => {
     queryClient.clear()
+    document.body.innerHTML = ''
 
     questionDetailState.data.value = null
     questionDetailState.isPending.value = false
@@ -335,6 +386,12 @@ describe('question detail page', () => {
     eligibleExpertsState.isError.value = false
     eligibleExpertsState.error.value = null
     eligibleExpertsState.refetch.mockReset()
+
+    invitedExpertsState.data.value = undefined
+    invitedExpertsState.isPending.value = false
+    invitedExpertsState.isError.value = false
+    invitedExpertsState.error.value = null
+    invitedExpertsState.refetch.mockReset()
 
     createExpertInvitationsMutationState.isPending.value = false
     createExpertInvitationsMutationState.mutateAsync.mockReset()
@@ -404,7 +461,7 @@ describe('question detail page', () => {
     expect(wrapper.text()).toContain('Чтобы голосовать, войдите в аккаунт.')
   })
 
-  it('shows the expert invitation selector only to authenticated authors on protected questions', async () => {
+  it('shows the expert invitation trigger only to authenticated authors on protected questions and keeps the panel closed by default', async () => {
     questionDetailState.data.value = buildQuestionDetail({
       user: 'author-1',
       is_protected: true,
@@ -413,19 +470,40 @@ describe('question detail page', () => {
     eligibleExpertsState.data.value = buildEligibleExpertsEnvelope()
 
     const guest = await mountQuestionDetailPage(false)
+    expect(guest.wrapper.find('[data-testid="question-expert-invitation-trigger"]').exists()).toBe(false)
     expect(guest.wrapper.find('[data-testid="question-expert-invitation-panel"]').exists()).toBe(false)
     guest.wrapper.unmount()
 
     currentUserState.data.value = { user_id: 'viewer-1', user_name: 'Viewer' }
     const nonAuthor = await mountQuestionDetailPage(true)
+    expect(nonAuthor.wrapper.find('[data-testid="question-expert-invitation-trigger"]').exists()).toBe(false)
     expect(nonAuthor.wrapper.find('[data-testid="question-expert-invitation-panel"]').exists()).toBe(false)
     nonAuthor.wrapper.unmount()
 
     currentUserState.data.value = { user_id: 'author-1', user_name: 'Author' }
     questionDetailState.data.value = buildQuestionDetail({ user: 'author-1', is_protected: false })
     const unprotected = await mountQuestionDetailPage(true)
+    expect(unprotected.wrapper.find('[data-testid="question-expert-invitation-trigger"]').exists()).toBe(false)
     expect(unprotected.wrapper.find('[data-testid="question-expert-invitation-panel"]').exists()).toBe(false)
     unprotected.wrapper.unmount()
+
+    currentUserState.data.value = { user_id: 'author-1', user_name: 'Author' }
+    currentUserState.isPending.value = true
+    questionDetailState.data.value = buildQuestionDetail({
+      user: 'author-1',
+      is_protected: true,
+      protection_reason_code: 'question_protected_newcomer',
+    })
+    const pendingIdentity = await mountQuestionDetailPage(true)
+    expect(pendingIdentity.wrapper.find('[data-testid="question-expert-invitation-trigger"]').exists()).toBe(false)
+    pendingIdentity.wrapper.unmount()
+    currentUserState.isPending.value = false
+
+    currentUserState.isError.value = true
+    const erroredIdentity = await mountQuestionDetailPage(true)
+    expect(erroredIdentity.wrapper.find('[data-testid="question-expert-invitation-trigger"]').exists()).toBe(false)
+    erroredIdentity.wrapper.unmount()
+    currentUserState.isError.value = false
 
     questionDetailState.data.value = buildQuestionDetail({
       user: 'author-1',
@@ -434,8 +512,182 @@ describe('question detail page', () => {
     })
     const author = await mountQuestionDetailPage(true)
 
+    expect(author.wrapper.get('[data-testid="question-expert-invitation-trigger"]').text()).toContain('Позвать эксперта')
+    expect(author.wrapper.find('[data-testid="question-expert-invitation-panel"]').exists()).toBe(false)
+
+    await openExpertInvitationDialog(author.wrapper)
+
+    expect(author.wrapper.get('[data-testid="question-expert-invitation-dialog"]').exists()).toBe(true)
     expect(author.wrapper.get('[data-testid="question-expert-invitation-panel"]').text()).toContain('Позвать эксперта или мастера')
     expect(author.wrapper.get('[data-testid="expert-invitation-slot-summary"]').text()).toContain('Приглашено 1 из 3')
+  })
+
+  it('closes the expert invitation dialog from the dialog close action and route changes', async () => {
+    questionDetailState.data.value = buildQuestionDetail({
+      user: 'author-1',
+      is_protected: true,
+      protection_reason_code: 'question_protected_newcomer',
+    })
+    currentUserState.data.value = { user_id: 'author-1', user_name: 'Author' }
+    eligibleExpertsState.data.value = buildEligibleExpertsEnvelope()
+    invitedExpertsState.data.value = buildInvitedExpertsEnvelope()
+
+    const { wrapper, router } = await mountQuestionDetailPage(true)
+
+    expect(wrapper.find('[data-testid="question-expert-invitation-dialog"]').exists()).toBe(false)
+
+    await openExpertInvitationDialog(wrapper)
+    expect(wrapper.get('[data-testid="question-expert-invitation-dialog"]').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="expert-invitation-available-section"]').text()).toContain('Кого можно пригласить сейчас')
+    expect(wrapper.get('[data-testid="expert-invitation-invited-section"]').text()).toContain('Получатели приглашений')
+
+    const closeButton = wrapper.findAll('button').find((button) => button.text() === 'Закрыть')
+    expect(closeButton).toBeDefined()
+
+    await closeButton!.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="question-expert-invitation-dialog"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="question-expert-invitation-panel"]').exists()).toBe(false)
+
+    await openExpertInvitationDialog(wrapper)
+    expect(wrapper.get('[data-testid="question-expert-invitation-dialog"]').exists()).toBe(true)
+
+    await router.push('/questions/question-2')
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="question-expert-invitation-dialog"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="question-expert-invitation-panel"]').exists()).toBe(false)
+  })
+
+  it('renders available and invited expert sections with read and protected-window statuses', async () => {
+    questionDetailState.data.value = buildQuestionDetail({
+      user: 'author-1',
+      is_protected: true,
+      protection_reason_code: 'question_protected_newcomer',
+    })
+    currentUserState.data.value = { user_id: 'author-1', user_name: 'Author' }
+    eligibleExpertsState.data.value = buildEligibleExpertsEnvelope()
+    invitedExpertsState.data.value = buildInvitedExpertsEnvelope({
+      count: 2,
+      invited_count: 2,
+      results: [
+        buildInvitedExpertInvitation({
+          recipient_id: 'expert-2',
+          recipient_name: 'Invited Eve',
+          recipient_reputation_score: 820,
+          reputation_level_label: 'Эксперт',
+          notification_id: 'notification-2',
+          is_read: false,
+          invitation_status: 'active',
+          protected_window_active: true,
+        }),
+        buildInvitedExpertInvitation({
+          recipient_id: 'master-2',
+          recipient_name: 'Invited Mallory',
+          recipient_reputation_score: 1400,
+          reputation_level: 'master',
+          reputation_level_label: 'Мастер',
+          notification_id: 'notification-3',
+          is_read: true,
+          read_at: '2026-03-01T13:00:00Z',
+          invitation_status: 'expired',
+          protected_window_active: false,
+          protected_until: null,
+        }),
+      ],
+    })
+
+    const { wrapper } = await mountQuestionDetailPage(true)
+    await openExpertInvitationDialog(wrapper)
+
+    expect(wrapper.get('[data-testid="expert-invitation-available-section"]').text()).toContain('Кого можно пригласить сейчас')
+    expect(wrapper.get('[data-testid="expert-invitation-available-list"]').text()).toContain('Expert Alice')
+    expect(wrapper.get('[data-testid="expert-invitation-invited-section"]').text()).toContain('Получатели приглашений')
+    expect(wrapper.get('[data-testid="expert-invitation-invited-row-expert-2"]').text()).toContain('Invited Eve')
+    expect(wrapper.get('[data-testid="expert-invitation-status-expert-2"]').text()).toContain('Приглашение активно')
+    expect(wrapper.get('[data-testid="expert-invitation-read-expert-2"]').text()).toContain('Уведомление не прочитано')
+    expect(wrapper.get('[data-testid="expert-invitation-window-expert-2"]').text()).toContain('Защитное окно активно')
+    expect(wrapper.get('[data-testid="expert-invitation-status-master-2"]').text()).toContain('Приглашение истекло')
+    expect(wrapper.get('[data-testid="expert-invitation-read-master-2"]').text()).toContain('Уведомление прочитано')
+    expect(wrapper.get('[data-testid="expert-invitation-window-master-2"]').text()).toContain('Защитное окно завершено')
+    expect(wrapper.text()).not.toContain('dedupe_key')
+    expect(wrapper.text()).not.toContain('payload')
+    expect(wrapper.text()).not.toContain('email')
+  })
+
+  it('renders an empty invited list without hiding available candidates', async () => {
+    questionDetailState.data.value = buildQuestionDetail({
+      user: 'author-1',
+      is_protected: true,
+      protection_reason_code: 'question_protected_newcomer',
+    })
+    currentUserState.data.value = { user_id: 'author-1', user_name: 'Author' }
+    eligibleExpertsState.data.value = buildEligibleExpertsEnvelope({ invited_count: 0 })
+    invitedExpertsState.data.value = buildInvitedExpertsEnvelope({ count: 0, invited_count: 0, results: [] })
+
+    const { wrapper } = await mountQuestionDetailPage(true)
+    await openExpertInvitationDialog(wrapper)
+
+    expect(wrapper.get('[data-testid="expert-invitation-available-list"]').text()).toContain('Expert Alice')
+    expect(wrapper.get('[data-testid="expert-invitation-invited-empty"]').text()).toContain('Пока никто не приглашён')
+  })
+
+  it('keeps invited rows visible when candidate discovery fails', async () => {
+    questionDetailState.data.value = buildQuestionDetail({
+      user: 'author-1',
+      is_protected: true,
+      protection_reason_code: 'question_protected_newcomer',
+    })
+    currentUserState.data.value = { user_id: 'author-1', user_name: 'Author' }
+    eligibleExpertsState.isError.value = true
+    eligibleExpertsState.error.value = new Error('traceback Authorization: Bearer secret')
+    invitedExpertsState.data.value = buildInvitedExpertsEnvelope()
+
+    const { wrapper } = await mountQuestionDetailPage(true)
+    await openExpertInvitationDialog(wrapper)
+
+    expect(wrapper.get('[data-testid="expert-invitation-available-error"]').text()).toContain('Не удалось обновить приглашения экспертов')
+    expect(wrapper.get('[data-testid="expert-invitation-invited-list"]').text()).toContain('Invited Eve')
+    expect(wrapper.get('[data-testid="expert-invitation-send"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.text()).not.toContain('Bearer secret')
+
+    await wrapper.get('[data-testid="expert-invitation-available-retry"]').trigger('click')
+
+    expect(eligibleExpertsState.refetch).toHaveBeenCalled()
+  })
+
+  it('keeps sending available when invited list loading fails with a redacted retry state', async () => {
+    questionDetailState.data.value = buildQuestionDetail({
+      user: 'author-1',
+      is_protected: true,
+      protection_reason_code: 'question_protected_newcomer',
+    })
+    currentUserState.data.value = { user_id: 'author-1', user_name: 'Author' }
+    eligibleExpertsState.data.value = buildEligibleExpertsEnvelope()
+    invitedExpertsState.isError.value = true
+    invitedExpertsState.error.value = new Error('Traceback Authorization: Bearer secret token')
+    createExpertInvitationsMutationState.mutateAsync.mockResolvedValue(buildCreateExpertInvitationsResponse())
+
+    const { wrapper } = await mountQuestionDetailPage(true)
+    await openExpertInvitationDialog(wrapper)
+
+    expect(wrapper.get('[data-testid="expert-invitation-invited-error"]').text()).toContain('Не удалось загрузить уже приглашённых экспертов')
+    expect(wrapper.text()).not.toContain('Bearer secret')
+    expect(wrapper.text()).not.toContain('Traceback')
+
+    await wrapper.get('[data-testid="expert-invitation-candidate-expert-1"]').setValue(true)
+    await wrapper.get('[data-testid="expert-invitation-send"]').trigger('click')
+    await flushPromises()
+
+    expect(createExpertInvitationsMutationState.mutateAsync).toHaveBeenCalledWith({
+      questionId: 'question-1',
+      recipientIds: ['expert-1'],
+    })
+
+    await wrapper.get('[data-testid="expert-invitation-invited-retry"]').trigger('click')
+
+    expect(invitedExpertsState.refetch).toHaveBeenCalled()
   })
 
   it('searches candidates, posts selected expert ids, and clears selection after server-confirmed success', async () => {
@@ -451,6 +703,7 @@ describe('question detail page', () => {
     )
 
     const { wrapper } = await mountQuestionDetailPage(true)
+    await openExpertInvitationDialog(wrapper)
 
     await wrapper.get('#expert-invitation-search').setValue('Alice')
     await wrapper.get('[data-testid="expert-invitation-candidate-expert-1"]').setValue(true)
@@ -479,6 +732,7 @@ describe('question detail page', () => {
     eligibleExpertsState.data.value = buildEligibleExpertsEnvelope({ remaining_slots: 1 })
 
     const { wrapper } = await mountQuestionDetailPage(true)
+    await openExpertInvitationDialog(wrapper)
 
     await wrapper.get('[data-testid="expert-invitation-candidate-expert-1"]').setValue(true)
 
@@ -502,9 +756,10 @@ describe('question detail page', () => {
     })
 
     const { wrapper } = await mountQuestionDetailPage(true)
+    await openExpertInvitationDialog(wrapper)
 
     expect(wrapper.get('[data-testid="expert-invitation-unavailable"]').text()).toContain('Все слоты приглашений уже использованы')
-    expect(wrapper.get('[data-testid="expert-invitation-empty"]').text()).toContain('Подходящие эксперты не найдены')
+    expect(wrapper.get('[data-testid="expert-invitation-available-empty"]').text()).toContain('Подходящие эксперты не найдены')
     expect(wrapper.get('[data-testid="expert-invitation-send"]').attributes('disabled')).toBeDefined()
   })
 
@@ -519,6 +774,7 @@ describe('question detail page', () => {
     createExpertInvitationsMutationState.mutateAsync.mockRejectedValue(new Error('timeout Authorization: Bearer secret'))
 
     const { wrapper } = await mountQuestionDetailPage(true)
+    await openExpertInvitationDialog(wrapper)
 
     await wrapper.get('[data-testid="expert-invitation-candidate-expert-1"]').setValue(true)
     await wrapper.get('[data-testid="expert-invitation-send"]').trigger('click')
@@ -540,16 +796,17 @@ describe('question detail page', () => {
     eligibleExpertsState.error.value = new Error('traceback secret')
 
     const { wrapper } = await mountQuestionDetailPage(true)
+    await openExpertInvitationDialog(wrapper)
 
-    expect(wrapper.get('[data-testid="expert-invitation-query-error"]').text()).toContain('Не удалось обновить приглашения экспертов')
+    expect(wrapper.get('[data-testid="expert-invitation-available-error"]').text()).toContain('Не удалось обновить приглашения экспертов')
     expect(wrapper.text()).not.toContain('traceback secret')
 
-    await wrapper.get('[data-testid="expert-invitation-query-error"] button').trigger('click')
+    await wrapper.get('[data-testid="expert-invitation-available-error"] button').trigger('click')
 
     expect(eligibleExpertsState.refetch).toHaveBeenCalled()
   })
 
-  it('renders protected newcomer state with badge, answer block, and vote explanation', async () => {
+  it('renders protected newcomer state with compact chip, modal-only policy, answer block, and vote block', async () => {
     questionDetailState.data.value = buildQuestionDetail({
       is_protected: true,
       protection_reason_code: 'question_protected_newcomer',
@@ -576,13 +833,23 @@ describe('question detail page', () => {
 
     const { wrapper } = await mountQuestionDetailPage(true)
 
-    expect(wrapper.get('[data-testid="question-protection-badge"]').text()).toContain('Защищённый вопрос')
-    expect(wrapper.get('[data-testid="question-protection-panel"]').text()).toContain('Защита новых авторов включена')
+    expect(wrapper.get('[data-testid="protected-question-chip"]').text()).toBe('Защита 12 часов')
+    expect(wrapper.find('[data-testid="question-protection-badge"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="question-protection-panel"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="protected-question-info-dialog"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('Защита новых авторов включена')
+    expect(wrapper.text()).not.toContain('даунвоуты, чтобы обсуждение начиналось с содержательной обратной связи')
     expect(wrapper.get('[data-testid="solution-composer-blocked-reason"]').text()).toContain('Отвечать сейчас могут только участники уровня Эксперт или Мастер')
     expect(wrapper.get('[data-testid="solution-composer-progress-hint"]').text()).toContain('не хватает 70 очков до уровня Эксперт')
     expect(wrapper.get('[data-testid="question-invitation-context-ordinary-blocked"]').text()).toContain('У вас нет активного приглашения')
     expect(wrapper.find('[data-testid="vote-downvote-blocked"]').exists()).toBe(true)
-    expect(wrapper.text()).toContain('даунвоуты, чтобы обсуждение начиналось с содержательной обратной связи')
+
+    await wrapper.get('[data-testid="protected-question-chip"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="protected-question-info-dialog"]').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="protected-question-info-body"]').text()).toContain('В течение первых 12 часов после публикации')
+    expect(wrapper.get('[data-testid="protected-question-info-votes"]').text()).toContain('Даунвоуты на защищённый вопрос временно отключены')
     expect(wrapper.text()).not.toContain('Написать решение')
   })
 
@@ -695,6 +962,7 @@ describe('question detail page', () => {
     const { wrapper } = await mountQuestionDetailPage()
 
     expect(wrapper.text()).toContain('Legacy payload without protection metadata')
+    expect(wrapper.find('[data-testid="protected-question-chip"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="question-protection-badge"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="question-protection-panel"]').exists()).toBe(false)
   })
