@@ -48,6 +48,46 @@ class UserGraphResponseSerializer(serializers.Serializer):
     concepts = UserGraphConceptEntrySerializer(many=True)
 
 
+class RebuildSummarySerializer(serializers.Serializer):
+    processed = serializers.IntegerField(min_value=0, required=False)
+    processed_sources = serializers.IntegerField(min_value=0, required=False)
+    created_concepts = serializers.IntegerField(min_value=0, required=False)
+    updated_concepts = serializers.IntegerField(min_value=0, required=False)
+    created_mappings = serializers.IntegerField(min_value=0, required=False)
+    updated_mappings = serializers.IntegerField(min_value=0, required=False)
+    created_edges = serializers.IntegerField(min_value=0, required=False)
+    updated_edges = serializers.IntegerField(min_value=0, required=False)
+    removed_edges = serializers.IntegerField(min_value=0, required=False)
+    created_rows = serializers.IntegerField(min_value=0, required=False)
+    updated_rows = serializers.IntegerField(min_value=0, required=False)
+    skipped_sources = serializers.IntegerField(min_value=0, required=False)
+    authored_question = serializers.IntegerField(min_value=0, required=False)
+    posted_solution = serializers.IntegerField(min_value=0, required=False)
+    best_solution = serializers.IntegerField(min_value=0, required=False)
+    approved_edit = serializers.IntegerField(min_value=0, required=False)
+    question_upvote = serializers.IntegerField(min_value=0, required=False)
+    solution_upvote = serializers.IntegerField(min_value=0, required=False)
+
+
+class UserGraphRebuildResponseSerializer(serializers.Serializer):
+    user_id = serializers.UUIDField()
+    processed_questions = serializers.IntegerField(min_value=0)
+    processed_activity_sources = serializers.IntegerField(min_value=0)
+    structural_summary = RebuildSummarySerializer()
+    activity_summary = RebuildSummarySerializer()
+    state = GraphStateSerializer()
+
+
+class RebuildErrorDetailSerializer(serializers.Serializer):
+    code = serializers.CharField()
+    message = serializers.CharField()
+
+
+class UserGraphRebuildErrorResponseSerializer(serializers.Serializer):
+    error = RebuildErrorDetailSerializer()
+    state = GraphStateSerializer()
+
+
 class QuestionConceptTagSerializer(serializers.Serializer):
     id = serializers.IntegerField()
     name = serializers.CharField()

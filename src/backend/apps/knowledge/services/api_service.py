@@ -7,7 +7,7 @@ from typing import Any
 from django.db.models import Count, Sum
 
 from apps.knowledge.models import KnowledgeConcept, QuestionConceptEdge, UserConceptActivity, UserKnowledgeGraphState
-from apps.knowledge.services.graph_state_service import get_user_graph_state
+from apps.knowledge.services.graph_state_service import UserKnowledgeGraphRebuildSummary, get_user_graph_state
 from apps.qa.models import Question
 
 ZERO_WEIGHT = Decimal('0.0000')
@@ -130,6 +130,32 @@ def get_user_graph_payload(user, *, is_owner: bool) -> dict[str, Any]:
         'total_weight': total_weight,
         'activity_breakdown': _activity_breakdown_payload(overall_breakdown_rows),
         'concepts': concepts,
+    }
+
+
+def get_rebuild_summary_payload(summary: UserKnowledgeGraphRebuildSummary) -> dict[str, Any]:
+    """Build a redacted aggregate owner rebuild response DTO."""
+
+    return {
+        'user_id': summary.user_id,
+        'processed_questions': summary.processed_questions,
+        'processed_activity_sources': summary.processed_activity_sources,
+        'structural_summary': summary.structural_summary.as_stdout_fields(),
+        'activity_summary': summary.activity_summary.as_stdout_fields(),
+        'state': _state_payload(summary.state),
+    }
+
+
+def get_rebuild_error_payload(user, *, code: str = 'knowledge_graph_rebuild_failed') -> dict[str, Any]:
+    """Build a redacted rebuild failure DTO from persisted graph state only."""
+
+    state = get_user_graph_state(user)
+    return {
+        'error': {
+            'code': code,
+            'message': 'Knowledge graph rebuild failed.',
+        },
+        'state': _state_payload(state),
     }
 
 
