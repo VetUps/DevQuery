@@ -4,7 +4,12 @@ from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.core.management.base import BaseCommand, CommandError
 
-from apps.knowledge.services import UserConceptActivityRebuildError, rebuild_user_concept_activity
+from apps.knowledge.services import (
+    UserConceptActivityRebuildError,
+    UserKnowledgeGraphRebuildError,
+    rebuild_user_concept_activity,
+    rebuild_user_knowledge_graph,
+)
 
 
 class Command(BaseCommand):
@@ -26,10 +31,15 @@ class Command(BaseCommand):
             except (User.DoesNotExist, ValidationError, ValueError) as exc:
                 raise CommandError('User not found for --user-id') from exc
 
-        try:
-            summary = rebuild_user_concept_activity(user_id=user_id or None)
-        except UserConceptActivityRebuildError as exc:
-            raise CommandError('User concept activity rebuild failed') from exc
+            try:
+                summary = rebuild_user_knowledge_graph(user_id)
+            except UserKnowledgeGraphRebuildError as exc:
+                raise CommandError('User knowledge graph rebuild failed') from exc
+        else:
+            try:
+                summary = rebuild_user_concept_activity(user_id=None)
+            except UserConceptActivityRebuildError as exc:
+                raise CommandError('User concept activity rebuild failed') from exc
 
         fields = ' '.join(f'{name}={value}' for name, value in summary.as_stdout_fields().items())
         self.stdout.write(self.style.SUCCESS(f'User concept activity rebuild complete: {fields}'))

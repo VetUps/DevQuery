@@ -1,10 +1,16 @@
 from unittest.mock import patch
+from uuid import uuid4
 
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from apps.knowledge.models import UserConceptActivity, UserKnowledgeGraphState
-from apps.knowledge.services import sync_question_graph
+from apps.knowledge.models import QuestionConceptEdge, UserConceptActivity, UserKnowledgeGraphState
+from apps.knowledge.services import (
+    UserKnowledgeGraphRebuildError,
+    mark_user_graph_failed,
+    rebuild_user_knowledge_graph,
+    sync_question_graph,
+)
 from apps.qa.models import Question, QuestionEditProposal, Solution, Tag, Vote
 from apps.qa.services.question_edit_service import QuestionChangePayload, QuestionEditService
 from apps.qa.services.solution_service import SolutionService
@@ -63,6 +69,19 @@ class UserGraphRecoveryTests(APITestCase):
         self.assertEqual(state.stale_reason, UserKnowledgeGraphState.StaleReason.ACTIVITY_SYNC_FAILED)
         self.assertEqual(state.last_failed_phase, phase)
         self.assertIn('Graph activity sync failed', state.last_error_message)
+        self.assertNotIn('activity-owner@example.com', state.last_error_message)
+        self.assertNotIn('private answer body', state.last_error_message)
+        self.assertNotIn('sk_live_123', state.last_error_message)
+        self.assertNotIn('raw_events', state.last_error_message)
+
+    def _assert_rebuild_failed_state_is_safe(self, *, user, phase: str):
+        state = UserKnowledgeGraphState.objects.get(user=user)
+        self.assertEqual(state.status, UserKnowledgeGraphState.Status.FAILED)
+        self.assertEqual(state.stale_reason, UserKnowledgeGraphState.StaleReason.ACTIVITY_REBUILD_FAILED)
+        self.assertEqual(state.last_failed_phase, phase)
+        self.assertIn('Graph activity rebuild failed', state.last_error_message)
+        self.assertIsNotNone(state.last_rebuild_started_at)
+        self.assertIsNone(state.last_rebuild_finished_at)
         self.assertNotIn('activity-owner@example.com', state.last_error_message)
         self.assertNotIn('private answer body', state.last_error_message)
         self.assertNotIn('sk_live_123', state.last_error_message)
@@ -172,3 +191,84 @@ class UserGraphRecoveryTests(APITestCase):
 
         self.assertEqual(result.skipped_reason, 'missing_transaction')
         self.assertFalse(UserKnowledgeGraphState.objects.exists())
+
+    def test_owner_rebuild_restores_failed_solver_graph_to_fresh_and_is_idempotent(self):
+        question = self._create_question_with_graph()
+        Solution.objects.create(
+            user=self.solver,
+            question=question,
+            solution_body='Solver source body must not appear in rebuild diagnostics.',
+        )
+        QuestionConceptEdge.objects.filter(question=question).delete()
+        UserConceptActivity.objects.filter(user=self.solver).delete()
+        mark_user_graph_failed(
+            self.solver,
+            reason=UserKnowledgeGraphState.StaleReason.ACTIVITY_SYNC_FAILED,
+            phase='solution_posting',
+            error=RuntimeError(UNSAFE_ERROR),
+        )
+
+        first_summary = rebuild_user_knowledge_graph(self.solver)
+        first_count = UserConceptActivity.objects.filter(user=self.solver).count()
+        second_summary = rebuild_user_knowledge_graph(self.solver.pk)
+        second_count = UserConceptActivity.objects.filter(user=self.solver).count()
+
+        state = UserKnowledgeGraphState.objects.get(user=self.solver)
+        self.assertEqual(state.status, UserKnowledgeGraphState.Status.FRESH)
+        self.assertEqual(state.stale_reason, '')
+        self.assertEqual(state.last_error_message, '')
+        self.assertEqual(state.last_failed_phase, 'owner_rebuild')
+        self.assertIsNotNone(state.last_rebuild_started_at)
+        self.assertIsNotNone(state.last_rebuild_finished_at)
+        self.assertGreaterEqual(state.last_rebuild_finished_at, state.last_rebuild_started_at)
+        self.assertGreater(first_summary.processed_questions, 0)
+        self.assertGreater(first_count, 0)
+        self.assertEqual(second_count, first_count)
+        self.assertEqual(second_summary.activity_summary.created_rows, 0)
+        self.assertGreaterEqual(second_summary.activity_summary.updated_rows, 0)
+
+    def test_owner_rebuild_empty_user_graph_becomes_fresh_with_zero_rows(self):
+        summary = rebuild_user_knowledge_graph(self.editor)
+
+        state = UserKnowledgeGraphState.objects.get(user=self.editor)
+        self.assertEqual(state.status, UserKnowledgeGraphState.Status.FRESH)
+        self.assertEqual(summary.processed_questions, 0)
+        self.assertEqual(summary.activity_summary.processed_sources, 0)
+        self.assertFalse(UserConceptActivity.objects.filter(user=self.editor).exists())
+        self.assertIsNotNone(state.last_rebuild_started_at)
+        self.assertIsNotNone(state.last_rebuild_finished_at)
+
+    def test_owner_rebuild_unknown_user_raises_safe_error_without_fresh_state(self):
+        unknown_user_id = uuid4()
+
+        with self.assertRaises(UserKnowledgeGraphRebuildError) as context:
+            rebuild_user_knowledge_graph(unknown_user_id)
+
+        self.assertIn('User knowledge graph rebuild failed during validate_user', str(context.exception))
+        self.assertFalse(UserKnowledgeGraphState.objects.filter(user_id=unknown_user_id).exists())
+
+    def test_owner_rebuild_structural_failure_marks_failed_with_redacted_diagnostics(self):
+        self._create_question_with_graph(author=self.solver)
+
+        with patch(
+            'apps.knowledge.services.lifecycle_service.rebuild_structural_graph',
+            side_effect=RuntimeError(UNSAFE_ERROR),
+        ):
+            with self.assertRaises(UserKnowledgeGraphRebuildError) as context:
+                rebuild_user_knowledge_graph(self.solver)
+
+        self.assertIn('structural_rebuild', str(context.exception))
+        self._assert_rebuild_failed_state_is_safe(user=self.solver, phase='structural_rebuild')
+
+    def test_owner_rebuild_activity_failure_marks_failed_and_never_claims_fresh(self):
+        self._create_question_with_graph(author=self.solver)
+
+        with patch(
+            'apps.knowledge.services.activity_service.rebuild_user_concept_activity',
+            side_effect=RuntimeError(UNSAFE_ERROR),
+        ):
+            with self.assertRaises(UserKnowledgeGraphRebuildError) as context:
+                rebuild_user_knowledge_graph(self.solver)
+
+        self.assertIn('activity_rebuild', str(context.exception))
+        self._assert_rebuild_failed_state_is_safe(user=self.solver, phase='activity_rebuild')

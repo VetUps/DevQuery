@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from typing import Any
 
 from django.contrib.auth import get_user_model
-from django.core.exceptions import ValidationError
+from django.core.exceptions import ObjectDoesNotExist, ValidationError
+from django.db import DatabaseError
 from django.utils import timezone
 
 from apps.knowledge.models import UserKnowledgeGraphState
+from apps.qa.models import Question, QuestionEditProposal, Solution, SolutionEdits
+from apps.user.models import ReputationTransaction
 
 _SAFE_PHASE_RE = re.compile(r'[^a-zA-Z0-9_.:-]+')
 _SAFE_PHASE_MAX_LENGTH = 80
@@ -18,6 +22,48 @@ _REASON_MESSAGES = {
     UserKnowledgeGraphState.StaleReason.MANUAL_REBUILD_REQUESTED: 'Graph rebuild was requested',
     UserKnowledgeGraphState.StaleReason.UNKNOWN: 'Graph freshness update failed',
 }
+
+_SUPPORTED_STRUCTURAL_LEDGER_REASONS = {
+    ReputationTransaction.TransactionReason.BEST_SOLUTION,
+    ReputationTransaction.TransactionReason.QUESTION_UPVOTED,
+    ReputationTransaction.TransactionReason.SOLUTION_UPVOTED,
+    ReputationTransaction.TransactionReason.APPROVED_EDIT,
+}
+
+
+class UserKnowledgeGraphRebuildError(Exception):
+    """Safe owner-scoped graph rebuild failure for service/API callers."""
+
+
+@dataclass(frozen=True)
+class UserKnowledgeGraphRebuildSummary:
+    """Aggregate, redaction-safe owner graph rebuild result."""
+
+    user_id: Any
+    structural_summary: Any
+    activity_summary: Any
+    state: UserKnowledgeGraphState
+
+    @property
+    def processed_questions(self) -> int:
+        return self.structural_summary.processed_questions
+
+    @property
+    def processed_activity_sources(self) -> int:
+        return self.activity_summary.processed_sources
+
+    def as_stdout_fields(self) -> dict[str, int]:
+        fields = {
+            f'structural_{name}': value
+            for name, value in self.structural_summary.as_stdout_fields().items()
+        }
+        fields.update(
+            {
+                f'activity_{name}': value
+                for name, value in self.activity_summary.as_stdout_fields().items()
+            }
+        )
+        return fields
 
 
 def _user_id(user_or_id: Any) -> Any:
@@ -150,3 +196,107 @@ def validate_user_for_graph_state(user_id: Any):
         return None
     User = get_user_model()
     return User.objects.get(pk=user_id)
+
+
+def _safe_rebuild_failure(*, phase: str, exc: BaseException) -> UserKnowledgeGraphRebuildError:
+    return UserKnowledgeGraphRebuildError(f'User knowledge graph rebuild failed during {_safe_phase(phase)}')
+
+
+def _question_id_from_ledger_source(source_object: object | None):
+    if source_object is None:
+        return None
+    if isinstance(source_object, Question):
+        return source_object.pk
+    if isinstance(source_object, Solution):
+        return source_object.question_id
+    if isinstance(source_object, QuestionEditProposal):
+        return source_object.question_id
+    if isinstance(source_object, SolutionEdits):
+        return source_object.solution.question_id
+    return None
+
+
+def _tracked_structural_question_ids(user) -> set[Any]:
+    question_ids = set(
+        Question.objects.filter(user=user).values_list('pk', flat=True)
+    )
+    question_ids.update(
+        Solution.objects.filter(user=user).values_list('question_id', flat=True)
+    )
+
+    ledger_rows = (
+        ReputationTransaction.objects.filter(
+            user=user,
+            reputation_transaction_reason__in=_SUPPORTED_STRUCTURAL_LEDGER_REASONS,
+        )
+        .select_related('content_type')
+        .order_by('pk')
+    )
+    for transaction_row in ledger_rows:
+        question_id = _question_id_from_ledger_source(transaction_row.source)
+        if question_id is not None:
+            question_ids.add(question_id)
+
+    question_ids.discard(None)
+    return question_ids
+
+
+def get_user_structural_question_queryset(user_or_id):
+    """Return questions whose graph structure can affect one owner's activity rebuild."""
+
+    user = validate_user_for_graph_state(_user_id(user_or_id))
+    question_ids = _tracked_structural_question_ids(user)
+    return Question.objects.filter(pk__in=question_ids).order_by('pk')
+
+
+def rebuild_user_knowledge_graph(user_or_id) -> UserKnowledgeGraphRebuildSummary:
+    """Synchronously rebuild one owner's structural inputs and concept activity.
+
+    The state row is marked rebuilding first, failed with fixed diagnostics on any
+    structural/activity exception, and fresh only after the activity rebuild has
+    completed successfully. The service accepts a user instance or primary key so
+    the later owner-only API can validate ownership before delegating here.
+    """
+
+    try:
+        user = validate_user_for_graph_state(_user_id(user_or_id))
+    except (ObjectDoesNotExist, ValidationError, ValueError, TypeError) as exc:
+        raise _safe_rebuild_failure(phase='validate_user', exc=exc) from exc
+
+    if user is None:
+        raise UserKnowledgeGraphRebuildError('User knowledge graph rebuild requires a user')
+
+    mark_user_graph_rebuilding(user, phase='owner_rebuild')
+
+    try:
+        from apps.knowledge.services.activity_service import rebuild_user_concept_activity
+        from apps.knowledge.services.lifecycle_service import rebuild_structural_graph
+
+        structural_summary = rebuild_structural_graph(get_user_structural_question_queryset(user))
+    except (DatabaseError, Exception) as exc:
+        mark_user_graph_failed(
+            user,
+            reason=UserKnowledgeGraphState.StaleReason.ACTIVITY_REBUILD_FAILED,
+            phase='structural_rebuild',
+            error=exc,
+        )
+        raise _safe_rebuild_failure(phase='structural_rebuild', exc=exc) from exc
+
+    try:
+        activity_summary = rebuild_user_concept_activity(user_id=user.pk)
+    except (DatabaseError, Exception) as exc:
+        mark_user_graph_failed(
+            user,
+            reason=UserKnowledgeGraphState.StaleReason.ACTIVITY_REBUILD_FAILED,
+            phase='activity_rebuild',
+            error=exc,
+        )
+        raise _safe_rebuild_failure(phase='activity_rebuild', exc=exc) from exc
+
+    state = mark_user_graph_fresh(user, phase='owner_rebuild')
+    return UserKnowledgeGraphRebuildSummary(
+        user_id=user.pk,
+        structural_summary=structural_summary,
+        activity_summary=activity_summary,
+        state=state,
+    )
