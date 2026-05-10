@@ -19,6 +19,17 @@ vi.mock('@/features/auth/queries/useCurrentUserQuery', () => ({
   useCurrentUserQuery: vi.fn(() => profileState),
 }))
 
+vi.mock('@/features/knowledge/components/ProfileKnowledgeGraphTab.vue', () => ({
+  default: {
+    template: `
+      <section data-testid="profile-knowledge-graph-tab">
+        <h2>Граф знаний профиля</h2>
+        <p data-testid="knowledge-graph-error-copy">Не удалось загрузить граф знаний. Профиль остаётся доступен.</p>
+      </section>
+    `,
+  },
+}))
+
 vi.mock('@/features/notifications/components/ProfileNotificationsTab.vue', () => ({
   default: {
     template: '<section data-testid="profile-notifications-tab">Уведомления профиля готовы к просмотру.</section>',
@@ -308,6 +319,22 @@ describe('profile reputation surfaces', () => {
     expect(wrapper.text()).toContain('Очередь правок к вашим решениям готова к проверке.')
   })
 
+  it('closes the reputation dialog and clears the body lock when switching to the knowledge graph', async () => {
+    const localStorageSet = vi.spyOn(Storage.prototype, 'setItem')
+    const { wrapper, router } = await mountProfilePage()
+
+    await openReputationDialog(wrapper)
+    expect(getDialog()).not.toBeNull()
+    expect(document.body.style.overflow).toBe('hidden')
+
+    await wrapper.get('[data-testid="profile-tab-knowledge"]').trigger('click')
+    await flushPromises()
+
+    await expectReputationDialogClosed(router.currentRoute.value.query, { tab: 'knowledge' })
+    expect(wrapper.get('[data-testid="profile-knowledge-graph-tab"]').text()).toContain('Граф знаний профиля')
+    expect(localStorageSet).not.toHaveBeenCalled()
+  })
+
   it('closes the reputation dialog and clears the body lock when switching to notifications', async () => {
     const { wrapper, router } = await mountProfilePage()
 
@@ -370,6 +397,23 @@ describe('profile reputation surfaces', () => {
     expect(getExplanationPanel()).toBeNull()
   })
 
+  it('uses the route query to switch into the knowledge graph workspace', async () => {
+    const { wrapper, router } = await mountProfilePage({ tab: 'knowledge' })
+
+    expect(router.currentRoute.value.path).toBe('/profile')
+    expect(router.currentRoute.value.name).toBeUndefined()
+    expect(router.currentRoute.value.query.tab).toBe('knowledge')
+    expect(wrapper.get('[data-testid="profile-tab-knowledge"]').classes()).toContain('profile-page__tab--active')
+    expect(wrapper.get('[data-testid="profile-knowledge-graph-tab"]').text()).toContain('Граф знаний профиля')
+    expect(wrapper.get('[data-testid="knowledge-graph-error-copy"]').text()).toContain('Профиль остаётся доступен')
+    expect(wrapper.text()).toContain('Sergey')
+    expect(wrapper.find('[data-testid="reputation-explanation-trigger"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="profile-notifications-tab"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="history-workspace"]').exists()).toBe(false)
+    expect(getDialog()).toBeNull()
+    expect(getExplanationPanel()).toBeNull()
+  })
+
   it('uses the route query to switch into the notifications workspace', async () => {
     const { wrapper, router } = await mountProfilePage({ tab: 'notifications' })
 
@@ -390,6 +434,7 @@ describe('profile reputation surfaces', () => {
     expect(unknownState.router.currentRoute.value.query.tab).toBe('unknown')
     expect(unknownState.wrapper.get('[data-testid="profile-tab-overview"]').classes()).toContain('profile-page__tab--active')
     expect(unknownState.wrapper.get('[data-testid="reputation-explanation-trigger"]').exists()).toBe(true)
+    expect(unknownState.wrapper.find('[data-testid="profile-knowledge-graph-tab"]').exists()).toBe(false)
     expect(unknownState.wrapper.find('[data-testid="profile-notifications-tab"]').exists()).toBe(false)
 
     unknownState.wrapper.unmount()
@@ -401,6 +446,7 @@ describe('profile reputation surfaces', () => {
     expect(malformedState.router.currentRoute.value.query.tab).toEqual(['notifications', 'history'])
     expect(malformedState.wrapper.get('[data-testid="profile-tab-overview"]').classes()).toContain('profile-page__tab--active')
     expect(malformedState.wrapper.get('[data-testid="reputation-explanation-trigger"]').exists()).toBe(true)
+    expect(malformedState.wrapper.find('[data-testid="profile-knowledge-graph-tab"]').exists()).toBe(false)
     expect(malformedState.wrapper.find('[data-testid="profile-notifications-tab"]').exists()).toBe(false)
   })
 
@@ -410,11 +456,13 @@ describe('profile reputation surfaces', () => {
     profileState.isError.value = true
     profileState.error.value = new Error('profile unavailable')
 
-    const { wrapper } = await mountProfilePage({ tab: 'notifications' })
+    const { wrapper } = await mountProfilePage({ tab: 'knowledge' })
 
     expect(wrapper.text()).toContain('Не удалось загрузить профиль')
     expect(wrapper.find('[data-testid="profile-tab-notifications"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="profile-tab-knowledge"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="profile-notifications-tab"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="profile-knowledge-graph-tab"]').exists()).toBe(false)
   })
 
   it('updates the route when switching tabs from the shell', async () => {
