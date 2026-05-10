@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "typecheck": "vue-tsc --noEmit",
     "test": "vitest",
-    "test:run": "vitest run"
+    "test:run": "vitest run",
+    "smoke:profile-knowledge-graph": "playwright test --config=playwright.config.ts e2e/profile-knowledge-graph.spec.ts"
   },
   "dependencies": {
     "@fontsource/ibm-plex-sans": "^5.2.8",
@@ -24,6 +25,7 @@
     "vue-router": "^5.0.4"
   },
   "devDependencies": {
+    "@playwright/test": "^1.59.1",
     "@vitejs/plugin-vue": "^6.0.5",
     "@vue/test-utils": "^2.4.6",
     "jsdom": "^26.1.0",
