@@ -3096,7 +3096,7 @@ class OpenApiSchemaTests(APITestCase):
         )
 
 
-class QuestionEditLifecycleTests(APITestCase):
+class QuestionEditServiceTests(APITestCase):
     def setUp(self):
         self.author = CustomUser.objects.create_user(
             user_email='question-owner@example.com',

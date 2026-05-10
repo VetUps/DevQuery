@@ -7,6 +7,7 @@ from django.db import transaction
 from django.db.models import F, QuerySet
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 
+from apps.knowledge.services import sync_question_graph
 from ...user.models import CustomUser, ReputationTransaction
 from ...user.services.reputation_service import ReputationService
 from ..models import Question, QuestionEditEvent, QuestionEditProposal, QuestionRevision, Tag
@@ -214,6 +215,7 @@ class QuestionEditService:
         question.save(update_fields=['question_title', 'question_body', 'question_updated_at'])
         QuestionEditService._replace_question_tags(question, payload.tags)
         question.refresh_from_db()
+        sync_question_graph(question)
 
     @staticmethod
     def _replace_question_tags(question: Question, normalized_tag_names: list[str]) -> None:
