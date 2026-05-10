@@ -10,4 +10,5 @@ urlpatterns = [
     path('', include('apps.user.urls', namespace='user')),
     path('', include('apps.qa.urls', namespace='qa')),
     path('', include('apps.notifications.urls', namespace='notifications')),
+    path('knowledge-graph/', include('apps.knowledge.urls', namespace='knowledge')),
 ]
