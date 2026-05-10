@@ -62,6 +62,7 @@ vi.mock('@/features/questions/queries/useTagAutocompleteQuery', () => ({
 
 vi.mock('@/features/notifications/queries/useNotificationsQuery', () => ({
   useNotificationsQuery: vi.fn(() => notificationsQueryState),
+  useNotificationSummaryQuery: vi.fn(() => notificationsQueryState),
 }))
 
 vi.mock('@/features/solutions/components/ProfileEditReviewQueue.vue', () => ({

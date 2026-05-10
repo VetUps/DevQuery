@@ -88,6 +88,41 @@ const canShowExpertInvitationPanel = computed(
 const canShowInvitationContextPanel = computed(
   () => isAuthenticated.value && !isQuestionAuthor.value && Boolean(questionDetailQuery.data.value?.is_protected),
 )
+const MAX_NOTIFICATION_CONTEXT_ROWS = 50
+
+function isNotificationItem(value: unknown): value is NotificationItem {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function notificationCreatedAtMs(notification: NotificationItem) {
+  const timestamp = Date.parse(notification.created_at)
+
+  return Number.isNaN(timestamp) ? 0 : timestamp
+}
+
+function isCurrentQuestionInvitation(notification: NotificationItem, question: QuestionDetail) {
+  const expectedCtaUrl = `/questions/${question.question_id}`
+  const hasSafeQuestionCta = notification.cta_url === null || notification.cta_url === expectedCtaUrl
+
+  return notification.notification_type === 'expert_invitation' &&
+    notification.source_question_id === question.question_id &&
+    hasSafeQuestionCta
+}
+
+function chooseLatestInvitationForQuestion(notifications: unknown[], question: QuestionDetail) {
+  return notifications
+    .slice(0, MAX_NOTIFICATION_CONTEXT_ROWS)
+    .filter(isNotificationItem)
+    .filter((notification) => isCurrentQuestionInvitation(notification, question))
+    .reduce<NotificationItem | null>((latest, notification) => {
+      if (!latest) {
+        return notification
+      }
+
+      return notificationCreatedAtMs(notification) > notificationCreatedAtMs(latest) ? notification : latest
+    }, null)
+}
+
 const matchingExpertInvitation = computed<NotificationItem | null>(() => {
   const question = questionDetailQuery.data.value
 
@@ -95,11 +130,7 @@ const matchingExpertInvitation = computed<NotificationItem | null>(() => {
     return null
   }
 
-  return notificationsQuery.data.value?.results.find(
-    (notification) =>
-      notification.notification_type === 'expert_invitation' &&
-      notification.source_question_id === question.question_id,
-  ) ?? null
+  return chooseLatestInvitationForQuestion(notificationsQuery.data.value?.results ?? [], question)
 })
 const currentUserSolution = computed(() =>
   (solutionsQuery.data.value ?? []).find((solution) => solution.user === currentUserId.value) ?? null,

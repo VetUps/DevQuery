@@ -58,7 +58,22 @@ class NotificationService:
 
     @staticmethod
     def list_for_user(user):
-        return Notification.objects.filter(recipient=user).select_related('recipient', 'source_question').order_by('-created_at')
+        return NotificationService.notifications_for_user(user)
+
+    @staticmethod
+    def notifications_for_user(user, *, status='all'):
+        queryset = Notification.objects.filter(recipient=user).select_related('recipient', 'source_question').order_by('-created_at')
+        if status == 'unread':
+            return queryset.filter(read_at__isnull=True)
+        return queryset
+
+    @staticmethod
+    def unread_count_for_user(user):
+        return NotificationService.notifications_for_user(user, status='unread').count()
+
+    @staticmethod
+    def latest_for_user(user, *, limit=5):
+        return NotificationService.notifications_for_user(user)[:limit]
 
     @staticmethod
     def mark_read(notification_id, user):
@@ -71,3 +86,12 @@ class NotificationService:
             notification.read_at = timezone.now()
             notification.save(update_fields=['read_at'])
         return notification
+
+    @staticmethod
+    def mark_all_read(user):
+        marked_count = Notification.objects.filter(recipient=user, read_at__isnull=True).update(read_at=timezone.now())
+        unread_count = NotificationService.unread_count_for_user(user)
+        return {
+            'marked_count': marked_count,
+            'unread_count': unread_count,
+        }

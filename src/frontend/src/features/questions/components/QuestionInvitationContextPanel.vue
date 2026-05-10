@@ -82,6 +82,11 @@ const reasonText = computed(() => props.question.viewer_answer_reason_message ||
       </p>
     </div>
 
+    <div v-else-if="notificationsPending" data-testid="question-invitation-context-loading">
+      <p class="question-invitation-context__eyebrow">Проверяем приглашения</p>
+      <p class="question-invitation-context__body">Загружаем ваши уведомления, не меняя доступ к форме ответа.</p>
+    </div>
+
     <div v-else-if="shouldShowOrdinaryBlockedContext" data-testid="question-invitation-context-ordinary-blocked">
       <p class="question-invitation-context__eyebrow">Защищённый вопрос новичка</p>
       <h2 class="question-invitation-context__title">Ответы временно доступны только подходящим экспертам</h2>
@@ -92,11 +97,6 @@ const reasonText = computed(() => props.question.viewer_answer_reason_message ||
       <p v-if="levelProgressText" class="question-invitation-context__detail" data-testid="question-invitation-context-progress">
         {{ levelProgressText }}
       </p>
-    </div>
-
-    <div v-else-if="notificationsPending" data-testid="question-invitation-context-loading">
-      <p class="question-invitation-context__eyebrow">Проверяем приглашения</p>
-      <p class="question-invitation-context__body">Загружаем ваши уведомления, не меняя доступ к форме ответа.</p>
     </div>
   </aside>
 </template>
