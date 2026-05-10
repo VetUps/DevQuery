@@ -71,6 +71,7 @@ THIRD_PARTY_APPS = [
 LOCAL_APPS = [
     'apps.user',
     'apps.qa',
+    'apps.knowledge',
     'apps.notifications',
 ]
 
