@@ -6,6 +6,8 @@ from django.db.models import Count, OuterRef, Subquery, CharField, F, IntegerFie
 from django.db.models.functions import Coalesce
 from rest_framework.exceptions import PermissionDenied, ValidationError, NotFound, ErrorDetail
 
+from apps.knowledge.services import sync_reputation_transaction_activity
+
 from ..models import Vote, Question, Solution
 from .question_protection_service import QuestionProtectionService
 from ...user.models import CustomUser, ReputationTransaction
@@ -205,22 +207,22 @@ class VoteService:
         previous_vote_type: str | None,
         next_vote_type: str | None,
         actor: CustomUser,
-    ) -> None:
+    ) -> ReputationTransaction | None:
         if not cls.should_reward_upvote_transition(previous_vote_type, next_vote_type):
-            return
+            return None
 
         reward = cls.REPUTATION_REWARDS.get(target_type)
         if reward is None:
-            return
+            return None
 
         if cls.has_existing_upvote_reward(
             target_object=target_object,
             reason=reward['reason'],
             actor=actor,
         ):
-            return
+            return None
 
-        ReputationService.record_transaction(
+        transaction_row = ReputationService.record_transaction(
             user=target_object.user,
             amount=reward['amount'],
             reason=reward['reason'],
@@ -231,6 +233,8 @@ class VoteService:
                 f'{previous_vote_type or "none"} -> {next_vote_type}'
             ),
         )
+        sync_reputation_transaction_activity(transaction_row, phase=f'{target_type}_upvote')
+        return transaction_row
 
     @classmethod
     def cast_vote(cls, target_type: str, target_id: str, vote_type: str, user: CustomUser) -> tuple[Vote, bool]:

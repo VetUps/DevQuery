@@ -252,6 +252,90 @@ def _apply_sources(sources: Iterable[ActivitySource | str], summary: UserConcept
         summary.mark_rows(source.activity_type, created=created_rows, updated=updated_rows)
 
 
+@dataclass(frozen=True)
+class UserConceptActivitySyncResult:
+    """Small runtime sync result safe to expose in logs/tests."""
+
+    phase: str
+    activity_type: str | None
+    processed_sources: int
+    created_rows: int
+    updated_rows: int
+    skipped_sources: int
+    skipped_reason: str | None = None
+
+
+def _sync_single_source(source: ActivitySource | str, *, phase: str) -> UserConceptActivitySyncResult:
+    summary = UserConceptActivityRebuildSummary()
+    _apply_sources([source], summary)
+    activity_type = None if isinstance(source, str) else source.activity_type
+    skipped_reason = next(iter(summary.skipped_by_reason), None) if summary.skipped_by_reason else None
+    return UserConceptActivitySyncResult(
+        phase=phase,
+        activity_type=activity_type,
+        processed_sources=summary.processed_sources,
+        created_rows=summary.created_rows,
+        updated_rows=summary.updated_rows,
+        skipped_sources=summary.skipped_sources,
+        skipped_reason=skipped_reason,
+    )
+
+
+def sync_authored_question_activity(question: Question) -> UserConceptActivitySyncResult:
+    """Upsert authored-question concept activity for a live question create."""
+
+    if question.user_id is None:
+        return _sync_single_source('missing_user', phase='question_authoring')
+    return _sync_single_source(
+        ActivitySource(
+            user=question.user,
+            activity_type=AUTHORED_QUESTION,
+            source_object=question,
+            related_question=question,
+        ),
+        phase='question_authoring',
+    )
+
+
+def sync_posted_solution_activity(solution: Solution) -> UserConceptActivitySyncResult:
+    """Upsert posted-solution concept activity for a live solution create."""
+
+    if solution.user_id is None:
+        return _sync_single_source('missing_user', phase='solution_posting')
+    if solution.question_id is None:
+        return _sync_single_source('missing_related_question', phase='solution_posting')
+    return _sync_single_source(
+        ActivitySource(
+            user=solution.user,
+            activity_type=POSTED_SOLUTION,
+            source_object=solution,
+            related_question=solution.question,
+        ),
+        phase='solution_posting',
+    )
+
+
+def sync_reputation_transaction_activity(
+    transaction_row: ReputationTransaction | None,
+    *,
+    phase: str,
+) -> UserConceptActivitySyncResult:
+    """Upsert concept activity for supported positive reputation ledger facts."""
+
+    if transaction_row is None:
+        return UserConceptActivitySyncResult(
+            phase=phase,
+            activity_type=None,
+            processed_sources=0,
+            created_rows=0,
+            updated_rows=0,
+            skipped_sources=0,
+            skipped_reason='missing_transaction',
+        )
+    source = next(iter(_ledger_sources([transaction_row])))
+    return _sync_single_source(source, phase=phase)
+
+
 def rebuild_user_concept_activity(*, user_id=None) -> UserConceptActivityRebuildSummary:
     """Rebuild durable positive user-concept activity from current source facts and ledger facts."""
 

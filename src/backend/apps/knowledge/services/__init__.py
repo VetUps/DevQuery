@@ -13,8 +13,12 @@ from .activity_service import (
     UserConceptActivityRebuildError,
     UserConceptActivityRebuildSummary,
     UserConceptActivitySummary,
+    UserConceptActivitySyncResult,
     get_user_concept_activity_summary,
     rebuild_user_concept_activity,
+    sync_authored_question_activity,
+    sync_posted_solution_activity,
+    sync_reputation_transaction_activity,
 )
 
 __all__ = [
@@ -25,9 +29,13 @@ __all__ = [
     'UserConceptActivityRebuildError',
     'UserConceptActivityRebuildSummary',
     'UserConceptActivitySummary',
+    'UserConceptActivitySyncResult',
     'build_question_graph',
     'get_user_concept_activity_summary',
     'rebuild_structural_graph',
     'rebuild_user_concept_activity',
+    'sync_authored_question_activity',
+    'sync_posted_solution_activity',
+    'sync_reputation_transaction_activity',
     'sync_question_graph',
 ]
