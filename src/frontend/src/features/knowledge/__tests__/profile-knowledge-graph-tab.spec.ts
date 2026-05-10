@@ -1,0 +1,279 @@
+import { computed, nextTick } from 'vue'
+import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+import type { UserKnowledgeGraphResponse } from '@/features/knowledge/api/knowledgeGraph'
+import ProfileKnowledgeGraphTab from '@/features/knowledge/components/ProfileKnowledgeGraphTab.vue'
+
+const queryHarness = vi.hoisted(() => {
+  const state = {
+    data: undefined as UserKnowledgeGraphResponse | undefined,
+    isPending: false,
+    isError: false,
+    refetch: vi.fn(),
+  }
+
+  const ownQuery = {
+    data: { get value() { return state.data } },
+    isPending: { get value() { return state.isPending } },
+    isError: { get value() { return state.isError } },
+    refetch: state.refetch,
+  }
+
+  const publicQuery = ownQuery
+
+  return { state, ownQuery, publicQuery }
+})
+
+const mutationHarness = vi.hoisted(() => ({
+  mutation: {
+    isPending: { value: false },
+    mutateAsync: vi.fn(),
+  },
+}))
+
+const useOwnKnowledgeGraphQueryMock = vi.hoisted(() => vi.fn(() => queryHarness.ownQuery))
+const usePublicUserKnowledgeGraphQueryMock = vi.hoisted(() => vi.fn(() => queryHarness.publicQuery))
+const useRebuildKnowledgeGraphMutationMock = vi.hoisted(() => vi.fn(() => mutationHarness.mutation))
+
+vi.mock('@/features/knowledge/queries/useKnowledgeGraphQuery', () => ({
+  useOwnKnowledgeGraphQuery: useOwnKnowledgeGraphQueryMock,
+  usePublicUserKnowledgeGraphQuery: usePublicUserKnowledgeGraphQueryMock,
+}))
+
+vi.mock('@/features/knowledge/mutations/useRebuildKnowledgeGraphMutation', () => ({
+  useRebuildKnowledgeGraphMutation: useRebuildKnowledgeGraphMutationMock,
+}))
+
+const mountedWrappers: VueWrapper[] = []
+
+function buildGraph(overrides: Partial<UserKnowledgeGraphResponse> = {}): UserKnowledgeGraphResponse {
+  return {
+    user_id: '11111111-1111-4111-8111-111111111111',
+    viewer: { is_owner: true },
+    state: {
+      status: 'fresh',
+      stale_reason: '',
+      last_error_message: '',
+      last_failed_phase: '',
+      last_rebuild_started_at: '2026-05-06T11:30:00Z',
+      last_rebuild_finished_at: '2026-05-06T12:00:00Z',
+    },
+    total_weight: '3.7500',
+    activity_breakdown: [
+      { activity_type: 'authored_answer', total_weight: '2.0000', source_count: 3 },
+      { activity_type: 'question_upvote', total_weight: '1.7500', source_count: 4 },
+    ],
+    concepts: [
+      {
+        concept_id: 10,
+        slug: 'django',
+        name: 'Django',
+        source: 'tag',
+        provider: 'tag-sync',
+        confidence: '1.0000',
+        total_weight: '2.5000',
+        source_count: 5,
+        activity_breakdown: [
+          { activity_type: 'authored_answer', total_weight: '2.0000', source_count: 3 },
+        ],
+        related_questions: [
+          {
+            question_id: '22222222-2222-4222-8222-222222222222',
+            title: 'Как построить безопасный граф знаний?',
+            status: 'open',
+          },
+        ],
+      },
+      {
+        concept_id: 11,
+        slug: 'vue',
+        name: 'Vue',
+        source: 'tag',
+        provider: 'tag-sync',
+        confidence: '0.8000',
+        total_weight: '0.0000',
+        source_count: 0,
+        activity_breakdown: [],
+        related_questions: [],
+      },
+    ],
+    ...overrides,
+  }
+}
+
+function setQueryState(overrides: Partial<typeof queryHarness.state> = {}) {
+  queryHarness.state.data = undefined
+  queryHarness.state.isPending = false
+  queryHarness.state.isError = false
+  queryHarness.state.refetch.mockReset()
+  queryHarness.state.refetch.mockResolvedValue(undefined)
+
+  Object.assign(queryHarness.state, overrides)
+}
+
+function setMutationState() {
+  mutationHarness.mutation.isPending.value = false
+  mutationHarness.mutation.mutateAsync.mockReset()
+  mutationHarness.mutation.mutateAsync.mockResolvedValue({})
+}
+
+async function mountTab(props: { userId?: string } = {}) {
+  const wrapper = mount(ProfileKnowledgeGraphTab, { props })
+
+  mountedWrappers.push(wrapper)
+  await flushPromises()
+
+  return wrapper
+}
+
+describe('ProfileKnowledgeGraphTab', () => {
+  beforeEach(() => {
+    setQueryState()
+    setMutationState()
+    useOwnKnowledgeGraphQueryMock.mockClear()
+    usePublicUserKnowledgeGraphQueryMock.mockClear()
+    useRebuildKnowledgeGraphMutationMock.mockClear()
+  })
+
+  afterEach(() => {
+    while (mountedWrappers.length > 0) {
+      mountedWrappers.pop()?.unmount()
+    }
+  })
+
+  it('renders concept weights, activity breakdowns, explanations, and related question links', async () => {
+    setQueryState({ data: buildGraph() })
+
+    const wrapper = await mountTab()
+
+    expect(useOwnKnowledgeGraphQueryMock).toHaveBeenCalledOnce()
+    expect(wrapper.get('[data-testid="knowledge-total-weight"]').text()).toBe('3,75')
+    expect(wrapper.get('[data-testid="knowledge-state-banner"]').text()).toContain('Граф знаний синхронизирован')
+    expect(wrapper.get('[data-testid="knowledge-activity-breakdown"]').text()).toContain('Ответы')
+    expect(wrapper.get('[data-testid="knowledge-concepts"]').text()).toContain('Django')
+    expect(wrapper.get('[data-testid="knowledge-concepts"]').text()).toContain('Уверенность 1')
+    expect(wrapper.get('[data-testid="knowledge-concepts"]').text()).toContain('Связанные вопросы')
+
+    const questionLink = wrapper.get('a[href="/questions/22222222-2222-4222-8222-222222222222"]')
+    expect(questionLink.text()).toBe('Как построить безопасный граф знаний?')
+    expect(wrapper.text()).not.toContain('event')
+    expect(wrapper.text()).not.toContain('@')
+    expect(wrapper.text()).not.toContain('Traceback')
+  })
+
+  it.each([
+    ['stale', 'Мы обнаружили расхождение между графом и вашей активностью. Перестройте граф.', 'activity_sync_lag'],
+    ['rebuilding', 'Граф знаний обновляется', ''],
+    ['failed', 'Последнее перестроение не завершилось', 'question_authoring'],
+    ['mystery', 'Статус графа пока не распознан', ''],
+  ])('renders a safe %s state banner', async (status, expectedCopy, diagnostic) => {
+    setQueryState({
+      data: buildGraph({
+        state: {
+          status,
+          stale_reason: diagnostic,
+          last_error_message: status === 'failed' ? 'Безопасная ошибка синхронизации.' : '',
+          last_failed_phase: diagnostic,
+          last_rebuild_started_at: '2026-05-06T11:30:00Z',
+          last_rebuild_finished_at: null,
+        },
+      }),
+    })
+
+    const wrapper = await mountTab()
+
+    expect(wrapper.get('[data-testid="knowledge-state-banner"]').text()).toContain(expectedCopy)
+    if (diagnostic) {
+      expect(wrapper.get('[data-testid="knowledge-state-banner"]').text()).toContain(diagnostic)
+    }
+  })
+
+  it('renders loading, initial API error with retry, and missing data states safely', async () => {
+    setQueryState({ isPending: true })
+    const loadingWrapper = await mountTab()
+    expect(loadingWrapper.get('[data-testid="knowledge-graph-loading"]').text()).toContain('Загружаем граф знаний')
+    loadingWrapper.unmount()
+
+    setQueryState({ isError: true })
+    const errorWrapper = await mountTab()
+    expect(errorWrapper.get('[data-testid="knowledge-graph-error"]').text()).toContain('Не удалось загрузить граф знаний')
+    await errorWrapper.get('button').trigger('click')
+    expect(queryHarness.state.refetch).toHaveBeenCalledOnce()
+    errorWrapper.unmount()
+
+    setQueryState()
+    const missingWrapper = await mountTab()
+    expect(missingWrapper.get('[data-testid="knowledge-graph-missing"]').text()).toContain('Данные графа недоступны')
+  })
+
+  it('keeps prior graph data visible when a stale refetch error is reported', async () => {
+    setQueryState({ data: buildGraph(), isError: true })
+
+    const wrapper = await mountTab()
+
+    expect(wrapper.get('[data-testid="knowledge-state-banner"]').text()).toContain('Показываем последнюю сохранённую версию графа')
+    expect(wrapper.get('[data-testid="knowledge-concepts"]').text()).toContain('Django')
+  })
+
+  it('renders an empty graph without concept cards', async () => {
+    setQueryState({
+      data: buildGraph({
+        total_weight: '0.0000',
+        activity_breakdown: [],
+        concepts: [],
+      }),
+    })
+
+    const wrapper = await mountTab()
+
+    expect(wrapper.get('[data-testid="knowledge-graph-empty"]').text()).toContain('Концепты пока не найдены')
+    expect(wrapper.find('[data-testid="knowledge-concepts"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="knowledge-total-weight"]').text()).toBe('0')
+  })
+
+  it('uses the public user hook and hides rebuild controls for public viewers', async () => {
+    const graph = buildGraph({ viewer: { is_owner: false } })
+    setQueryState({ data: graph })
+
+    const wrapper = await mountTab({ userId: '  user-42  ' })
+
+    expect(usePublicUserKnowledgeGraphQueryMock).toHaveBeenCalledOnce()
+    const userIdArg = usePublicUserKnowledgeGraphQueryMock.mock.calls[0][0]
+    expect(computed(() => userIdArg.value).value).toBe('user-42')
+    expect(wrapper.find('[data-testid="knowledge-rebuild-button"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="knowledge-public-readonly"]').text()).toContain('только владельцу')
+  })
+
+  it('shows owner-only rebuild controls and calls the spoof-resistant mutation without a user id', async () => {
+    setQueryState({ data: buildGraph() })
+
+    const wrapper = await mountTab()
+    await wrapper.get('[data-testid="knowledge-rebuild-button"]').trigger('click')
+
+    expect(mutationHarness.mutation.mutateAsync).toHaveBeenCalledOnce()
+    expect(mutationHarness.mutation.mutateAsync).toHaveBeenCalledWith()
+  })
+
+  it('disables the rebuild action while pending and renders safe mutation failure copy', async () => {
+    setQueryState({ data: buildGraph() })
+    mutationHarness.mutation.isPending.value = true
+
+    const pendingWrapper = await mountTab()
+    expect(pendingWrapper.get('[data-testid="knowledge-rebuild-button"]').attributes('disabled')).toBeDefined()
+    expect(pendingWrapper.get('[data-testid="knowledge-rebuild-pending"]').text()).toContain('Перестроение запущено')
+    pendingWrapper.unmount()
+
+    setQueryState({ data: buildGraph() })
+    mutationHarness.mutation.isPending.value = false
+    mutationHarness.mutation.mutateAsync.mockRejectedValue(new Error('provider stack token leaked'))
+    const failureWrapper = await mountTab()
+
+    await failureWrapper.get('[data-testid="knowledge-rebuild-button"]').trigger('click')
+    await nextTick()
+
+    expect(failureWrapper.get('[data-testid="knowledge-rebuild-error"]').text()).toContain('Не удалось запустить перестроение графа')
+    expect(failureWrapper.text()).not.toContain('provider stack token leaked')
+    expect(failureWrapper.get('[data-testid="knowledge-concepts"]').text()).toContain('Django')
+  })
+})
