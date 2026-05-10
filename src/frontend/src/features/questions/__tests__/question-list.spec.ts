@@ -27,6 +27,7 @@ const queryState = {
 
 vi.mock('@/features/notifications/queries/useNotificationsQuery', () => ({
   useNotificationsQuery: vi.fn(() => notificationQueryState),
+  useNotificationSummaryQuery: vi.fn(() => notificationQueryState),
 }))
 
 vi.mock('@/features/questions/queries/useQuestionListQuery', () => ({

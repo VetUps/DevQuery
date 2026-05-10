@@ -96,6 +96,7 @@ vi.mock('@/features/auth/queries/useCurrentUserQuery', () => ({
 
 vi.mock('@/features/notifications/queries/useNotificationsQuery', () => ({
   useNotificationsQuery: vi.fn(() => notificationsState),
+  useNotificationSummaryQuery: vi.fn(() => notificationsState),
 }))
 
 vi.mock('@/features/solutions/mutations/useCreateSolutionMutation', () => ({
