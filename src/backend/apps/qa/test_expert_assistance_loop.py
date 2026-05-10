@@ -11,7 +11,7 @@ from apps.qa.services.question_protection_service import QuestionProtectionServi
 from apps.user.models import CustomUser, ReputationPolicyConfig, ReputationTransaction
 
 
-class ExpertAssistanceLoopFinalAssemblyTests(APITestCase):
+class ExpertAssistanceLoopTests(APITestCase):
     def setUp(self):
         ReputationPolicyConfig.objects.create(protected_newcomer_window_hours=6)
         self.author = self.create_user('loop-author@example.com', 'LoopAuthor', 0)

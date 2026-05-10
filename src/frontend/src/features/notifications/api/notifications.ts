@@ -7,7 +7,15 @@ export interface PaginatedNotificationResponse<T = NotificationItem> {
   results: T[]
 }
 
+export type NotificationListStatus = 'all' | 'unread'
+
+export interface FetchNotificationsParams {
+  status?: NotificationListStatus
+  page?: number
+}
+
 export type NotificationPayload = Record<string, unknown>
+export type NotificationInvitationStatus = 'active' | 'expired' | 'protected_ended' | 'unavailable' | (string & {})
 
 export interface NotificationItem {
   notification_id: string
@@ -21,11 +29,21 @@ export interface NotificationItem {
   expires_at: string | null
   is_read: boolean
   is_expired: boolean
-  invitation_status: string | null
+  invitation_status: NotificationInvitationStatus | null
   protected_window_active: boolean
   protected_window_ended: boolean
   protected_until: string | null
   cta_url: string | null
+}
+
+export interface NotificationSummaryResponse {
+  unread_count: number
+  latest: NotificationItem[]
+}
+
+export interface MarkAllNotificationsReadResponse {
+  marked_count: number
+  unread_count: number
 }
 
 export class MalformedNotificationResponseError extends Error {
@@ -80,6 +98,14 @@ function parseNullableString(value: unknown, path: string): string | null {
 function parseBoolean(value: unknown, path: string): boolean {
   if (typeof value !== 'boolean') {
     throw new MalformedNotificationResponseError(`${path} must be a boolean`)
+  }
+
+  return value
+}
+
+function parseNumber(value: unknown, path: string): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw new MalformedNotificationResponseError(`${path} must be a number`)
   }
 
   return value
@@ -145,10 +171,7 @@ export function parseNotificationItem(value: unknown, path = 'notification'): No
 export function parseNotificationEnvelope(value: unknown): PaginatedNotificationResponse {
   assertRecord(value, 'envelope')
 
-  if (typeof value.count !== 'number') {
-    throw new MalformedNotificationResponseError('count must be a number')
-  }
-
+  const count = parseNumber(value.count, 'count')
   const next = parseNullableString(value.next, 'next')
   const previous = parseNullableString(value.previous, 'previous')
 
@@ -157,21 +180,74 @@ export function parseNotificationEnvelope(value: unknown): PaginatedNotification
   }
 
   return {
-    count: value.count,
+    count,
     next,
     previous,
     results: value.results.map((item, index) => parseNotificationItem(item, `results[${index}]`)),
   }
 }
 
-export async function fetchNotifications() {
-  const response = await http.get<unknown>('/notifications/')
+export function parseNotificationSummaryResponse(value: unknown): NotificationSummaryResponse {
+  assertRecord(value, 'summary')
+
+  const unreadCount = parseNumber(value.unread_count, 'summary.unread_count')
+
+  if (!Array.isArray(value.latest)) {
+    throw new MalformedNotificationResponseError('summary.latest must be an array')
+  }
+
+  return {
+    unread_count: unreadCount,
+    latest: value.latest.map((item, index) => parseNotificationItem(item, `summary.latest[${index}]`)),
+  }
+}
+
+export function parseMarkAllNotificationsReadResponse(value: unknown): MarkAllNotificationsReadResponse {
+  assertRecord(value, 'mark_all')
+
+  return {
+    marked_count: parseNumber(value.marked_count, 'mark_all.marked_count'),
+    unread_count: parseNumber(value.unread_count, 'mark_all.unread_count'),
+  }
+}
+
+function buildNotificationListQueryParams(params: FetchNotificationsParams) {
+  const queryParams: Record<string, NotificationListStatus | number> = {}
+
+  if (params.status && params.status !== 'all') {
+    queryParams.status = params.status
+  }
+
+  if (params.page !== undefined) {
+    queryParams.page = params.page
+  }
+
+  return queryParams
+}
+
+export async function fetchNotifications(params: FetchNotificationsParams = {}) {
+  const queryParams = buildNotificationListQueryParams(params)
+  const response = Object.keys(queryParams).length > 0
+    ? await http.get<unknown>('/notifications/', { params: queryParams })
+    : await http.get<unknown>('/notifications/')
 
   return parseNotificationEnvelope(response.data)
+}
+
+export async function fetchNotificationSummary() {
+  const response = await http.get<unknown>('/notifications/summary/')
+
+  return parseNotificationSummaryResponse(response.data)
 }
 
 export async function markNotificationRead(notificationId: string) {
   const response = await http.patch<unknown>(`/notifications/${notificationId}/read/`)
 
   return parseNotificationItem(response.data, 'notification')
+}
+
+export async function markAllNotificationsRead() {
+  const response = await http.patch<unknown>('/notifications/read-all/')
+
+  return parseMarkAllNotificationsReadResponse(response.data)
 }

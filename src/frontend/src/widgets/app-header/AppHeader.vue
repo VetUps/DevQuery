@@ -6,6 +6,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { canAccessAdminWorkspace as canProfileAccessAdminWorkspace } from '@/features/admin/libs/admin-access'
 import { useCurrentUserQuery } from '@/features/auth/queries/useCurrentUserQuery'
 import { useSessionStore } from '@/features/auth/stores/session'
+import HeaderNotificationMenu from '@/features/notifications/components/HeaderNotificationMenu.vue'
 import AppButton from '@/shared/ui/AppButton.vue'
 
 import AccountMenu from './AccountMenu.vue'
@@ -15,7 +16,8 @@ const router = useRouter()
 const sessionStore = useSessionStore()
 const { isAuthenticated } = storeToRefs(sessionStore)
 
-const isMenuOpen = ref(false)
+const isAccountMenuOpen = ref(false)
+const isNotificationMenuOpen = ref(false)
 
 const isSignedIn = computed(() => isAuthenticated.value)
 const askQuestionTarget = computed(() => (isSignedIn.value ? '/questions/ask' : '/register'))
@@ -35,13 +37,31 @@ try {
 watch(
   () => route.fullPath,
   () => {
-    isMenuOpen.value = false
+    isAccountMenuOpen.value = false
+    isNotificationMenuOpen.value = false
   },
 )
 
+function handleAccountMenuToggle() {
+  isAccountMenuOpen.value = !isAccountMenuOpen.value
+
+  if (isAccountMenuOpen.value) {
+    isNotificationMenuOpen.value = false
+  }
+}
+
+function handleNotificationMenuOpenChange(open: boolean) {
+  isNotificationMenuOpen.value = open
+
+  if (open) {
+    isAccountMenuOpen.value = false
+  }
+}
+
 async function handleLogout() {
   await sessionStore.logout()
-  isMenuOpen.value = false
+  isAccountMenuOpen.value = false
+  isNotificationMenuOpen.value = false
   await router.push('/')
 }
 </script>
@@ -63,11 +83,16 @@ async function handleLogout() {
             Главная
           </RouterLink>
 
+          <HeaderNotificationMenu
+            :open="isNotificationMenuOpen"
+            @update:open="handleNotificationMenuOpenChange"
+          />
+
           <AccountMenu
             :can-access-admin-workspace="hasAdminWorkspaceAccess"
             :label="accountLabel"
-            :open="isMenuOpen"
-            @close="isMenuOpen = !isMenuOpen"
+            :open="isAccountMenuOpen"
+            @close="handleAccountMenuToggle"
             @logout="handleLogout"
           />
         </template>
