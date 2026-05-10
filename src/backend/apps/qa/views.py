@@ -8,6 +8,8 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from drf_spectacular.utils import extend_schema, OpenApiParameter
 
+from apps.knowledge.services import sync_posted_solution_activity
+
 from .models import Question, Solution, SolutionEdits, Comment, Tag, QuestionEditProposal
 from .serializers import (
     QuestionGetSerializer, QuestionListSerializer, QuestionUpdateCreateSerializer,
@@ -542,7 +544,7 @@ class SolutionViewSet(mixins.ListModelMixin,
 
     def get_queryset(self):
         base_queryset = Solution.objects.select_related('user', 'question')
-        
+
         if self.action == 'list':
             queryset = base_queryset.filter(question__question_id=self.request.query_params.get('question_id'))
             user = self.request.user
@@ -570,7 +572,8 @@ class SolutionViewSet(mixins.ListModelMixin,
         return [permission() for permission in permission_classes]
 
     def perform_create(self, serializer):
-        serializer.save(user=self.request.user)
+        solution = serializer.save(user=self.request.user)
+        sync_posted_solution_activity(solution)
 
     @extend_schema(
         request=SolutionCreateSerializer,

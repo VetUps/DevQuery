@@ -2,6 +2,7 @@ from django.db import transaction
 from django.utils import timezone
 from rest_framework.exceptions import NotFound, PermissionDenied
 
+from apps.knowledge.services import sync_reputation_transaction_activity
 from apps.user.models import ReputationTransaction
 from apps.user.services.reputation_service import ReputationService
 
@@ -77,7 +78,7 @@ class SolutionService:
         question.save(update_fields=['question_status', 'question_updated_at'])
 
         if solution_is_best and not was_best:
-            ReputationService.record_transaction(
+            transaction_row = ReputationService.record_transaction(
                 user=solution.user,
                 amount=BEST_SOLUTION_REPUTATION_AWARD,
                 reason=ReputationTransaction.TransactionReason.BEST_SOLUTION,
@@ -85,5 +86,6 @@ class SolutionService:
                 source=solution,
                 note='Награда за выбранное лучшее решение.',
             )
+            sync_reputation_transaction_activity(transaction_row, phase='best_solution')
 
         return solution
