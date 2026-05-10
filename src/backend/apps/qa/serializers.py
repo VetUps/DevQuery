@@ -6,6 +6,7 @@ from django.db.models import TextChoices
 from rest_framework import serializers
 from rest_framework.exceptions import PermissionDenied
 
+from apps.knowledge.services import sync_question_graph
 from apps.user.models import CustomUser
 from .models import (
     Question,
@@ -354,6 +355,7 @@ class QuestionUpdateCreateSerializer(serializers.ModelSerializer):
         with transaction.atomic():
             question = super().create(validated_data)
             QuestionTagService.attach_tags_to_question(question, tag_names)
+            sync_question_graph(question)
 
         return question
 
