@@ -10,6 +10,7 @@ from rest_framework.test import APITestCase
 from apps.notifications.models import Notification
 from apps.notifications.services import NotificationNotFound, NotificationService
 from apps.qa.models import Question
+from apps.qa.services.question_expert_invitation_service import QuestionExpertInvitationService
 from apps.user.models import CustomUser, ReputationPolicyConfig
 
 
@@ -320,6 +321,39 @@ class NotificationApiTests(APITestCase):
         for payload in response.data['latest']:
             self.assert_notification_contract(payload)
 
+    def assert_invitation_state(
+        self,
+        payload,
+        *,
+        notification,
+        invitation_status,
+        is_expired,
+        protected_window_active,
+        protected_window_ended,
+        protected_until,
+        cta_url,
+    ):
+        self.assert_notification_contract(payload)
+        self.assertEqual(payload['notification_id'], str(notification.notification_id))
+        self.assertEqual(payload['invitation_status'], invitation_status)
+        self.assertIsInstance(payload['invitation_status'], str)
+        self.assertEqual(payload['is_expired'], is_expired)
+        self.assertIsInstance(payload['is_expired'], bool)
+        self.assertEqual(payload['protected_window_active'], protected_window_active)
+        self.assertIsInstance(payload['protected_window_active'], bool)
+        self.assertEqual(payload['protected_window_ended'], protected_window_ended)
+        self.assertIsInstance(payload['protected_window_ended'], bool)
+        self.assertEqual(payload['protected_until'], protected_until)
+        if protected_until is None:
+            self.assertIsNone(payload['protected_until'])
+        else:
+            self.assertIsInstance(payload['protected_until'], str)
+        self.assertEqual(payload['cta_url'], cta_url)
+        if cta_url is None:
+            self.assertIsNone(payload['cta_url'])
+        else:
+            self.assertIsInstance(payload['cta_url'], str)
+
     def create_notification(
         self,
         *,
@@ -473,6 +507,121 @@ class NotificationApiTests(APITestCase):
         self.assertFalse(payload['protected_window_ended'])
         self.assertIsNone(payload['protected_until'])
         self.assertIsNone(payload['cta_url'])
+
+    def test_list_and_summary_derive_all_invitation_states_from_server_fields(self):
+        now = timezone.now()
+        active_question = self.create_question(created_at=now - timedelta(hours=1))
+        expired_question = self.create_question(created_at=now - timedelta(hours=1))
+        protection_ended_question = self.create_question(created_at=now - timedelta(hours=7))
+        active = self.create_notification(
+            title='Active invitation',
+            source_question_marker=active_question,
+            payload_marker={
+                'question_id': str(active_question.pk),
+                'invitation_status': 'expired',
+                'protected_window_active': False,
+                'protected_window_ended': True,
+                'cta_url': '/questions/forged-active',
+            },
+            expires_at=now + timedelta(hours=5),
+        )
+        expired = self.create_notification(
+            title='Expired invitation',
+            source_question_marker=expired_question,
+            payload_marker={
+                'question_id': str(expired_question.pk),
+                'invitation_status': 'active',
+                'protected_window_active': True,
+                'cta_url': '/questions/forged-expired',
+            },
+            expires_at=now - timedelta(minutes=1),
+        )
+        protection_ended = self.create_notification(
+            title='Protection ended invitation',
+            source_question_marker=protection_ended_question,
+            payload_marker={
+                'question_id': str(protection_ended_question.pk),
+                'invitation_status': 'active',
+                'protected_window_active': True,
+                'protected_window_ended': False,
+                'cta_url': '/questions/forged-ended',
+            },
+            expires_at=now + timedelta(hours=5),
+        )
+        unavailable = self.create_notification(
+            title='Unavailable invitation',
+            source_question_marker=None,
+            payload_marker={
+                'question_id': str(uuid.uuid4()),
+                'invitation_status': 'active',
+                'protected_window_active': True,
+                'protected_window_ended': False,
+                'cta_url': '/questions/forged-unavailable',
+            },
+            expires_at=now + timedelta(hours=5),
+        )
+        for index, notification in enumerate([active, expired, protection_ended, unavailable]):
+            Notification.objects.filter(pk=notification.pk).update(created_at=now - timedelta(minutes=index))
+        self.client.force_authenticate(user=self.recipient)
+
+        list_response = self.client.get('/notifications/')
+        summary_response = self.client.get('/notifications/summary/')
+
+        self.assertEqual(list_response.status_code, 200, list_response.data)
+        self.assert_paginated_list_contract(list_response)
+        self.assertEqual(list_response.data['count'], 4)
+        self.assertEqual(summary_response.status_code, 200, summary_response.data)
+        self.assert_summary_contract(summary_response)
+        self.assertEqual(summary_response.data['unread_count'], 4)
+        self.assertEqual(len(summary_response.data['latest']), 4)
+        expected_by_title = {
+            'Active invitation': {
+                'notification': active,
+                'invitation_status': 'active',
+                'is_expired': False,
+                'protected_window_active': True,
+                'protected_window_ended': False,
+                'protected_until': (active_question.question_created_at + timedelta(hours=6)).isoformat(),
+                'cta_url': f'/questions/{active_question.pk}',
+            },
+            'Expired invitation': {
+                'notification': expired,
+                'invitation_status': 'expired',
+                'is_expired': True,
+                'protected_window_active': True,
+                'protected_window_ended': False,
+                'protected_until': (expired_question.question_created_at + timedelta(hours=6)).isoformat(),
+                'cta_url': f'/questions/{expired_question.pk}',
+            },
+            'Protection ended invitation': {
+                'notification': protection_ended,
+                'invitation_status': 'protected_ended',
+                'is_expired': False,
+                'protected_window_active': False,
+                'protected_window_ended': True,
+                'protected_until': (protection_ended_question.question_created_at + timedelta(hours=6)).isoformat(),
+                'cta_url': f'/questions/{protection_ended_question.pk}',
+            },
+            'Unavailable invitation': {
+                'notification': unavailable,
+                'invitation_status': 'unavailable',
+                'is_expired': False,
+                'protected_window_active': False,
+                'protected_window_ended': False,
+                'protected_until': None,
+                'cta_url': None,
+            },
+        }
+        for response_payloads in [self.notification_payloads(list_response), summary_response.data['latest']]:
+            payloads_by_title = {payload['title']: payload for payload in response_payloads}
+            self.assertEqual(set(payloads_by_title), set(expected_by_title))
+            for title, expected in expected_by_title.items():
+                self.assert_invitation_state(payloads_by_title[title], **expected)
+        list_payloads_by_title = {payload['title']: payload for payload in self.notification_payloads(list_response)}
+        self.assertEqual(list_payloads_by_title['Active invitation']['payload']['cta_url'], '/questions/forged-active')
+        self.assertEqual(list_payloads_by_title['Active invitation']['invitation_status'], 'active')
+        self.assertEqual(list_payloads_by_title['Unavailable invitation']['payload']['cta_url'], '/questions/forged-unavailable')
+        self.assertIsNone(list_payloads_by_title['Unavailable invitation']['cta_url'])
 
     def test_unauthenticated_summary_returns_401(self):
         response = self.client.get('/notifications/summary/')
@@ -719,6 +868,91 @@ class NotificationApiTests(APITestCase):
             {payload['notification_id'] for payload in summary_response.data['latest']},
             {str(unread_one.notification_id), str(unread_two.notification_id), str(read_one.notification_id)},
         )
+
+    def test_invitation_creation_current_recipient_summary_list_and_read_lifecycle_final_assembly(self):
+        author = CustomUser.objects.create_user(
+            user_email='assembly-author@example.com',
+            user_name='assembly_author',
+            password='password123',
+        )
+        expert = CustomUser.objects.create_user(
+            user_email='assembly-expert@example.com',
+            user_name='assembly_expert',
+            password='password123',
+            user_reputation_score=150,
+        )
+        other_expert = CustomUser.objects.create_user(
+            user_email='assembly-other-expert@example.com',
+            user_name='assembly_other_expert',
+            password='password123',
+            user_reputation_score=200,
+        )
+        question = self.create_question(author=author, created_at=timezone.now() - timedelta(hours=1))
+        creation = QuestionExpertInvitationService.create_invitations(
+            question=question,
+            requester=author,
+            recipient_ids=[expert.pk, other_expert.pk],
+        )
+        notification = Notification.objects.get(source_question=question, recipient=expert)
+        other_notification = Notification.objects.get(source_question=question, recipient=other_expert)
+
+        unauthenticated_summary = self.client.get('/notifications/summary/')
+        unauthenticated_read = self.client.patch(f'/notifications/{notification.notification_id}/read/', {}, format='json')
+        self.client.force_authenticate(user=other_expert)
+        foreign_list = self.client.get('/notifications/')
+        foreign_summary = self.client.get('/notifications/summary/')
+        foreign_read = self.client.patch(f'/notifications/{notification.notification_id}/read/', {}, format='json')
+        other_notification.refresh_from_db()
+        notification.refresh_from_db()
+        self.client.force_authenticate(user=expert)
+        unread_list = self.client.get('/notifications/', {'status': 'unread'})
+        summary_before = self.client.get('/notifications/summary/')
+        read_response = self.client.patch(f'/notifications/{notification.notification_id}/read/', {}, format='json')
+        summary_after = self.client.get('/notifications/summary/')
+        read_all_response = self.client.patch(
+            '/notifications/read-all/',
+            {'recipient': str(other_expert.pk)},
+            format='json',
+        )
+
+        self.assertEqual(creation.slot_state['used'], 2)
+        self.assertEqual(len(creation.invitations), 2)
+        self.assertEqual(unauthenticated_summary.status_code, 401, unauthenticated_summary.data)
+        self.assertEqual(unauthenticated_read.status_code, 401, unauthenticated_read.data)
+        self.assertEqual(foreign_list.status_code, 200, foreign_list.data)
+        self.assertEqual(foreign_list.data['count'], 1)
+        self.assertEqual(foreign_list.data['results'][0]['notification_id'], str(other_notification.notification_id))
+        self.assertEqual(foreign_summary.status_code, 200, foreign_summary.data)
+        self.assertEqual(foreign_summary.data['unread_count'], 1)
+        self.assertEqual(foreign_read.status_code, 404, foreign_read.data)
+        self.assertIsNone(notification.read_at)
+        self.assertIsNone(other_notification.read_at)
+
+        self.assertEqual(unread_list.status_code, 200, unread_list.data)
+        self.assertEqual(unread_list.data['count'], 1)
+        unread_payload = unread_list.data['results'][0]
+        self.assertEqual(unread_payload['notification_id'], str(notification.notification_id))
+        self.assertEqual(unread_payload['payload']['recipient_id'], str(expert.pk))
+        self.assertEqual(unread_payload['source_question_id'], str(question.pk))
+        self.assertEqual(unread_payload['invitation_status'], 'active')
+        self.assertTrue(unread_payload['protected_window_active'])
+        self.assertFalse(unread_payload['protected_window_ended'])
+        self.assertEqual(unread_payload['cta_url'], f'/questions/{question.pk}')
+        self.assert_notification_contract(unread_payload)
+        self.assertNotIn('user_email', unread_payload['payload'])
+        self.assertNotIn('recipient_email', unread_payload['payload'])
+
+        self.assertEqual(summary_before.status_code, 200, summary_before.data)
+        self.assertEqual(summary_before.data['unread_count'], 1)
+        self.assertEqual(summary_before.data['latest'][0]['notification_id'], str(notification.notification_id))
+        self.assertEqual(read_response.status_code, 200, read_response.data)
+        self.assertTrue(read_response.data['is_read'])
+        self.assertEqual(summary_after.status_code, 200, summary_after.data)
+        self.assertEqual(summary_after.data['unread_count'], 0)
+        self.assertEqual(read_all_response.status_code, 200, read_all_response.data)
+        self.assertEqual(read_all_response.data, {'marked_count': 0, 'unread_count': 0})
+        other_notification.refresh_from_db()
+        self.assertIsNone(other_notification.read_at)
 
     def test_openapi_documents_notification_paths(self):
         schema = SchemaGenerator().get_schema(request=None, public=True)

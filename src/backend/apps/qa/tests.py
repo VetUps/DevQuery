@@ -1925,6 +1925,62 @@ class ProtectedQuestionAnswerApiTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
         self.assertTrue(Solution.objects.filter(user=self.participant, question=self.question).exists())
 
+    def test_notification_statuses_remain_informational_under_answer_policy_authority(self):
+        active_invitation = self._create_manual_invitation(
+            recipient=self.participant,
+            expires_at=timezone.now() + timedelta(hours=1),
+        )
+        active_response = self._create_solution(self.participant)
+
+        Notification.objects.filter(pk=active_invitation.pk).update(
+            expires_at=timezone.now() + timedelta(hours=1),
+            payload={
+                'question_id': str(self.question.pk),
+                'recipient_id': str(self.participant.pk),
+                'viewer_level': CustomUser.ReputationLevel.EXPERT,
+                'viewer_can_answer': True,
+                'invitation_status': 'active',
+                'protected_window_ended': False,
+            },
+        )
+        forged_response = self._create_solution(self.participant)
+
+        Notification.objects.filter(pk=active_invitation.pk).update(
+            expires_at=timezone.now() - timedelta(minutes=1),
+            payload={
+                'question_id': str(self.question.pk),
+                'recipient_id': str(self.participant.pk),
+                'viewer_level': CustomUser.ReputationLevel.EXPERT,
+                'viewer_can_answer': True,
+                'invitation_status': 'expired',
+            },
+        )
+        expired_response = self._create_solution(self.participant)
+
+        self.assert_protected_answer_rejected(active_response, self.participant)
+        self.assert_protected_answer_rejected(forged_response, self.participant)
+        self.assert_protected_answer_rejected(expired_response, self.participant)
+
+        Notification.objects.filter(pk=active_invitation.pk).update(
+            expires_at=timezone.now() + timedelta(hours=1),
+            payload={
+                'question_id': str(self.question.pk),
+                'recipient_id': str(self.participant.pk),
+                'viewer_can_answer': False,
+                'invitation_status': 'active',
+                'protected_window_ended': True,
+            },
+        )
+        Question.objects.filter(pk=self.question.pk).update(
+            question_created_at=timezone.now() - timedelta(hours=13)
+        )
+        self.question.refresh_from_db()
+        protected_window_ended_response = self._create_solution(self.participant)
+
+        self.assertEqual(protected_window_ended_response.status_code, status.HTTP_201_CREATED, protected_window_ended_response.data)
+        self.assertTrue(Solution.objects.filter(user=self.participant, question=self.question).exists())
+        self.assertTrue(QuestionProtectionService.get_answer_eligibility(self.question, self.participant).allowed)
+
     def test_expert_can_answer_protected_newcomer_question_during_window(self):
         response = self._create_solution(self.expert)
 
