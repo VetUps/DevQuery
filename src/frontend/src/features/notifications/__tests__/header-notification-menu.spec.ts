@@ -200,6 +200,65 @@ describe('HeaderNotificationMenu', () => {
     expect(wrapper.get('[data-testid="header-notification-latest"]').text()).toContain('08.05.2026')
   })
 
+  it('renders compact honest invitation states and help copy in preview rows', async () => {
+    setQueryState({
+      data: {
+        value: buildSummary({
+          unread_count: 4,
+          latest: [
+            buildNotification({
+              notification_id: '11111111-1111-4111-8111-111111111111',
+              invitation_status: 'active',
+              is_expired: false,
+              protected_window_active: true,
+              protected_window_ended: false,
+            }),
+            buildNotification({
+              notification_id: '33333333-3333-4333-8333-333333333333',
+              invitation_status: 'expired',
+              is_expired: true,
+              protected_window_active: false,
+              protected_window_ended: false,
+            }),
+            buildNotification({
+              notification_id: '44444444-4444-4444-8444-444444444444',
+              invitation_status: 'protected_ended',
+              is_expired: false,
+              protected_window_active: false,
+              protected_window_ended: true,
+            }),
+            buildNotification({
+              notification_id: '55555555-5555-4555-8555-555555555555',
+              invitation_status: 'revoked',
+              is_expired: false,
+              protected_window_active: false,
+              protected_window_ended: false,
+              cta_url: null,
+            }),
+          ],
+        }),
+      },
+    })
+
+    const { wrapper } = await mountMenu()
+    await openMenu(wrapper)
+
+    const statuses = wrapper.findAll('[data-testid="header-invitation-status"]')
+    expect(statuses.map((status) => status.text())).toEqual([
+      'Приглашение активно',
+      'Приглашение истекло',
+      'Окно защиты завершено',
+      'Приглашение недоступно',
+    ])
+
+    const helpCopy = wrapper.findAll('[data-testid="header-invitation-help"]').map((help) => help.text())
+    expect(helpCopy[0]).toContain('Защищённое окно активно до')
+    expect(helpCopy[1]).toContain('Срок приглашения истёк')
+    expect(helpCopy[2]).toContain('Защищённое окно завершено')
+    expect(helpCopy[3]).toContain('Контекст приглашения недоступен')
+    expect(wrapper.find('[data-testid="notification-cta"]').exists()).toBe(false)
+  })
+
   it('uses the fixed profile notifications link and closes when it is clicked', async () => {
     setQueryState({ data: { value: buildSummary() } })
 

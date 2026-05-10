@@ -3,6 +3,7 @@ import { computed, shallowRef } from 'vue'
 import { RouterLink } from 'vue-router'
 
 import type { NotificationItem } from '@/features/notifications/api/notifications'
+import { getInvitationPresentation, type InvitationPresentation } from '@/features/notifications/libs/invitationPresentation'
 import { useNotificationSummaryQuery } from '@/features/notifications/queries/useNotificationsQuery'
 import { formatDateTime } from '@/shared/libs/formatting'
 import AppButton from '@/shared/ui/AppButton.vue'
@@ -39,6 +40,10 @@ const summaryQuery = useNotificationSummaryQuery()
 
 const summary = computed(() => summaryQuery.data.value)
 const latestNotifications = computed(() => summary.value?.latest ?? [])
+const latestNotificationRows = computed(() => latestNotifications.value.map((notification) => ({
+  notification,
+  invitationPresentation: getInvitationPresentationFor(notification),
+})))
 const hasCachedLatest = computed(() => latestNotifications.value.length > 0)
 const unreadCount = computed(() => Math.max(0, summary.value?.unread_count ?? 0))
 const badgeText = computed(() => (unreadCount.value > 99 ? '99+' : String(unreadCount.value)))
@@ -60,6 +65,14 @@ function closeMenu() {
 
 function notificationReadState(notification: NotificationItem) {
   return notification.is_read ? 'Просмотрено' : 'Новое'
+}
+
+function getInvitationPresentationFor(notification: NotificationItem): InvitationPresentation | null {
+  if (notification.notification_type !== 'expert_invitation') {
+    return null
+  }
+
+  return getInvitationPresentation(notification)
 }
 </script>
 
@@ -140,19 +153,31 @@ function notificationReadState(notification: NotificationItem) {
 
         <ul v-if="hasCachedLatest" class="header-notification-menu__list" aria-label="Последние уведомления">
           <li
-            v-for="notification in latestNotifications"
-            :key="notification.notification_id"
+            v-for="row in latestNotificationRows"
+            :key="row.notification.notification_id"
             class="header-notification-menu__item"
-            :class="{ 'header-notification-menu__item--unread': !notification.is_read }"
+            :class="{ 'header-notification-menu__item--unread': !row.notification.is_read }"
             data-testid="header-notification-row"
           >
             <span class="header-notification-menu__item-state" data-testid="header-notification-row-state">
-              {{ notificationReadState(notification) }}
+              {{ notificationReadState(row.notification) }}
             </span>
-            <h3 class="header-notification-menu__item-title">{{ notification.title }}</h3>
-            <p class="header-notification-menu__item-message">{{ notification.message }}</p>
-            <time class="header-notification-menu__item-time" :datetime="notification.created_at">
-              {{ formatDateTime(notification.created_at) }}
+            <h3 class="header-notification-menu__item-title">{{ row.notification.title }}</h3>
+            <p class="header-notification-menu__item-message">{{ row.notification.message }}</p>
+            <div
+              v-if="row.invitationPresentation"
+              class="header-notification-menu__invitation"
+              data-testid="header-invitation-state"
+            >
+              <span class="header-notification-menu__invitation-status" data-testid="header-invitation-status">
+                {{ row.invitationPresentation.label }}
+              </span>
+              <p class="header-notification-menu__invitation-help" data-testid="header-invitation-help">
+                {{ row.invitationPresentation.helpText }}
+              </p>
+            </div>
+            <time class="header-notification-menu__item-time" :datetime="row.notification.created_at">
+              {{ formatDateTime(row.notification.created_at) }}
             </time>
           </li>
         </ul>
@@ -247,6 +272,7 @@ function notificationReadState(notification: NotificationItem) {
 .header-notification-menu__stale-error,
 .header-notification-menu__item-title,
 .header-notification-menu__item-message,
+.header-notification-menu__invitation-help,
 .header-notification-menu__item-time {
   margin: 0;
 }
@@ -320,7 +346,8 @@ function notificationReadState(notification: NotificationItem) {
   background: rgb(14 116 144 / 0.08);
 }
 
-.header-notification-menu__item-state {
+.header-notification-menu__item-state,
+.header-notification-menu__invitation-status {
   justify-self: start;
   padding: 3px 8px;
   border-radius: 999px;
@@ -335,7 +362,18 @@ function notificationReadState(notification: NotificationItem) {
   line-height: 1.25;
 }
 
+.header-notification-menu__invitation {
+  display: grid;
+  gap: 4px;
+}
+
+.header-notification-menu__invitation-status {
+  background: rgb(14 116 144 / 0.1);
+  color: var(--color-accent);
+}
+
 .header-notification-menu__item-message,
+.header-notification-menu__invitation-help,
 .header-notification-menu__item-time {
   color: var(--color-muted);
   font-size: 13px;
