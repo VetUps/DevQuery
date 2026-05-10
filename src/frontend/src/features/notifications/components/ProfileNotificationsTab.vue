@@ -3,22 +3,26 @@ import { computed, shallowRef } from 'vue'
 import { RouterLink } from 'vue-router'
 
 import type { NotificationItem, NotificationListStatus, NotificationPayload } from '@/features/notifications/api/notifications'
+import { getInvitationPresentation, type InvitationPresentation } from '@/features/notifications/libs/invitationPresentation'
 import {
   useMarkAllNotificationsReadMutation,
   useMarkNotificationReadMutation,
 } from '@/features/notifications/mutations/useMarkNotificationReadMutation'
 import { useProfileNotificationsQuery } from '@/features/notifications/queries/useNotificationsQuery'
-import { formatDateTime } from '@/shared/libs/formatting'
 import AppButton from '@/shared/ui/AppButton.vue'
 import InlineFeedbackPanel from '@/shared/ui/InlineFeedbackPanel.vue'
 import SurfacePanel from '@/shared/ui/SurfacePanel.vue'
-
-type InvitationViewState = 'active' | 'expired' | 'protected-ended' | 'unavailable'
 
 interface QuestionContext {
   title: string
   authorName: string | null
   tags: string[]
+}
+
+interface NotificationCardView {
+  notification: NotificationItem
+  questionContext: QuestionContext | null
+  invitationPresentation: InvitationPresentation
 }
 
 const selectedStatus = shallowRef<NotificationListStatus>('all')
@@ -30,6 +34,11 @@ const markAllError = shallowRef<string | null>(null)
 const pendingNotificationId = shallowRef<string | null>(null)
 
 const notifications = computed(() => notificationsQuery.notifications.value)
+const notificationCards = computed<NotificationCardView[]>(() => notifications.value.map((notification) => ({
+  notification,
+  questionContext: getQuestionContext(notification),
+  invitationPresentation: getInvitationPresentation(notification),
+})))
 const unreadLoadedNotifications = computed(() => notifications.value.filter((notification) => !notification.is_read))
 const hasExistingNotifications = computed(() => notificationsQuery.hasLoadedNotifications.value)
 const showLoading = computed(() => notificationsQuery.isInitialLoading.value)
@@ -81,57 +90,6 @@ function getQuestionContext(notification: NotificationItem): QuestionContext | n
     authorName: readString(notification.payload, 'author_name'),
     tags: readTags(notification.payload),
   }
-}
-
-function getInvitationViewState(notification: NotificationItem): InvitationViewState {
-  if (notification.is_expired || notification.invitation_status === 'expired') {
-    return 'expired'
-  }
-
-  if (notification.protected_window_ended || notification.invitation_status === 'protected_ended') {
-    return 'protected-ended'
-  }
-
-  if (notification.invitation_status === 'active') {
-    return 'active'
-  }
-
-  return 'unavailable'
-}
-
-function getInvitationBadge(notification: NotificationItem) {
-  const state = getInvitationViewState(notification)
-
-  const copy: Record<InvitationViewState, string> = {
-    active: 'Приглашение активно',
-    expired: 'Приглашение истекло',
-    'protected-ended': 'Окно защиты завершено',
-    unavailable: 'Приглашение недоступно',
-  }
-
-  return copy[state]
-}
-
-function getInvitationHelp(notification: NotificationItem) {
-  const state = getInvitationViewState(notification)
-
-  if (state === 'active') {
-    if (notification.protected_window_active && notification.protected_until) {
-      return `Защищённое окно активно до ${formatDateTime(notification.protected_until)}. Перейдите к вопросу и помогите автору.`
-    }
-
-    return 'Приглашение активно. Перейдите к вопросу и помогите автору.'
-  }
-
-  if (state === 'expired') {
-    return 'Срок приглашения истёк. Ответить по этому приглашению уже нельзя.'
-  }
-
-  if (state === 'protected-ended') {
-    return 'Защищённое окно завершено. Вопрос может быть открыт для более широкого круга участников.'
-  }
-
-  return 'Контекст приглашения недоступен или больше не позволяет перейти к экспертному ответу.'
 }
 
 function isMarkReadPending(notification: NotificationItem) {
@@ -266,42 +224,42 @@ async function loadMoreNotifications() {
       </p>
 
       <SurfacePanel
-        v-for="notification in notifications"
-        :key="notification.notification_id"
+        v-for="card in notificationCards"
+        :key="card.notification.notification_id"
         class="notification-card"
         :class="{
-          'notification-card--unread': !notification.is_read,
-          'notification-card--read': notification.is_read,
+          'notification-card--unread': !card.notification.is_read,
+          'notification-card--read': card.notification.is_read,
         }"
         padding="lg"
         data-testid="notification-card"
       >
         <div class="notification-card__topline">
-          <span class="notification-card__read-state" :data-testid="notification.is_read ? 'read-badge' : 'unread-badge'">
-            {{ notification.is_read ? 'Прочитано' : 'Новое' }}
+          <span class="notification-card__read-state" :data-testid="card.notification.is_read ? 'read-badge' : 'unread-badge'">
+            {{ card.notification.is_read ? 'Прочитано' : 'Новое' }}
           </span>
           <span class="notification-card__status" data-testid="invitation-status-badge">
-            {{ getInvitationBadge(notification) }}
+            {{ card.invitationPresentation.label }}
           </span>
         </div>
 
         <div class="notification-card__body">
           <div class="notification-card__copy">
-            <h3 class="notification-card__title">{{ notification.title }}</h3>
-            <p class="notification-card__message">{{ notification.message }}</p>
+            <h3 class="notification-card__title">{{ card.notification.title }}</h3>
+            <p class="notification-card__message">{{ card.notification.message }}</p>
             <p class="notification-card__help" data-testid="invitation-help">
-              {{ getInvitationHelp(notification) }}
+              {{ card.invitationPresentation.helpText }}
             </p>
           </div>
 
-          <div v-if="getQuestionContext(notification)" class="notification-card__question" data-testid="question-context">
+          <div v-if="card.questionContext" class="notification-card__question" data-testid="question-context">
             <p class="notification-card__question-label">Вопрос</p>
-            <p class="notification-card__question-title">{{ getQuestionContext(notification)?.title }}</p>
-            <p v-if="getQuestionContext(notification)?.authorName" class="notification-card__question-author">
-              Автор: {{ getQuestionContext(notification)?.authorName }}
+            <p class="notification-card__question-title">{{ card.questionContext.title }}</p>
+            <p v-if="card.questionContext.authorName" class="notification-card__question-author">
+              Автор: {{ card.questionContext.authorName }}
             </p>
-            <ul v-if="getQuestionContext(notification)?.tags.length" class="notification-card__tags" aria-label="Теги вопроса">
-              <li v-for="tag in getQuestionContext(notification)?.tags" :key="tag" class="notification-card__tag">
+            <ul v-if="card.questionContext.tags.length" class="notification-card__tags" aria-label="Теги вопроса">
+              <li v-for="tag in card.questionContext.tags" :key="tag" class="notification-card__tag">
                 {{ tag }}
               </li>
             </ul>
@@ -313,26 +271,26 @@ async function loadMoreNotifications() {
 
         <div class="notification-card__actions">
           <RouterLink
-            v-if="notification.cta_url"
+            v-if="card.invitationPresentation.canRenderCta && card.invitationPresentation.ctaUrl"
             class="notification-card__cta"
             data-testid="notification-cta"
-            :to="notification.cta_url"
+            :to="card.invitationPresentation.ctaUrl"
           >
-            Перейти к вопросу
+            {{ card.invitationPresentation.ctaLabel }}
           </RouterLink>
           <span v-else class="notification-card__cta-unavailable" data-testid="notification-cta-unavailable">
-            Переход к вопросу недоступен
+            {{ card.invitationPresentation.unavailableCtaLabel }}
           </span>
 
           <AppButton
-            v-if="!notification.is_read"
+            v-if="!card.notification.is_read"
             variant="secondary"
             size="compact"
-            :disabled="isMarkReadPending(notification)"
+            :disabled="isMarkReadPending(card.notification)"
             data-testid="mark-read-button"
-            @click="markAsRead(notification)"
+            @click="markAsRead(card.notification)"
           >
-            {{ isMarkReadPending(notification) ? 'Отмечаем…' : 'Отметить прочитанным' }}
+            {{ isMarkReadPending(card.notification) ? 'Отмечаем…' : 'Отметить прочитанным' }}
           </AppButton>
         </div>
       </SurfacePanel>

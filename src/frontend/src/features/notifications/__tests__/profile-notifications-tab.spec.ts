@@ -254,7 +254,7 @@ describe('ProfileNotificationsTab', () => {
     expect(wrapper.get<HTMLButtonElement>('[data-testid="mark-all-read-button"]').element.disabled).toBe(true)
   })
 
-  it('renders expired invitation copy even when the card is still unread', async () => {
+  it('renders expired invitation copy even when the card is still unread and suppresses the question CTA', async () => {
     setQueryState({
       pages: [buildEnvelope([
         buildNotification({ invitation_status: 'expired', is_expired: true, protected_window_active: false }),
@@ -265,10 +265,12 @@ describe('ProfileNotificationsTab', () => {
 
     expect(wrapper.get('[data-testid="invitation-status-badge"]').text()).toContain('Приглашение истекло')
     expect(wrapper.get('[data-testid="invitation-help"]').text()).toContain('Срок приглашения истёк')
+    expect(wrapper.get('[data-testid="notification-cta-unavailable"]').text()).toContain('Переход к вопросу недоступен')
+    expect(wrapper.find('[data-testid="notification-cta"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="mark-read-button"]').exists()).toBe(true)
   })
 
-  it('renders protected-window-ended copy separately from expiration', async () => {
+  it('renders protected-window-ended copy separately from expiration and suppresses the question CTA', async () => {
     setQueryState({
       pages: [buildEnvelope([
         buildNotification({
@@ -284,6 +286,8 @@ describe('ProfileNotificationsTab', () => {
 
     expect(wrapper.get('[data-testid="invitation-status-badge"]').text()).toContain('Окно защиты завершено')
     expect(wrapper.get('[data-testid="invitation-help"]').text()).toContain('Защищённое окно завершено')
+    expect(wrapper.get('[data-testid="notification-cta-unavailable"]').text()).toContain('Переход к вопросу недоступен')
+    expect(wrapper.find('[data-testid="notification-cta"]').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('Срок приглашения истёк')
   })
 
