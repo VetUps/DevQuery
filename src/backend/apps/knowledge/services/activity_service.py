@@ -2,14 +2,19 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import Iterable
+from typing import Callable, Iterable
 
 from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
 from django.db import DatabaseError, transaction
 from django.db.models import Count, Sum
 
-from apps.knowledge.models import QuestionConceptEdge, UserConceptActivity
+from apps.knowledge.models import QuestionConceptEdge, UserConceptActivity, UserKnowledgeGraphState
+from apps.knowledge.services.graph_state_service import (
+    mark_user_graph_failed,
+    mark_user_graph_fresh,
+    mark_user_graph_stale,
+)
 from apps.knowledge.services.activity_types import (
     APPROVED_EDIT,
     AUTHORED_QUESTION,
@@ -334,6 +339,96 @@ def sync_reputation_transaction_activity(
         )
     source = next(iter(_ledger_sources([transaction_row])))
     return _sync_single_source(source, phase=phase)
+
+
+def _empty_recoverable_result(*, phase: str, skipped_reason: str) -> UserConceptActivitySyncResult:
+    return UserConceptActivitySyncResult(
+        phase=phase,
+        activity_type=None,
+        processed_sources=0,
+        created_rows=0,
+        updated_rows=0,
+        skipped_sources=1,
+        skipped_reason=skipped_reason,
+    )
+
+
+def _run_recoverable_activity_sync(
+    *,
+    user: object | None,
+    phase: str,
+    sync_callable: Callable[[], UserConceptActivitySyncResult],
+) -> UserConceptActivitySyncResult:
+    """Run a runtime activity sync without letting it roll back the source Q&A action.
+
+    The sync itself is isolated in a savepoint so activity write failures can be
+    caught even when callers are already inside a Q&A transaction. Graph-state
+    diagnostics are intentionally fixed/aggregate only; raw exception text and
+    event payloads are never persisted.
+    """
+
+    user_id = getattr(user, 'pk', user)
+    try:
+        with transaction.atomic():
+            result = sync_callable()
+    except Exception as exc:
+        if user_id is not None:
+            mark_user_graph_failed(
+                user,
+                reason=UserKnowledgeGraphState.StaleReason.ACTIVITY_SYNC_FAILED,
+                phase=phase,
+                error=exc,
+            )
+        return _empty_recoverable_result(phase=phase, skipped_reason='activity_sync_failed')
+
+    result_phase = result.phase or phase
+    if user_id is None:
+        return result
+
+    if result.skipped_sources:
+        mark_user_graph_stale(
+            user,
+            reason=UserKnowledgeGraphState.StaleReason.ACTIVITY_SYNC_FAILED,
+            phase=result_phase,
+            error=RuntimeError('activity sync skipped'),
+        )
+    else:
+        mark_user_graph_fresh(user, phase=result_phase)
+    return result
+
+
+def recover_sync_authored_question_activity(question: Question) -> UserConceptActivitySyncResult:
+    """Recoverably sync authored-question activity for runtime Q&A actions."""
+
+    return _run_recoverable_activity_sync(
+        user=getattr(question, 'user', None),
+        phase='question_authoring',
+        sync_callable=lambda: sync_authored_question_activity(question),
+    )
+
+
+def recover_sync_posted_solution_activity(solution: Solution) -> UserConceptActivitySyncResult:
+    """Recoverably sync posted-solution activity for runtime Q&A actions."""
+
+    return _run_recoverable_activity_sync(
+        user=getattr(solution, 'user', None),
+        phase='solution_posting',
+        sync_callable=lambda: sync_posted_solution_activity(solution),
+    )
+
+
+def recover_sync_reputation_transaction_activity(
+    transaction_row: ReputationTransaction | None,
+    *,
+    phase: str,
+) -> UserConceptActivitySyncResult:
+    """Recoverably sync supported positive reputation-ledger activity."""
+
+    return _run_recoverable_activity_sync(
+        user=getattr(transaction_row, 'user', None),
+        phase=phase,
+        sync_callable=lambda: sync_reputation_transaction_activity(transaction_row, phase=phase),
+    )
 
 
 def rebuild_user_concept_activity(*, user_id=None) -> UserConceptActivityRebuildSummary:

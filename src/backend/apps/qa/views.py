@@ -8,7 +8,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from drf_spectacular.utils import extend_schema, OpenApiParameter
 
-from apps.knowledge.services import sync_posted_solution_activity
+from apps.knowledge.services import recover_sync_posted_solution_activity
 
 from .models import Question, Solution, SolutionEdits, Comment, Tag, QuestionEditProposal
 from .serializers import (
@@ -573,7 +573,7 @@ class SolutionViewSet(mixins.ListModelMixin,
 
     def perform_create(self, serializer):
         solution = serializer.save(user=self.request.user)
-        sync_posted_solution_activity(solution)
+        recover_sync_posted_solution_activity(solution)
 
     @extend_schema(
         request=SolutionCreateSerializer,

@@ -7,7 +7,7 @@ from django.db import transaction
 from django.db.models import F, QuerySet
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 
-from apps.knowledge.services import sync_question_graph, sync_reputation_transaction_activity
+from apps.knowledge.services import recover_sync_reputation_transaction_activity, sync_question_graph
 from ...user.models import CustomUser, ReputationTransaction
 from ...user.services.reputation_service import ReputationService
 from ..models import Question, QuestionEditEvent, QuestionEditProposal, QuestionRevision, Tag
@@ -148,7 +148,7 @@ class QuestionEditService:
                 source=proposal,
                 note='Награда за одобренную правку вопроса.',
             )
-            sync_reputation_transaction_activity(transaction_row, phase='approved_question_edit')
+            recover_sync_reputation_transaction_activity(transaction_row, phase='approved_question_edit')
 
         proposal.question_edit_is_approved = approved
         proposal.reviewed_by = actor

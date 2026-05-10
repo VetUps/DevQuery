@@ -204,10 +204,10 @@ class UserConceptActivityLifecycleTests(APITestCase):
         question = self._create_question_with_graph()
         baseline_count = self._activity_count()
         with patch(
-            'apps.qa.services.vote_service.sync_reputation_transaction_activity',
+            'apps.knowledge.services.activity_service._upsert_activity_for_source',
             side_effect=RuntimeError('activity phase failed safely'),
         ):
-            with self.assertRaisesMessage(RuntimeError, 'activity phase failed safely'):
-                VoteService.cast_vote('question', str(question.question_id), Vote.VoteType.UPVOTE, self.voter)
+            transaction_row = VoteService.cast_vote('question', str(question.question_id), Vote.VoteType.UPVOTE, self.voter)
 
+        self.assertIsNotNone(transaction_row)
         self.assertEqual(self._activity_count(), baseline_count)
