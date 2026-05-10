@@ -15,6 +15,7 @@ export interface FetchNotificationsParams {
 }
 
 export type NotificationPayload = Record<string, unknown>
+export type NotificationInvitationStatus = 'active' | 'expired' | 'protected_ended' | 'unavailable' | (string & {})
 
 export interface NotificationItem {
   notification_id: string
@@ -28,7 +29,7 @@ export interface NotificationItem {
   expires_at: string | null
   is_read: boolean
   is_expired: boolean
-  invitation_status: string | null
+  invitation_status: NotificationInvitationStatus | null
   protected_window_active: boolean
   protected_window_ended: boolean
   protected_until: string | null
