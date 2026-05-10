@@ -3,7 +3,7 @@ from django.db.models import QuerySet
 from django.db.models import Q
 from rest_framework.exceptions import PermissionDenied, NotFound, ValidationError
 
-from apps.knowledge.services import sync_reputation_transaction_activity
+from apps.knowledge.services import recover_sync_reputation_transaction_activity
 from ...user.models import CustomUser, ReputationTransaction
 from ...user.services.reputation_service import ReputationService
 from ..models import Solution, SolutionEdits
@@ -73,7 +73,7 @@ class SolutionEditService:
                 source=solution_edit,
                 note='Награда за одобренную правку решения.',
             )
-            sync_reputation_transaction_activity(transaction_row, phase='approved_solution_edit')
+            recover_sync_reputation_transaction_activity(transaction_row, phase='approved_solution_edit')
 
         # Сохранение
         solution_edit.solution_edit_is_approved = is_approved

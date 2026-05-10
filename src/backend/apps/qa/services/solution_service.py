@@ -2,7 +2,7 @@ from django.db import transaction
 from django.utils import timezone
 from rest_framework.exceptions import NotFound, PermissionDenied
 
-from apps.knowledge.services import sync_reputation_transaction_activity
+from apps.knowledge.services import recover_sync_reputation_transaction_activity
 from apps.user.models import ReputationTransaction
 from apps.user.services.reputation_service import ReputationService
 
@@ -86,6 +86,6 @@ class SolutionService:
                 source=solution,
                 note='Награда за выбранное лучшее решение.',
             )
-            sync_reputation_transaction_activity(transaction_row, phase='best_solution')
+            recover_sync_reputation_transaction_activity(transaction_row, phase='best_solution')
 
         return solution
