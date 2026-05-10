@@ -15,6 +15,7 @@ import {
   parseNotificationSummaryResponse,
   type NotificationItem,
 } from '@/features/notifications/api/notifications'
+import { getInvitationPresentation } from '@/features/notifications/libs/invitationPresentation'
 import {
   markAllNotificationsReadMutationKey,
   useMarkAllNotificationsReadMutation,
@@ -219,6 +220,110 @@ describe('notifications API contract', () => {
     expect(() => parseMarkAllNotificationsReadResponse({ marked_count: 1 })).toThrow(
       'mark_all.unread_count must be a number',
     )
+  })
+
+  it('maps active invitation notifications to safe presentation copy and CTA policy', () => {
+    const notification = buildNotification()
+
+    expect(getInvitationPresentation(notification)).toMatchObject({
+      state: 'active',
+      label: 'Приглашение активно',
+      canRenderCta: true,
+      ctaUrl: '/questions/22222222-2222-4222-8222-222222222222',
+      ctaLabel: 'Перейти к вопросу',
+      unavailableCtaLabel: 'Переход к вопросу недоступен',
+    })
+    expect(getInvitationPresentation(notification).helpText).toContain('Защищённое окно активно до')
+  })
+
+  it('keeps active invitations actionable even when no protected-until timestamp is present', () => {
+    const presentation = getInvitationPresentation(buildNotification({
+      protected_window_active: false,
+      protected_until: null,
+    }))
+
+    expect(presentation).toMatchObject({
+      state: 'active',
+      label: 'Приглашение активно',
+      helpText: 'Приглашение активно. Перейдите к вопросу и помогите автору.',
+      canRenderCta: true,
+      ctaUrl: '/questions/22222222-2222-4222-8222-222222222222',
+    })
+  })
+
+  it.each([
+    [
+      'expired server fields',
+      buildNotification({
+        is_expired: true,
+        invitation_status: 'active',
+        cta_url: '/questions/22222222-2222-4222-8222-222222222222',
+        payload: { invitation_status: 'active' },
+      }),
+      {
+        state: 'expired',
+        label: 'Приглашение истекло',
+        helpText: 'Срок приглашения истёк. Ответить по этому приглашению уже нельзя.',
+      },
+    ],
+    [
+      'protected-window-ended server fields',
+      buildNotification({
+        protected_window_ended: true,
+        invitation_status: 'active',
+        cta_url: '/questions/22222222-2222-4222-8222-222222222222',
+        payload: { protected_window_ended: false },
+      }),
+      {
+        state: 'protected_ended',
+        label: 'Окно защиты завершено',
+        helpText: 'Защищённое окно завершено. Вопрос может быть открыт для более широкого круга участников.',
+      },
+    ],
+    [
+      'unavailable missing context',
+      buildNotification({
+        invitation_status: 'unavailable',
+        source_question_id: null,
+        protected_until: null,
+        cta_url: null,
+      }),
+      {
+        state: 'unavailable',
+        label: 'Приглашение недоступно',
+        helpText: 'Контекст приглашения недоступен или больше не позволяет перейти к экспертному ответу.',
+      },
+    ],
+    [
+      'unknown status fallback',
+      buildNotification({
+        invitation_status: 'future_status',
+        cta_url: '/questions/22222222-2222-4222-8222-222222222222',
+      }),
+      {
+        state: 'unavailable',
+        label: 'Приглашение недоступно',
+        helpText: 'Контекст приглашения недоступен или больше не позволяет перейти к экспертному ответу.',
+      },
+    ],
+    [
+      'null status fallback',
+      buildNotification({
+        invitation_status: null,
+        cta_url: '/questions/22222222-2222-4222-8222-222222222222',
+      }),
+      {
+        state: 'unavailable',
+        label: 'Приглашение недоступно',
+        helpText: 'Контекст приглашения недоступен или больше не позволяет перейти к экспертному ответу.',
+      },
+    ],
+  ])('maps %s to honest unavailable/non-actionable presentation when needed', (_caseName, notification, expected) => {
+    expect(getInvitationPresentation(notification)).toMatchObject({
+      ...expected,
+      canRenderCta: false,
+      ctaUrl: null,
+    })
   })
 
   it('normalizes notification CTAs to local question-detail routes only', () => {
