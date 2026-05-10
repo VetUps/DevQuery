@@ -1,3 +1,5 @@
+from apps.knowledge.models import UserKnowledgeGraphState
+
 from .graph_service import (
     KnowledgeGraphBuildError,
     KnowledgeGraphService,
@@ -8,6 +10,14 @@ from .lifecycle_service import (
     StructuralGraphRebuildSummary,
     rebuild_structural_graph,
     sync_question_graph,
+)
+from .graph_state_service import (
+    get_user_graph_state,
+    mark_user_graph_failed,
+    mark_user_graph_fresh,
+    mark_user_graph_rebuilding,
+    mark_user_graph_stale,
+    validate_user_for_graph_state,
 )
 from .activity_service import (
     UserConceptActivityRebuildError,
@@ -30,12 +40,19 @@ __all__ = [
     'UserConceptActivityRebuildSummary',
     'UserConceptActivitySummary',
     'UserConceptActivitySyncResult',
+    'UserKnowledgeGraphState',
     'build_question_graph',
     'get_user_concept_activity_summary',
+    'get_user_graph_state',
+    'mark_user_graph_failed',
+    'mark_user_graph_fresh',
+    'mark_user_graph_rebuilding',
+    'mark_user_graph_stale',
     'rebuild_structural_graph',
     'rebuild_user_concept_activity',
     'sync_authored_question_activity',
     'sync_posted_solution_activity',
     'sync_reputation_transaction_activity',
     'sync_question_graph',
+    'validate_user_for_graph_state',
 ]

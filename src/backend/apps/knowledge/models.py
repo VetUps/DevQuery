@@ -119,6 +119,44 @@ class QuestionConceptEdge(models.Model):
         return f'{self.question_id} -> {self.concept}'
 
 
+class UserKnowledgeGraphState(models.Model):
+    class Status(models.TextChoices):
+        FRESH = 'fresh', 'Fresh'
+        STALE = 'stale', 'Stale'
+        REBUILDING = 'rebuilding', 'Rebuilding'
+        FAILED = 'failed', 'Failed'
+
+    class StaleReason(models.TextChoices):
+        ACTIVITY_SYNC_FAILED = 'activity_sync_failed', 'Activity sync failed'
+        ACTIVITY_REBUILD_FAILED = 'activity_rebuild_failed', 'Activity rebuild failed'
+        MANUAL_REBUILD_REQUESTED = 'manual_rebuild_requested', 'Manual rebuild requested'
+        UNKNOWN = 'unknown', 'Unknown'
+
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='knowledge_graph_state',
+    )
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.FRESH)
+    stale_reason = models.CharField(max_length=64, choices=StaleReason.choices, blank=True, default='')
+    last_error_message = models.CharField(max_length=255, blank=True, default='')
+    last_failed_phase = models.CharField(max_length=80, blank=True, default='')
+    last_rebuild_started_at = models.DateTimeField(blank=True, null=True)
+    last_rebuild_finished_at = models.DateTimeField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'user_knowledge_graph_states'
+        indexes = [
+            models.Index(fields=['user'], name='ukgstate_user_idx'),
+            models.Index(fields=['status'], name='ukgstate_status_idx'),
+        ]
+
+    def __str__(self):
+        return f'{self.user_id} graph {self.status}'
+
+
 class UserConceptActivity(models.Model):
     class ActivityType(models.TextChoices):
         AUTHORED_QUESTION = 'authored_question', 'Authored question'
