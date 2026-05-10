@@ -54,6 +54,32 @@ const notificationsState = {
   refetch: vi.fn(),
 }
 
+const notificationSummaryState = {
+  data: ref({ unread_count: 0, latest: [] as NotificationItem[] }),
+  isPending: ref(false),
+  isError: ref(false),
+  error: ref<unknown>(null),
+  refetch: vi.fn(),
+}
+
+const profileNotificationsState = {
+  ...notificationsState,
+  pages: ref<PaginatedNotificationResponse[]>([]),
+  notifications: ref<NotificationItem[]>([]),
+  totalCount: ref(0),
+  hasLoadedPages: ref(false),
+  hasLoadedNotifications: ref(false),
+  isInitialLoading: ref(false),
+  isInitialError: ref(false),
+  isStaleError: ref(false),
+  isLoadMorePending: ref(false),
+  isLoadMoreError: ref(false),
+  hasNextPage: ref(false),
+  isFetchingNextPage: ref(false),
+  isFetchNextPageError: ref(false),
+  fetchNextPage: vi.fn(),
+}
+
 const createSolutionMutationState = {
   isPending: ref(false),
   mutateAsync: vi.fn(),
@@ -101,6 +127,11 @@ const markNotificationReadMutationState = {
   mutateAsync: vi.fn(),
 }
 
+const markAllNotificationsReadMutationState = {
+  isPending: ref(false),
+  mutateAsync: vi.fn(),
+}
+
 vi.mock('@/features/questions/queries/useQuestionDetailQuery', () => ({
   useQuestionDetailQuery: vi.fn(() => questionDetailState),
 }))
@@ -123,10 +154,13 @@ vi.mock('@/features/auth/queries/useCurrentUserQuery', () => ({
 
 vi.mock('@/features/notifications/queries/useNotificationsQuery', () => ({
   useNotificationsQuery: vi.fn(() => notificationsState),
+  useNotificationSummaryQuery: vi.fn(() => notificationSummaryState),
+  useProfileNotificationsQuery: vi.fn(() => profileNotificationsState),
 }))
 
 vi.mock('@/features/notifications/mutations/useMarkNotificationReadMutation', () => ({
   useMarkNotificationReadMutation: vi.fn(() => markNotificationReadMutationState),
+  useMarkAllNotificationsReadMutation: vi.fn(() => markAllNotificationsReadMutationState),
 }))
 
 vi.mock('@/features/solutions/mutations/useCreateSolutionMutation', () => ({
@@ -337,6 +371,32 @@ function resetMockState() {
   notificationsState.error.value = null
   notificationsState.refetch.mockReset()
 
+  notificationSummaryState.data.value = { unread_count: 0, latest: [] }
+  notificationSummaryState.isPending.value = false
+  notificationSummaryState.isError.value = false
+  notificationSummaryState.error.value = null
+  notificationSummaryState.refetch.mockReset()
+
+  profileNotificationsState.data.value = { count: 0, next: null, previous: null, results: [] }
+  profileNotificationsState.pages.value = []
+  profileNotificationsState.notifications.value = []
+  profileNotificationsState.totalCount.value = 0
+  profileNotificationsState.hasLoadedPages.value = false
+  profileNotificationsState.hasLoadedNotifications.value = false
+  profileNotificationsState.isPending.value = false
+  profileNotificationsState.isError.value = false
+  profileNotificationsState.isInitialLoading.value = false
+  profileNotificationsState.isInitialError.value = false
+  profileNotificationsState.isStaleError.value = false
+  profileNotificationsState.isLoadMorePending.value = false
+  profileNotificationsState.isLoadMoreError.value = false
+  profileNotificationsState.hasNextPage.value = false
+  profileNotificationsState.isFetchingNextPage.value = false
+  profileNotificationsState.isFetchNextPageError.value = false
+  profileNotificationsState.error.value = null
+  profileNotificationsState.refetch.mockReset()
+  profileNotificationsState.fetchNextPage.mockReset()
+
   createSolutionMutationState.isPending.value = false
   createSolutionMutationState.mutateAsync.mockReset()
 
@@ -367,6 +427,9 @@ function resetMockState() {
 
   markNotificationReadMutationState.isPending.value = false
   markNotificationReadMutationState.mutateAsync.mockReset()
+
+  markAllNotificationsReadMutationState.isPending.value = false
+  markAllNotificationsReadMutationState.mutateAsync.mockReset()
 }
 
 function createTestRouter() {
@@ -528,6 +591,13 @@ describe('newcomer help loop integration', () => {
   it('shows the expert notification CTA on the profile tab and carries the same invitation context into question detail', async () => {
     const invitation = buildInvitationNotification()
     notificationsState.data.value = { count: 1, next: null, previous: null, results: [invitation] }
+    profileNotificationsState.data.value = { count: 1, next: null, previous: null, results: [invitation] }
+    profileNotificationsState.pages.value = [{ count: 1, next: null, previous: null, results: [invitation] }]
+    profileNotificationsState.notifications.value = [invitation]
+    profileNotificationsState.totalCount.value = 1
+    profileNotificationsState.hasLoadedPages.value = true
+    profileNotificationsState.hasLoadedNotifications.value = true
+    notificationSummaryState.data.value = { unread_count: 1, latest: [invitation] }
     profileState.data.value = buildProfile({ user_id: 'expert-1', user_name: 'Expert Alice' })
 
     const router = createTestRouter()
@@ -556,6 +626,74 @@ describe('newcomer help loop integration', () => {
     expect(questionWrapper.get('[data-testid="question-invitation-context-active"]').text()).toContain('сервер разрешил вам ответить')
     expect(questionWrapper.text()).toContain('Написать решение')
     expect(questionWrapper.find('[data-testid="solution-composer-blocked-reason"]').exists()).toBe(false)
+  })
+
+  it('shows invitation loading before ordinary blocked copy while keeping answer controls disabled', async () => {
+    questionDetailState.data.value = buildQuestionDetail({
+      viewer_can_answer: false,
+      viewer_answer_reason_message: 'Сервер ждёт проверки приглашений.',
+    })
+    notificationsState.isPending.value = true
+    notificationsState.data.value = { count: 0, next: null, previous: null, results: [] }
+
+    const wrapper = await mountQuestionPage(createTestRouter(), 'participant-1')
+
+    expect(wrapper.get('[data-testid="question-invitation-context-loading"]').text()).toContain('Загружаем ваши уведомления')
+    expect(wrapper.find('[data-testid="question-invitation-context-ordinary-blocked"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="solution-composer-blocked-reason"]').text()).toContain('Сервер ждёт проверки приглашений')
+  })
+
+  it('matches only the current question invitation and prefers the latest relevant row deterministically', async () => {
+    questionDetailState.data.value = buildQuestionDetail({
+      viewer_can_answer: false,
+      viewer_answer_reason_message: 'Сервер не разрешил ответ по уведомлению.',
+    })
+    notificationsState.data.value = {
+      count: 4,
+      next: null,
+      previous: null,
+      results: [
+        buildInvitationNotification({
+          notification_id: 'other-question-newer',
+          source_question_id: 'other-question',
+          created_at: '2026-05-08T10:45:00Z',
+          cta_url: '/questions/other-question',
+        }),
+        buildInvitationNotification({
+          notification_id: 'current-active-older',
+          source_question_id: 'question-1',
+          invitation_status: 'active',
+          protected_window_active: true,
+          protected_window_ended: false,
+          created_at: '2026-05-08T10:15:00Z',
+          cta_url: '/questions/question-1',
+        }),
+        buildInvitationNotification({
+          notification_id: 'current-expired-latest',
+          source_question_id: 'question-1',
+          invitation_status: 'expired',
+          protected_window_active: false,
+          protected_window_ended: true,
+          created_at: '2026-05-08T10:30:00Z',
+          cta_url: '/questions/question-1',
+        }),
+        buildInvitationNotification({
+          notification_id: 'unsafe-current-latest',
+          source_question_id: 'question-1',
+          invitation_status: 'active',
+          protected_window_active: true,
+          protected_window_ended: false,
+          created_at: '2026-05-08T10:50:00Z',
+          cta_url: '/admin',
+        }),
+      ],
+    }
+
+    const wrapper = await mountQuestionPage(createTestRouter(), 'participant-1')
+
+    expect(wrapper.get('[data-testid="question-invitation-context-stale"]').text()).toContain('Уведомление найдено')
+    expect(wrapper.find('[data-testid="question-invitation-context-active"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="solution-composer-blocked-reason"]').text()).toContain('Сервер не разрешил ответ')
   })
 
   it('does not let ordinary, forged, stale, or unavailable notifications enable answer authoring', async () => {
