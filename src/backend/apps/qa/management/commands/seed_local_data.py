@@ -9,6 +9,8 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 from django.utils import timezone
 
+from apps.knowledge.models import ConceptTagMapping, KnowledgeConcept, QuestionConceptEdge, UserConceptActivity
+from apps.knowledge.services import mark_user_graph_fresh, rebuild_structural_graph, rebuild_user_concept_activity
 from apps.notifications.models import Notification
 from apps.qa.models import Comment, Question, QuestionEditEvent, QuestionEditProposal, QuestionRevision, Solution, SolutionEdits, Tag, Vote
 from apps.qa.services.question_expert_invitation_service import QuestionExpertInvitationService
@@ -117,11 +119,23 @@ class Command(BaseCommand):
             self._seed_reputation_events(users, solutions)
             self._seed_m008_invitations(users, questions)
             self._refresh_tag_counters(tags)
+            graph_summary, activity_summary = self._rebuild_seed_knowledge_graph(users)
 
         self.stdout.write(self.style.SUCCESS('Локальные тестовые данные готовы.'))
         self.stdout.write('Аккаунты для входа:')
         for seed_user in SEED_USERS:
             self.stdout.write(f'- {seed_user.email} / {LOCAL_PASSWORD} ({seed_user.username})')
+        self.stdout.write(
+            'Большой граф знаний: войдите как expert.local@example.com или master.local@example.com '
+            'и откройте профиль → Граф знаний.'
+        )
+        self.stdout.write(
+            'Knowledge graph seed: '
+            f'questions={graph_summary.processed_questions} '
+            f'concepts={graph_summary.created_concepts + graph_summary.updated_concepts} '
+            f'edges={graph_summary.created_edges + graph_summary.updated_edges} '
+            f'activity_rows={activity_summary.created_rows + activity_summary.updated_rows}'
+        )
 
     def _guard_local_database(self, *, allow_production: bool) -> None:
         engine = settings.DATABASES['default']['ENGINE']
@@ -136,9 +150,14 @@ class Command(BaseCommand):
 
     def _reset_seed_data(self) -> None:
         seed_emails = [seed_user.email for seed_user in SEED_USERS]
+        seed_tag_names = self._seed_tag_names()
+        UserConceptActivity.objects.filter(concept__slug__in=seed_tag_names).delete()
+        QuestionConceptEdge.objects.filter(concept__slug__in=seed_tag_names).delete()
+        ConceptTagMapping.objects.filter(tag__name__in=seed_tag_names).delete()
+        KnowledgeConcept.objects.filter(slug__in=seed_tag_names).delete()
         CustomUser.objects.filter(user_email__in=seed_emails).delete()
         Question.objects.filter(question_title__startswith='[seed]').delete()
-        Tag.objects.filter(name__in=self._seed_tag_names()).delete()
+        Tag.objects.filter(name__in=seed_tag_names).delete()
 
     def _ensure_reputation_policy(self) -> None:
         for level, minimum_score in ReputationLevelThreshold.DEFAULT_THRESHOLDS.items():
@@ -186,7 +205,43 @@ class Command(BaseCommand):
         return users
 
     def _seed_tag_names(self) -> list[str]:
-        return ['django', 'vue', 'typescript', 'docker', 'reputation', 'postgresql']
+        base_tags = ['django', 'vue', 'typescript', 'docker', 'reputation', 'postgresql']
+        graph_tags = [tag for tag, *_ in self._large_graph_tag_topics()]
+        return [*base_tags, *graph_tags]
+
+    def _large_graph_tag_topics(self) -> list[tuple[str, str, str]]:
+        return [
+            ('python', 'Python', 'backend'),
+            ('drf', 'Django REST Framework', 'backend'),
+            ('jwt', 'JWT authentication', 'backend'),
+            ('celery', 'Celery jobs', 'backend'),
+            ('redis', 'Redis cache', 'backend'),
+            ('pytest', 'Pytest', 'backend'),
+            ('api-design', 'API design', 'backend'),
+            ('websocket', 'WebSocket', 'backend'),
+            ('vite', 'Vite', 'frontend'),
+            ('pinia', 'Pinia', 'frontend'),
+            ('vue-router', 'Vue Router', 'frontend'),
+            ('vitest', 'Vitest', 'frontend'),
+            ('playwright', 'Playwright', 'frontend'),
+            ('cytoscape', 'Cytoscape', 'frontend'),
+            ('accessibility', 'Accessibility', 'frontend'),
+            ('frontend-performance', 'Frontend performance', 'frontend'),
+            ('postgres-indexes', 'PostgreSQL indexes', 'data'),
+            ('query-optimization', 'Query optimization', 'data'),
+            ('transactions', 'Transactions', 'data'),
+            ('migrations', 'Migrations', 'data'),
+            ('full-text-search', 'Full-text search', 'data'),
+            ('knowledge-graph', 'Knowledge graph', 'knowledge'),
+            ('concept-extraction', 'Concept extraction', 'knowledge'),
+            ('graph-privacy', 'Graph privacy', 'knowledge'),
+            ('graph-visualization', 'Graph visualization', 'knowledge'),
+            ('activity-ledger', 'Activity ledger', 'knowledge'),
+            ('notifications', 'Notifications', 'product'),
+            ('expert-invitations', 'Expert invitations', 'product'),
+            ('admin-panel', 'Admin panel', 'product'),
+            ('audit-trail', 'Audit trail', 'product'),
+        ]
 
     def _seed_tags(self) -> dict[str, Tag]:
         return {
@@ -262,7 +317,7 @@ class Command(BaseCommand):
         }
 
         questions = {}
-        for key, spec in question_specs.items():
+        for key, spec in {**question_specs, **self._large_graph_question_specs(users, now)}.items():
             question, _ = Question.objects.update_or_create(
                 question_title=spec['title'],
                 defaults={
@@ -277,8 +332,50 @@ class Command(BaseCommand):
             questions[key] = question
         return questions
 
+    def _large_graph_question_specs(self, users: dict[str, CustomUser], now) -> dict[str, dict]:
+        tag_windows = [
+            ['python', 'django', 'drf', 'postgresql', 'api-design'],
+            ['django', 'drf', 'jwt', 'reputation', 'api-design'],
+            ['python', 'celery', 'redis', 'notifications', 'activity-ledger'],
+            ['postgres-indexes', 'query-optimization', 'transactions', 'migrations', 'django'],
+            ['vue', 'typescript', 'vite', 'pinia', 'vue-router'],
+            ['vue', 'vitest', 'playwright', 'accessibility', 'frontend-performance'],
+            ['knowledge-graph', 'concept-extraction', 'graph-privacy', 'activity-ledger', 'postgresql'],
+            ['knowledge-graph', 'graph-visualization', 'cytoscape', 'typescript', 'accessibility'],
+            ['expert-invitations', 'notifications', 'reputation', 'admin-panel', 'audit-trail'],
+            ['docker', 'migrations', 'postgresql', 'redis', 'celery'],
+            ['full-text-search', 'postgres-indexes', 'query-optimization', 'django', 'api-design'],
+            ['graph-privacy', 'audit-trail', 'admin-panel', 'jwt', 'transactions'],
+        ]
+        users_cycle = [
+            users['expert_local'],
+            users['master_local'],
+            users['expert_local'],
+            users['participant_local'],
+        ]
+        specs = {}
+        for index in range(36):
+            window = tag_windows[index % len(tag_windows)]
+            bridge = tag_windows[(index + 3) % len(tag_windows)][index % 3]
+            tag_names = list(dict.fromkeys([*window, bridge]))[:5]
+            owner = users_cycle[index % len(users_cycle)]
+            specs[f'large_graph_{index + 1:02d}'] = {
+                'user': owner,
+                'title': f'[seed][graph-large] Сценарий {index + 1:02d}: связка {tag_names[0]} / {tag_names[1]} / {tag_names[2]}',
+                'body': (
+                    'Большой seed-граф для ручной проверки профиля. '
+                    f'Вопрос связывает концепты: {", ".join(tag_names)}. '
+                    'Нужен для проверки плотности узлов, соседей, весов и деталей выбранного концепта.'
+                ),
+                'status': Question.Status.OPEN_STATUS if index % 5 else Question.Status.SOLVED_STATUS,
+                'tags': tag_names,
+                'created_at': now - timedelta(days=3, hours=index),
+            }
+        return specs
+
     def _seed_solutions(self, users: dict[str, CustomUser], questions: dict[str, Question]) -> dict[str, Solution]:
         solution_specs = {
+            **self._large_graph_solution_specs(users, questions),
             'protected_answer': {
                 'user': users['participant_local'],
                 'question': questions['protected'],
@@ -311,6 +408,35 @@ class Command(BaseCommand):
             )
             solutions[key] = solution
         return solutions
+
+    def _large_graph_solution_specs(
+        self,
+        users: dict[str, CustomUser],
+        questions: dict[str, Question],
+    ) -> dict[str, dict]:
+        answerers = [
+            users['master_local'],
+            users['expert_local'],
+            users['participant_local'],
+            users['admin_local'],
+        ]
+        specs = {}
+        for index in range(36):
+            question_key = f'large_graph_{index + 1:02d}'
+            question = questions[question_key]
+            answerer = answerers[index % len(answerers)]
+            if answerer.pk == question.user_id:
+                answerer = answerers[(index + 1) % len(answerers)]
+            specs[f'large_graph_answer_{index + 1:02d}'] = {
+                'user': answerer,
+                'question': question,
+                'body': (
+                    f'Seed-ответ для большого графа #{index + 1:02d}: добавляет posted-solution activity '
+                    'и делает связи концептов заметнее в профиле отвечающего.'
+                ),
+                'is_best': index % 6 == 0,
+            }
+        return specs
 
     def _seed_comments(
         self,
@@ -534,6 +660,14 @@ class Command(BaseCommand):
             'protected_until': protected_until.isoformat() if protected_until else None,
             'protected_window_ended': not protection_state.is_protected,
         }
+
+    def _rebuild_seed_knowledge_graph(self, users: dict[str, CustomUser]):
+        seed_questions = Question.objects.filter(question_title__startswith='[seed]').order_by('pk')
+        graph_summary = rebuild_structural_graph(queryset=seed_questions)
+        activity_summary = rebuild_user_concept_activity(user_id=None)
+        for user in users.values():
+            mark_user_graph_fresh(user, phase='seed_local_data')
+        return graph_summary, activity_summary
 
     def _refresh_tag_counters(self, tags: dict[str, Tag]) -> None:
         for tag in tags.values():
