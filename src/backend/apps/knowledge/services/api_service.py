@@ -130,6 +130,7 @@ def get_user_graph_payload(user, *, is_owner: bool) -> dict[str, Any]:
         'total_weight': total_weight,
         'activity_breakdown': _activity_breakdown_payload(overall_breakdown_rows),
         'concepts': concepts,
+        'nodes': concepts,
     }
 
 

@@ -133,11 +133,16 @@ class KnowledgeGraphAPIContractTests(APITestCase):
             [entry['activity_type'] for entry in response.data['activity_breakdown']],
             ['approved_edit', 'authored_question', 'question_upvote'],
         )
+        self.assertIn('nodes', response.data)
+        self.assertEqual(response.data['nodes'], response.data['concepts'])
+        self.assertEqual([entry['slug'] for entry in response.data['nodes']], ['django', 'rest-api'])
         concepts_by_slug = {entry['slug']: entry for entry in response.data['concepts']}
+        nodes_by_slug = {entry['slug']: entry for entry in response.data['nodes']}
         self.assertEqual(set(concepts_by_slug), {'django', 'rest-api'})
-        self.assertEqual(concepts_by_slug['django']['total_weight'], '1.2500')
+        self.assertEqual(set(nodes_by_slug), {'django', 'rest-api'})
+        self.assertEqual(nodes_by_slug['django']['total_weight'], '1.2500')
         self.assertEqual(
-            concepts_by_slug['django']['related_questions'],
+            nodes_by_slug['django']['related_questions'],
             [
                 {
                     'question_id': str(self.question.pk),
@@ -145,6 +150,21 @@ class KnowledgeGraphAPIContractTests(APITestCase):
                     'status': Question.Status.OPEN_STATUS,
                 }
             ],
+        )
+        self.assertEqual(
+            set(nodes_by_slug['django']),
+            {
+                'concept_id',
+                'slug',
+                'name',
+                'source',
+                'provider',
+                'confidence',
+                'total_weight',
+                'source_count',
+                'activity_breakdown',
+                'related_questions',
+            },
         )
         self.assert_private_activity_fields_are_redacted(response.data)
 
@@ -158,6 +178,9 @@ class KnowledgeGraphAPIContractTests(APITestCase):
         self.assertEqual(response.data['viewer'], {'is_owner': False})
         self.assertEqual(response.data['total_weight'], '1.7500')
         self.assertEqual(response.data['state']['status'], UserKnowledgeGraphState.Status.FAILED)
+        self.assertIn('nodes', response.data)
+        self.assertEqual(response.data['nodes'], response.data['concepts'])
+        self.assertEqual([entry['slug'] for entry in response.data['nodes']], ['django', 'rest-api'])
         self.assert_private_activity_fields_are_redacted(response.data)
 
     def test_question_graph_returns_question_concept_edges_without_question_body(self):
@@ -196,6 +219,7 @@ class KnowledgeGraphAPIContractTests(APITestCase):
         self.assertEqual(user_response.status_code, status.HTTP_200_OK, user_response.data)
         self.assertEqual(user_response.data['total_weight'], '0.0000')
         self.assertEqual(user_response.data['concepts'], [])
+        self.assertEqual(user_response.data['nodes'], [])
         self.assertEqual(user_response.data['activity_breakdown'], [])
         self.assertEqual(question_response.status_code, status.HTTP_200_OK, question_response.data)
         self.assertEqual(question_response.data['concepts'], [])
