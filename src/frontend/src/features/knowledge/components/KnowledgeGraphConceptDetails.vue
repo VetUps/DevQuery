@@ -1,62 +1,47 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, shallowRef, watch } from 'vue'
 
 import type {
   KnowledgeGraphEdge,
   KnowledgeGraphNode,
   KnowledgeGraphRelatedQuestion,
-  KnowledgeGraphState,
 } from '@/features/knowledge/api/knowledgeGraph'
 
 const props = defineProps<{
   selectedNode: KnowledgeGraphNode | null
   neighbourNodes: KnowledgeGraphNode[]
   neighbourEdges: KnowledgeGraphEdge[]
-  graphState: KnowledgeGraphState
 }>()
 
-const stateLabel = computed(() => {
-  const labels: Record<string, string> = {
-    fresh: 'Граф актуален',
-    stale: 'Граф устарел',
-    rebuilding: 'Граф перестраивается',
-    failed: 'Последнее перестроение не завершилось',
-  }
-
-  return labels[props.graphState.status] ?? 'Статус графа не распознан'
-})
-
-const stateDescription = computed(() => {
-  if (props.graphState.status === 'stale') {
-    return props.graphState.stale_reason
-      ? `Причина устаревания: ${props.graphState.stale_reason}.`
-      : 'Причина устаревания не указана.'
-  }
-
-  if (props.graphState.status === 'rebuilding') {
-    return props.graphState.last_rebuild_started_at
-      ? `Перестроение началось: ${formatDateTime(props.graphState.last_rebuild_started_at)}.`
-      : 'Перестроение уже запущено; обновите вкладку позже.'
-  }
-
-  if (props.graphState.status === 'failed') {
-    return props.graphState.last_failed_phase
-      ? `Фаза сбоя: ${props.graphState.last_failed_phase}. Технические детали скрыты.`
-      : 'Технические детали последнего сбоя скрыты.'
-  }
-
-  if (props.graphState.status === 'fresh') {
-    return props.graphState.last_rebuild_finished_at
-      ? `Последнее обновление: ${formatDateTime(props.graphState.last_rebuild_finished_at)}.`
-      : 'Связи и веса готовы к просмотру.'
-  }
-
-  return 'Показываем доступные агрегированные данные без внутренних диагностик.'
-})
+const isQuestionsModalOpen = shallowRef(false)
+const activeQuestionIndex = shallowRef(0)
+const selectedNeighbourId = shallowRef<number | null>(null)
 
 const selectedRelatedQuestions = computed(() => props.selectedNode?.related_questions ?? [])
 const selectedActivityBreakdown = computed(() => props.selectedNode?.activity_breakdown ?? [])
-const safeNeighbourEdges = computed(() => props.neighbourEdges.filter((edge) => edge.shared_question_count > 0 || edge.related_questions.length > 0))
+const selectedNeighbourEdge = computed(() => {
+  if (!props.selectedNode || selectedNeighbourId.value === null) {
+    return null
+  }
+
+  const selectedId = props.selectedNode.concept_id
+  const neighbourId = selectedNeighbourId.value
+
+  return props.neighbourEdges.find((edge) => (
+    (edge.source_concept_id === selectedId && edge.target_concept_id === neighbourId)
+    || (edge.target_concept_id === selectedId && edge.source_concept_id === neighbourId)
+  )) ?? null
+})
+const selectedNeighbourNode = computed(() => {
+  if (selectedNeighbourId.value === null) {
+    return null
+  }
+
+  return props.neighbourNodes.find((node) => node.concept_id === selectedNeighbourId.value) ?? null
+})
+const selectedEdgeQuestions = computed(() => selectedNeighbourEdge.value?.related_questions ?? [])
+const activeRelatedQuestion = computed(() => selectedRelatedQuestions.value[activeQuestionIndex.value] ?? null)
+const canNavigateRelatedQuestions = computed(() => selectedRelatedQuestions.value.length > 1)
 
 function toNumber(value: string): number {
   const parsed = Number.parseFloat(value)
@@ -92,43 +77,73 @@ function relatedQuestionTitle(question: KnowledgeGraphRelatedQuestion): string {
   return question.title || 'Вопрос без названия'
 }
 
-function conceptNameById(conceptId: number): string {
-  if (props.selectedNode?.concept_id === conceptId) {
-    return props.selectedNode.name || props.selectedNode.slug || `Концепт ${conceptId}`
-  }
-
-  const neighbour = props.neighbourNodes.find((node) => node.concept_id === conceptId)
-
-  return neighbour?.name || neighbour?.slug || `Концепт ${conceptId}`
+function conceptDisplayName(node: KnowledgeGraphNode): string {
+  return node.name || node.slug || `Концепт ${node.concept_id}`
 }
 
-function edgeCounterpartName(edge: KnowledgeGraphEdge): string {
-  if (!props.selectedNode) {
-    return 'Связанный концепт'
-  }
-
-  const counterpartId = edge.source_concept_id === props.selectedNode.concept_id
-    ? edge.target_concept_id
-    : edge.source_concept_id
-
-  return conceptNameById(counterpartId)
+function isNeighbourSelected(conceptId: number): boolean {
+  return selectedNeighbourId.value === conceptId
 }
 
-function formatDateTime(value: string): string {
-  const date = new Date(value)
+function selectNeighbour(conceptId: number): void {
+  selectedNeighbourId.value = isNeighbourSelected(conceptId) ? null : conceptId
+}
 
-  if (Number.isNaN(date.getTime())) {
-    return value
+function openRelatedQuestionsModal(): void {
+  if (selectedRelatedQuestions.value.length === 0) {
+    return
   }
 
-  return date.toLocaleString('ru-RU', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
+  activeQuestionIndex.value = 0
+  isQuestionsModalOpen.value = true
 }
+
+function closeRelatedQuestionsModal(): void {
+  isQuestionsModalOpen.value = false
+}
+
+function showPreviousQuestion(): void {
+  if (selectedRelatedQuestions.value.length === 0) {
+    return
+  }
+
+  activeQuestionIndex.value = activeQuestionIndex.value === 0
+    ? selectedRelatedQuestions.value.length - 1
+    : activeQuestionIndex.value - 1
+}
+
+function showNextQuestion(): void {
+  if (selectedRelatedQuestions.value.length === 0) {
+    return
+  }
+
+  activeQuestionIndex.value = activeQuestionIndex.value === selectedRelatedQuestions.value.length - 1
+    ? 0
+    : activeQuestionIndex.value + 1
+}
+
+watch(
+  () => props.selectedNode?.concept_id ?? null,
+  () => {
+    selectedNeighbourId.value = null
+    closeRelatedQuestionsModal()
+  },
+)
+
+watch(
+  () => props.neighbourNodes.map((node) => node.concept_id).join('|'),
+  () => {
+    if (selectedNeighbourId.value === null) {
+      return
+    }
+
+    const stillVisible = props.neighbourNodes.some((node) => node.concept_id === selectedNeighbourId.value)
+
+    if (!stillVisible) {
+      selectedNeighbourId.value = null
+    }
+  },
+)
 </script>
 
 <template>
@@ -172,15 +187,22 @@ function formatDateTime(value: string): string {
         <p v-else class="knowledge-details__muted">Разбивка активности для концепта пока пустая.</p>
       </section>
 
-      <section class="knowledge-details__block" aria-labelledby="knowledge-selected-questions-title">
-        <h4 id="knowledge-selected-questions-title">Связанные вопросы</h4>
-        <ul v-if="selectedRelatedQuestions.length > 0" class="knowledge-details__list">
-          <li v-for="question in selectedRelatedQuestions" :key="question.question_id" class="knowledge-details__question">
-            <a :href="relatedQuestionHref(question)">{{ relatedQuestionTitle(question) }}</a>
-            <span>{{ question.status || 'status_unknown' }}</span>
-          </li>
-        </ul>
-        <p v-else class="knowledge-details__muted">Связанных вопросов пока нет.</p>
+      <section class="knowledge-details__block knowledge-details__questions-card" aria-labelledby="knowledge-selected-questions-title">
+        <div>
+          <h4 id="knowledge-selected-questions-title">Связанные вопросы</h4>
+          <p class="knowledge-details__muted">
+            {{ selectedRelatedQuestions.length }} вопросов доступны в отдельном окне, чтобы панель концепта оставалась компактной.
+          </p>
+        </div>
+        <button
+          class="knowledge-details__action"
+          type="button"
+          data-testid="knowledge-related-questions-open"
+          :disabled="selectedRelatedQuestions.length === 0"
+          @click="openRelatedQuestionsModal"
+        >
+          Связанные вопросы
+        </button>
       </section>
     </div>
 
@@ -189,41 +211,110 @@ function formatDateTime(value: string): string {
       data-testid="knowledge-graph-selected-neighbours"
       aria-labelledby="knowledge-selected-neighbours-title"
     >
-      <h4 id="knowledge-selected-neighbours-title">Соседние концепты</h4>
-      <ul v-if="neighbourNodes.length > 0" class="knowledge-details__pill-list">
+      <div class="knowledge-details__section-heading">
+        <h4 id="knowledge-selected-neighbours-title">Соседние концепты</h4>
+        <p class="knowledge-details__muted">Выберите соседний концепт, чтобы увидеть вопросы, объясняющие связь.</p>
+      </div>
+      <ul v-if="neighbourNodes.length > 0" class="knowledge-details__neighbour-list">
         <li v-for="node in neighbourNodes" :key="node.concept_id">
-          <span>{{ node.name || node.slug }}</span>
-          <small>вес {{ formatWeight(node.total_weight) }}</small>
+          <button
+            class="knowledge-details__neighbour-option"
+            :class="{ 'knowledge-details__neighbour-option--selected': isNeighbourSelected(node.concept_id) }"
+            type="button"
+            :data-testid="`knowledge-neighbour-option-${node.concept_id}`"
+            :aria-pressed="isNeighbourSelected(node.concept_id)"
+            @click="selectNeighbour(node.concept_id)"
+          >
+            <span>{{ conceptDisplayName(node) }}</span>
+            <small>вес {{ formatWeight(node.total_weight) }}</small>
+          </button>
         </li>
       </ul>
       <p v-else class="knowledge-details__muted">У выбранного концепта пока нет соседей в топологии графа.</p>
     </section>
 
-    <section class="knowledge-details__block" aria-labelledby="knowledge-shared-questions-title">
+    <section class="knowledge-details__block" data-testid="knowledge-selected-edge-explanation" aria-labelledby="knowledge-shared-questions-title">
       <h4 id="knowledge-shared-questions-title">Почему эти концепты рядом</h4>
-      <ul v-if="safeNeighbourEdges.length > 0" class="knowledge-details__list">
-        <li v-for="edge in safeNeighbourEdges" :key="edge.id" class="knowledge-details__edge">
-          <strong>{{ edgeCounterpartName(edge) }}</strong>
-          <span>{{ edge.shared_question_count }} общих вопросов · вес {{ formatWeight(edge.weight) }}</span>
-          <ul v-if="edge.related_questions.length > 0" class="knowledge-details__nested-list">
-            <li v-for="question in edge.related_questions" :key="`${edge.id}-${question.question_id}`">
-              <a :href="relatedQuestionHref(question)">{{ relatedQuestionTitle(question) }}</a>
-            </li>
-          </ul>
-        </li>
-      </ul>
+      <div v-if="selectedNeighbourEdge && selectedNeighbourNode" class="knowledge-details__edge-card">
+        <strong>{{ conceptDisplayName(selectedNode) }} ↔ {{ conceptDisplayName(selectedNeighbourNode) }}</strong>
+        <span>
+          {{ selectedNeighbourEdge.shared_question_count }} общих вопросов · вес {{ formatWeight(selectedNeighbourEdge.weight) }}
+        </span>
+        <ul v-if="selectedEdgeQuestions.length > 0" class="knowledge-details__list">
+          <li v-for="question in selectedEdgeQuestions" :key="`${selectedNeighbourEdge.id}-${question.question_id}`" class="knowledge-details__question">
+            <a :href="relatedQuestionHref(question)">{{ relatedQuestionTitle(question) }}</a>
+            <span>{{ question.status || 'status_unknown' }}</span>
+          </li>
+        </ul>
+        <p v-else class="knowledge-details__muted">Для этой связи пока нет вопросов, которые можно безопасно показать.</p>
+      </div>
+      <p v-else-if="neighbourNodes.length > 0" class="knowledge-details__muted">
+        Нажмите соседний концепт выше — здесь появятся только вопросы выбранной связи.
+      </p>
       <p v-else class="knowledge-details__muted">Общие вопросы для соседей пока не найдены.</p>
     </section>
 
-    <aside
-      class="knowledge-details__state"
-      data-testid="knowledge-graph-state-context"
-      aria-labelledby="knowledge-graph-state-context-title"
+    <div
+      v-if="isQuestionsModalOpen"
+      class="knowledge-details__modal-backdrop"
+      data-testid="knowledge-related-questions-modal"
+      role="presentation"
+      @click.self="closeRelatedQuestionsModal"
     >
-      <h4 id="knowledge-graph-state-context-title">Контекст состояния графа</h4>
-      <p><strong>{{ stateLabel }}</strong></p>
-      <p>{{ stateDescription }}</p>
-    </aside>
+      <section
+        class="knowledge-details__modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="knowledge-related-questions-modal-title"
+      >
+        <header class="knowledge-details__modal-header">
+          <div>
+            <p class="knowledge-details__eyebrow">Связанные вопросы</p>
+            <h3 id="knowledge-related-questions-modal-title">{{ conceptDisplayName(selectedNode) }}</h3>
+            <p class="knowledge-details__muted">
+              {{ activeQuestionIndex + 1 }} из {{ selectedRelatedQuestions.length }}
+            </p>
+          </div>
+          <button
+            class="knowledge-details__modal-close"
+            type="button"
+            data-testid="knowledge-related-questions-close"
+            aria-label="Закрыть связанные вопросы"
+            @click="closeRelatedQuestionsModal"
+          >
+            ×
+          </button>
+        </header>
+
+        <article v-if="activeRelatedQuestion" class="knowledge-details__modal-question">
+          <a :href="relatedQuestionHref(activeRelatedQuestion)">
+            {{ relatedQuestionTitle(activeRelatedQuestion) }}
+          </a>
+          <span>{{ activeRelatedQuestion.status || 'status_unknown' }}</span>
+        </article>
+
+        <div v-if="canNavigateRelatedQuestions" class="knowledge-details__modal-nav" aria-label="Навигация по связанным вопросам">
+          <button type="button" data-testid="knowledge-related-questions-prev" @click="showPreviousQuestion">
+            Назад
+          </button>
+          <button type="button" data-testid="knowledge-related-questions-next" @click="showNextQuestion">
+            Вперёд
+          </button>
+        </div>
+
+        <ul class="knowledge-details__modal-list" aria-label="Все связанные вопросы концепта">
+          <li v-for="(question, index) in selectedRelatedQuestions" :key="question.question_id">
+            <button
+              type="button"
+              :class="{ 'knowledge-details__modal-list-button--active': index === activeQuestionIndex }"
+              @click="activeQuestionIndex = index"
+            >
+              {{ relatedQuestionTitle(question) }}
+            </button>
+          </li>
+        </ul>
+      </section>
+    </div>
   </section>
 
   <section
@@ -236,15 +327,6 @@ function formatDateTime(value: string): string {
     <p>
       Нажмите узел интерактивного графа, чтобы увидеть вес, активность, соседние концепты и безопасные связи с вопросами.
     </p>
-    <aside
-      class="knowledge-details__state"
-      data-testid="knowledge-graph-state-context"
-      aria-labelledby="knowledge-graph-state-context-title-empty"
-    >
-      <h4 id="knowledge-graph-state-context-title-empty">Контекст состояния графа</h4>
-      <p><strong>{{ stateLabel }}</strong></p>
-      <p>{{ stateDescription }}</p>
-    </aside>
   </section>
 </template>
 
@@ -264,7 +346,6 @@ function formatDateTime(value: string): string {
 .knowledge-details__eyebrow,
 .knowledge-details__meta,
 .knowledge-details__muted,
-.knowledge-details__state p,
 .knowledge-details--empty p,
 .knowledge-details h3,
 .knowledge-details h4 {
@@ -282,6 +363,7 @@ function formatDateTime(value: string): string {
 .knowledge-details h3 {
   margin-top: var(--space-xs);
   font-size: 24px;
+  text-wrap: balance;
 }
 
 .knowledge-details h4 {
@@ -291,9 +373,9 @@ function formatDateTime(value: string): string {
 .knowledge-details__meta,
 .knowledge-details__muted,
 .knowledge-details__question span,
-.knowledge-details__pill-list small,
-.knowledge-details__edge span,
-.knowledge-details__state {
+.knowledge-details__neighbour-option small,
+.knowledge-details__edge-card span,
+.knowledge-details__modal-question span {
   color: var(--color-muted);
 }
 
@@ -322,6 +404,7 @@ function formatDateTime(value: string): string {
   color: var(--color-accent);
   font-size: 28px;
   font-weight: 800;
+  font-variant-numeric: tabular-nums;
 }
 
 .knowledge-details__grid {
@@ -331,14 +414,24 @@ function formatDateTime(value: string): string {
 }
 
 .knowledge-details__block,
-.knowledge-details__state {
+.knowledge-details__questions-card,
+.knowledge-details__section-heading,
+.knowledge-details__edge-card {
   display: grid;
   gap: var(--space-sm);
 }
 
+.knowledge-details__questions-card,
+.knowledge-details__edge-card {
+  padding: var(--space-md);
+  border: 1px solid rgb(14 116 144 / 0.14);
+  border-radius: var(--radius-md);
+  background: rgb(255 255 255 / 0.52);
+}
+
 .knowledge-details__list,
-.knowledge-details__pill-list,
-.knowledge-details__nested-list {
+.knowledge-details__neighbour-list,
+.knowledge-details__modal-list {
   display: grid;
   gap: var(--space-sm);
   padding: 0;
@@ -347,8 +440,7 @@ function formatDateTime(value: string): string {
 }
 
 .knowledge-details__row,
-.knowledge-details__question,
-.knowledge-details__edge {
+.knowledge-details__question {
   display: grid;
   gap: var(--space-xs);
   padding: var(--space-sm) 0;
@@ -361,16 +453,148 @@ function formatDateTime(value: string): string {
   align-items: center;
 }
 
-.knowledge-details__pill-list {
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+.knowledge-details__neighbour-list {
+  display: flex;
+  max-height: 140px;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+  overflow: auto;
+  padding: 2px;
+  scrollbar-gutter: stable;
 }
 
-.knowledge-details__pill-list li,
-.knowledge-details__state {
+.knowledge-details__neighbour-option,
+.knowledge-details__action,
+.knowledge-details__modal-close,
+.knowledge-details__modal-nav button,
+.knowledge-details__modal-list button {
+  min-height: 40px;
+  border: 1px solid rgb(14 116 144 / 0.2);
+  background: rgb(255 255 255 / 0.76);
+  color: var(--color-text);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 800;
+  transition-duration: 160ms;
+  transition-property: background-color, border-color, box-shadow, transform;
+  transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+}
+
+.knowledge-details__neighbour-option {
+  display: inline-flex;
+  max-width: 220px;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: 999px;
+  text-align: left;
+}
+
+.knowledge-details__neighbour-option span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.knowledge-details__neighbour-option:hover,
+.knowledge-details__neighbour-option--selected,
+.knowledge-details__action:hover,
+.knowledge-details__action:focus-visible,
+.knowledge-details__modal-nav button:hover,
+.knowledge-details__modal-nav button:focus-visible,
+.knowledge-details__modal-list button:hover,
+.knowledge-details__modal-list button:focus-visible,
+.knowledge-details__modal-list-button--active {
+  border-color: rgb(14 116 144 / 0.55);
+  background: rgb(236 254 255 / 0.92);
+  box-shadow: 0 10px 20px rgb(15 23 42 / 0.08);
+}
+
+.knowledge-details__neighbour-option:active,
+.knowledge-details__action:active,
+.knowledge-details__modal-close:active,
+.knowledge-details__modal-nav button:active,
+.knowledge-details__modal-list button:active {
+  transform: scale(0.96);
+}
+
+.knowledge-details__action {
+  width: fit-content;
+  padding: 0 var(--space-md);
+  border-radius: 999px;
+}
+
+.knowledge-details__action:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.knowledge-details__modal-backdrop {
+  position: fixed;
+  z-index: 50;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: var(--space-lg);
+  background: rgb(15 23 42 / 0.38);
+}
+
+.knowledge-details__modal {
+  display: grid;
+  width: min(620px, 100%);
+  max-height: min(680px, 100%);
+  gap: var(--space-md);
+  overflow: auto;
+  padding: var(--space-lg);
+  border: 1px solid rgb(14 116 144 / 0.18);
+  border-radius: var(--radius-lg);
+  background: rgb(255 255 255 / 0.96);
+  box-shadow: 0 24px 70px rgb(15 23 42 / 0.26);
+}
+
+.knowledge-details__modal-header {
+  display: flex;
+  gap: var(--space-md);
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.knowledge-details__modal-close {
+  min-width: 40px;
+  padding: 0;
+  border-radius: 999px;
+  font-size: 24px;
+  line-height: 1;
+}
+
+.knowledge-details__modal-question {
+  display: grid;
+  gap: var(--space-xs);
   padding: var(--space-md);
-  border: 1px solid rgb(207 198 180 / 0.66);
   border-radius: var(--radius-md);
-  background: rgb(255 255 255 / 0.48);
+  background: rgb(236 254 255 / 0.72);
+}
+
+.knowledge-details__modal-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+.knowledge-details__modal-nav button,
+.knowledge-details__modal-list button {
+  padding: 0 var(--space-md);
+  border-radius: 999px;
+}
+
+.knowledge-details__modal-list {
+  gap: var(--space-xs);
+}
+
+.knowledge-details__modal-list button {
+  width: 100%;
+  min-height: 36px;
+  text-align: left;
 }
 
 .knowledge-details a {
@@ -383,6 +607,11 @@ function formatDateTime(value: string): string {
 @media (width <= 720px) {
   .knowledge-details__row {
     grid-template-columns: 1fr;
+  }
+
+  .knowledge-details__modal-backdrop {
+    align-items: end;
+    padding: var(--space-sm);
   }
 }
 </style>

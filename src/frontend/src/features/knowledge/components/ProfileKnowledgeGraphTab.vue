@@ -423,7 +423,6 @@ watch(
             :selected-node="selectedConcept"
             :neighbour-nodes="neighbourConcepts"
             :neighbour-edges="neighbourEdges"
-            :graph-state="graph.state"
           />
         </SurfacePanel>
       </div>
