@@ -38,6 +38,18 @@ export interface KnowledgeGraphConceptEntry {
   related_questions: KnowledgeGraphRelatedQuestion[]
 }
 
+export type KnowledgeGraphNode = KnowledgeGraphConceptEntry
+
+export interface KnowledgeGraphEdge {
+  id: string
+  source_concept_id: number
+  target_concept_id: number
+  weight: string
+  shared_question_count: number
+  reason: 'shared_question'
+  related_questions: KnowledgeGraphRelatedQuestion[]
+}
+
 export interface UserKnowledgeGraphResponse {
   user_id: string
   viewer: KnowledgeGraphViewer
@@ -45,6 +57,8 @@ export interface UserKnowledgeGraphResponse {
   total_weight: string
   activity_breakdown: KnowledgeGraphActivityBreakdownEntry[]
   concepts: KnowledgeGraphConceptEntry[]
+  nodes: KnowledgeGraphNode[]
+  edges: KnowledgeGraphEdge[]
 }
 
 export interface KnowledgeGraphRebuildSummary {
@@ -240,6 +254,58 @@ function parseConcepts(value: unknown, path: string): KnowledgeGraphConceptEntry
   return assertArray(value, path).map((entry, index) => parseConceptEntry(entry, `${path}[${index}]`))
 }
 
+function parseNodes(value: unknown, path: string): KnowledgeGraphNode[] {
+  return assertArray(value, path).map((entry, index) => parseConceptEntry(entry, `${path}[${index}]`))
+}
+
+function assertSharedQuestionReason(value: unknown, path: string): 'shared_question' {
+  const parsed = assertString(value, path)
+
+  if (parsed !== 'shared_question') {
+    throw new MalformedKnowledgeGraphResponseError(path, "'shared_question'")
+  }
+
+  return parsed
+}
+
+function parseEdge(value: unknown, path: string): KnowledgeGraphEdge {
+  const record = assertRecord(value, path)
+
+  return {
+    id: assertNonEmptyString(record.id, `${path}.id`),
+    source_concept_id: assertNonNegativeInteger(record.source_concept_id, `${path}.source_concept_id`),
+    target_concept_id: assertNonNegativeInteger(record.target_concept_id, `${path}.target_concept_id`),
+    weight: assertDecimalString(record.weight, `${path}.weight`),
+    shared_question_count: assertNonNegativeInteger(record.shared_question_count, `${path}.shared_question_count`),
+    reason: assertSharedQuestionReason(record.reason, `${path}.reason`),
+    related_questions: parseRelatedQuestions(record.related_questions, `${path}.related_questions`),
+  }
+}
+
+function parseEdges(value: unknown, path: string): KnowledgeGraphEdge[] {
+  return assertArray(value, path).map((entry, index) => parseEdge(entry, `${path}[${index}]`))
+}
+
+function validateEdgeEndpoints(edges: KnowledgeGraphEdge[], nodes: KnowledgeGraphNode[]): void {
+  const nodeIds = new Set(nodes.map((node) => node.concept_id))
+
+  edges.forEach((edge, index) => {
+    if (!nodeIds.has(edge.source_concept_id)) {
+      throw new MalformedKnowledgeGraphResponseError(
+        `edges[${index}].source_concept_id`,
+        'a concept_id from nodes',
+      )
+    }
+
+    if (!nodeIds.has(edge.target_concept_id)) {
+      throw new MalformedKnowledgeGraphResponseError(
+        `edges[${index}].target_concept_id`,
+        'a concept_id from nodes',
+      )
+    }
+  })
+}
+
 function parseRebuildSummary(value: unknown, path: string): KnowledgeGraphRebuildSummary {
   const record = assertRecord(value, path)
   const summary: KnowledgeGraphRebuildSummary = {}
@@ -253,6 +319,10 @@ function parseRebuildSummary(value: unknown, path: string): KnowledgeGraphRebuil
 
 export function parseUserKnowledgeGraphResponse(value: unknown): UserKnowledgeGraphResponse {
   const record = assertRecord(value, 'root')
+  const nodes = parseNodes(record.nodes, 'nodes')
+  const edges = parseEdges(record.edges, 'edges')
+
+  validateEdgeEndpoints(edges, nodes)
 
   return {
     user_id: assertUuidString(record.user_id, 'user_id'),
@@ -261,6 +331,8 @@ export function parseUserKnowledgeGraphResponse(value: unknown): UserKnowledgeGr
     total_weight: assertDecimalString(record.total_weight, 'total_weight'),
     activity_breakdown: parseActivityBreakdown(record.activity_breakdown, 'activity_breakdown'),
     concepts: parseConcepts(record.concepts, 'concepts'),
+    nodes,
+    edges,
   }
 }
 

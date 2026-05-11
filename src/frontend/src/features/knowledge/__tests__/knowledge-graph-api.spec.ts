@@ -67,6 +67,59 @@ const graphPayload = (overrides: Record<string, unknown> = {}) => ({
       raw_events: [{ id: 'event-1' }],
     },
   ],
+  nodes: [
+    {
+      concept_id: 10,
+      slug: 'django',
+      name: 'Django',
+      source: 'tag',
+      provider: 'tag-sync',
+      confidence: '1.0000',
+      total_weight: '1.2500',
+      source_count: 2,
+      activity_breakdown: [
+        { activity_type: 'question_upvote', total_weight: '0.2500', source_count: 1 },
+      ],
+      related_questions: [
+        {
+          question_id: '22222222-2222-4222-8222-222222222222',
+          title: 'How do I expose a graph safely?',
+          status: 'open',
+        },
+      ],
+      source_object_id: 'private-source-id',
+    },
+    {
+      concept_id: 20,
+      slug: 'vue',
+      name: 'Vue',
+      source: 'tag',
+      provider: 'tag-sync',
+      confidence: '0.8000',
+      total_weight: '0.5000',
+      source_count: 1,
+      activity_breakdown: [],
+      related_questions: [],
+    },
+  ],
+  edges: [
+    {
+      id: '10:20:shared_question',
+      source_concept_id: 10,
+      target_concept_id: 20,
+      weight: '2.0000',
+      shared_question_count: 2,
+      reason: 'shared_question',
+      related_questions: [
+        {
+          question_id: '33333333-3333-4333-8333-333333333333',
+          title: 'How should graph edges be rendered?',
+          status: 'answered',
+        },
+      ],
+      raw_activity_sources: ['private-source-id'],
+    },
+  ],
   user_email: 'graph-owner@example.com',
   raw_exception: 'Traceback provider token leaked',
   ...overrides,
@@ -135,7 +188,60 @@ describe('knowledge graph API contract', () => {
           ],
         },
       ],
+      nodes: [
+        {
+          concept_id: 10,
+          slug: 'django',
+          name: 'Django',
+          source: 'tag',
+          provider: 'tag-sync',
+          confidence: '1.0000',
+          total_weight: '1.2500',
+          source_count: 2,
+          activity_breakdown: [
+            { activity_type: 'question_upvote', total_weight: '0.2500', source_count: 1 },
+          ],
+          related_questions: [
+            {
+              question_id: '22222222-2222-4222-8222-222222222222',
+              title: 'How do I expose a graph safely?',
+              status: 'open',
+            },
+          ],
+        },
+        {
+          concept_id: 20,
+          slug: 'vue',
+          name: 'Vue',
+          source: 'tag',
+          provider: 'tag-sync',
+          confidence: '0.8000',
+          total_weight: '0.5000',
+          source_count: 1,
+          activity_breakdown: [],
+          related_questions: [],
+        },
+      ],
+      edges: [
+        {
+          id: '10:20:shared_question',
+          source_concept_id: 10,
+          target_concept_id: 20,
+          weight: '2.0000',
+          shared_question_count: 2,
+          reason: 'shared_question',
+          related_questions: [
+            {
+              question_id: '33333333-3333-4333-8333-333333333333',
+              title: 'How should graph edges be rendered?',
+              status: 'answered',
+            },
+          ],
+        },
+      ],
     })
+    expect(parsed.nodes[0].confidence).toBe('1.0000')
+    expect(parsed.edges[0].weight).toBe('2.0000')
     expect(JSON.stringify(parsed)).not.toContain('source_object_id')
     expect(JSON.stringify(parsed)).not.toContain('graph-owner@example.com')
     expect(JSON.stringify(parsed)).not.toContain('raw_exception')
@@ -149,6 +255,8 @@ describe('knowledge graph API contract', () => {
           total_weight: '0.0000',
           activity_breakdown: [],
           concepts: [],
+          nodes: [],
+          edges: [],
         }),
       ),
     ).toMatchObject({
@@ -156,7 +264,59 @@ describe('knowledge graph API contract', () => {
       total_weight: '0.0000',
       activity_breakdown: [],
       concepts: [],
+      nodes: [],
+      edges: [],
     })
+  })
+
+  it('accepts single-node topology boundaries without edges', () => {
+    expect(
+      parseUserKnowledgeGraphResponse(
+        graphPayload({
+          nodes: [graphPayload().nodes[0]],
+          edges: [],
+        }),
+      ),
+    ).toMatchObject({
+      nodes: [{ concept_id: 10 }],
+      edges: [],
+    })
+  })
+
+  it('rejects malformed topology DTOs with typed errors that name invalid paths', () => {
+    expect(() => parseUserKnowledgeGraphResponse(graphPayload({ nodes: undefined }))).toThrow(
+      /nodes/,
+    )
+    expect(() => parseUserKnowledgeGraphResponse(graphPayload({ nodes: [{ ...graphPayload().nodes[0], concept_id: -1 }] }))).toThrow(
+      /nodes\[0\]\.concept_id/,
+    )
+    expect(() => parseUserKnowledgeGraphResponse(graphPayload({ nodes: [{ ...graphPayload().nodes[0], slug: '   ' }] }))).toThrow(
+      /nodes\[0\]\.slug/,
+    )
+    expect(() => parseUserKnowledgeGraphResponse(graphPayload({ nodes: [{ ...graphPayload().nodes[0], confidence: 'high' }] }))).toThrow(
+      /nodes\[0\]\.confidence/,
+    )
+    expect(() => parseUserKnowledgeGraphResponse(graphPayload({ edges: undefined }))).toThrow(
+      /edges/,
+    )
+    expect(() => parseUserKnowledgeGraphResponse(graphPayload({ edges: [{ ...graphPayload().edges[0], id: '' }] }))).toThrow(
+      /edges\[0\]\.id/,
+    )
+    expect(() => parseUserKnowledgeGraphResponse(graphPayload({ edges: [{ ...graphPayload().edges[0], weight: 'heavy' }] }))).toThrow(
+      /edges\[0\]\.weight/,
+    )
+    expect(() => parseUserKnowledgeGraphResponse(graphPayload({ edges: [{ ...graphPayload().edges[0], reason: 'semantic_similarity' }] }))).toThrow(
+      /edges\[0\]\.reason/,
+    )
+    expect(() => parseUserKnowledgeGraphResponse(graphPayload({ edges: [{ ...graphPayload().edges[0], related_questions: [{ question_id: 'not-a-uuid', title: 'Bad', status: 'open' }] }] }))).toThrow(
+      /edges\[0\]\.related_questions\[0\]\.question_id/,
+    )
+    expect(() => parseUserKnowledgeGraphResponse(graphPayload({ edges: [{ ...graphPayload().edges[0], source_concept_id: 999 }] }))).toThrow(
+      /edges\[0\]\.source_concept_id/,
+    )
+    expect(() => parseUserKnowledgeGraphResponse(graphPayload({ edges: [{ ...graphPayload().edges[0], target_concept_id: 999 }] }))).toThrow(
+      /edges\[0\]\.target_concept_id/,
+    )
   })
 
   it('rejects malformed graph DTOs with typed errors that name invalid paths', () => {
