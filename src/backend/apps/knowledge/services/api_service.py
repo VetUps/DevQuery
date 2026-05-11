@@ -24,6 +24,8 @@ ZERO_WEIGHT = Decimal('0.0000')
 RELATED_QUESTION_PREVIEW_LIMIT = 5
 LAYOUT_SCHEMA_VERSION = 1
 MAX_LAYOUT_POSITIONS = 500
+MAX_LAYOUT_CONCEPT_ID_LENGTH = 20
+MAX_LAYOUT_COORDINATE_ABS = 100000
 
 
 def _safe_decimal(value: Decimal | None) -> Decimal:
@@ -122,14 +124,21 @@ def _layout_payload(layout: UserKnowledgeGraphLayout | None, *, allowed_concept_
         }
 
     allowed_keys = {str(concept_id) for concept_id in allowed_concept_ids}
-    positions = {
-        concept_id: {
-            'x': float(position['x']),
-            'y': float(position['y']),
-        }
-        for concept_id, position in layout.positions.items()
-        if concept_id in allowed_keys and isinstance(position, dict) and 'x' in position and 'y' in position
-    }
+    positions = {}
+    for concept_id, position in layout.positions.items():
+        if concept_id not in allowed_keys or not isinstance(position, dict):
+            continue
+
+        try:
+            x = float(position['x'])
+            y = float(position['y'])
+        except (KeyError, TypeError, ValueError):
+            continue
+
+        if not isfinite(x) or not isfinite(y) or abs(x) > MAX_LAYOUT_COORDINATE_ABS or abs(y) > MAX_LAYOUT_COORDINATE_ABS:
+            continue
+
+        positions[concept_id] = {'x': x, 'y': y}
 
     return {
         'schema_version': layout.schema_version,
@@ -158,10 +167,13 @@ def save_user_graph_layout(user, *, schema_version: int, positions: dict[str, di
     unknown_concept_ids: list[str] = []
 
     for concept_id, position in positions.items():
+        if len(str(concept_id)) > MAX_LAYOUT_CONCEPT_ID_LENGTH or not str(concept_id).isdigit():
+            raise serializers.ValidationError({'positions': 'Invalid concept id.'})
+
         try:
             normalized_concept_id = int(concept_id)
         except (TypeError, ValueError):
-            raise serializers.ValidationError({'positions': f'Invalid concept id: {concept_id}.'})
+            raise serializers.ValidationError({'positions': 'Invalid concept id.'})
 
         if normalized_concept_id not in allowed_concept_ids:
             unknown_concept_ids.append(str(concept_id))
@@ -169,8 +181,13 @@ def save_user_graph_layout(user, *, schema_version: int, positions: dict[str, di
 
         x = float(position['x'])
         y = float(position['y'])
-        if not isfinite(x) or not isfinite(y):
-            raise serializers.ValidationError({'positions': f'Invalid coordinates for concept id: {concept_id}.'})
+        if (
+            not isfinite(x)
+            or not isfinite(y)
+            or abs(x) > MAX_LAYOUT_COORDINATE_ABS
+            or abs(y) > MAX_LAYOUT_COORDINATE_ABS
+        ):
+            raise serializers.ValidationError({'positions': 'Invalid coordinates.'})
 
         normalized_positions[str(normalized_concept_id)] = {
             'x': x,
@@ -178,7 +195,9 @@ def save_user_graph_layout(user, *, schema_version: int, positions: dict[str, di
         }
 
     if unknown_concept_ids:
-        raise serializers.ValidationError({'positions': f'Unknown concept ids: {", ".join(sorted(unknown_concept_ids))}.'})
+        preview = ', '.join(sorted(unknown_concept_ids)[:5])
+        suffix = '…' if len(unknown_concept_ids) > 5 else ''
+        raise serializers.ValidationError({'positions': f'Unknown concept ids: {preview}{suffix}.'})
 
     with transaction.atomic():
         layout, _ = UserKnowledgeGraphLayout.objects.select_for_update().get_or_create(
