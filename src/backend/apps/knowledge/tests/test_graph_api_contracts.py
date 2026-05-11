@@ -134,8 +134,29 @@ class KnowledgeGraphAPIContractTests(APITestCase):
             ['approved_edit', 'authored_question', 'question_upvote'],
         )
         self.assertIn('nodes', response.data)
+        self.assertIn('edges', response.data)
         self.assertEqual(response.data['nodes'], response.data['concepts'])
         self.assertEqual([entry['slug'] for entry in response.data['nodes']], ['django', 'rest-api'])
+        self.assertEqual(
+            response.data['edges'],
+            [
+                {
+                    'id': f'shared-question:{min(self.django.pk, self.rest.pk)}:{max(self.django.pk, self.rest.pk)}',
+                    'source_concept_id': min(self.django.pk, self.rest.pk),
+                    'target_concept_id': max(self.django.pk, self.rest.pk),
+                    'weight': '1.0000',
+                    'shared_question_count': 1,
+                    'reason': 'shared_question',
+                    'related_questions': [
+                        {
+                            'question_id': str(self.question.pk),
+                            'title': 'How do I expose a graph safely?',
+                            'status': Question.Status.OPEN_STATUS,
+                        }
+                    ],
+                }
+            ],
+        )
         concepts_by_slug = {entry['slug']: entry for entry in response.data['concepts']}
         nodes_by_slug = {entry['slug']: entry for entry in response.data['nodes']}
         self.assertEqual(set(concepts_by_slug), {'django', 'rest-api'})
@@ -168,6 +189,98 @@ class KnowledgeGraphAPIContractTests(APITestCase):
         )
         self.assert_private_activity_fields_are_redacted(response.data)
 
+    def test_shared_question_edges_are_deduplicated_and_sorted_without_self_or_isolated_edges(self):
+        second_question = Question.objects.create(
+            user=self.owner,
+            question_title='How do I serialize a graph edge?',
+            question_body='Another private body that must never appear in topology explainability.',
+        )
+        isolated_question = Question.objects.create(
+            user=self.owner,
+            question_title='Why is this concept isolated?',
+            question_body='Isolated private body that must never appear in topology explainability.',
+        )
+        isolated = KnowledgeConcept.objects.create(
+            slug='isolated',
+            name='Isolated',
+            source=KnowledgeConcept.Source.PROVIDER,
+            provider='provider-b',
+            confidence=Decimal('0.7500'),
+        )
+        QuestionConceptEdge.objects.create(
+            question=second_question,
+            concept=self.django,
+            source=QuestionConceptEdge.Source.TAG,
+            provider='tag-sync',
+            confidence=Decimal('1.0000'),
+        )
+        QuestionConceptEdge.objects.create(
+            question=second_question,
+            concept=self.rest,
+            source=QuestionConceptEdge.Source.PROVIDER,
+            provider='provider-a',
+            confidence=Decimal('0.8750'),
+        )
+        QuestionConceptEdge.objects.create(
+            question=isolated_question,
+            concept=isolated,
+            source=QuestionConceptEdge.Source.PROVIDER,
+            provider='provider-b',
+            confidence=Decimal('0.7500'),
+        )
+        for concept, question, idempotency_suffix in (
+            (self.django, second_question, 'django-second'),
+            (self.rest, second_question, 'rest-second'),
+            (isolated, isolated_question, 'isolated'),
+        ):
+            UserConceptActivity.objects.create(
+                user=self.owner,
+                concept=concept,
+                activity_type=UserConceptActivity.ActivityType.AUTHORED_QUESTION,
+                weight_delta=Decimal('1.0000'),
+                source=UserConceptActivity.Source.QUESTION,
+                provider='activity-rebuild',
+                confidence=Decimal('1.0000'),
+                source_content_type=self.question_content_type,
+                source_object_id=question.pk,
+                related_question=question,
+                idempotency_key=f'authored:{question.pk}:{idempotency_suffix}',
+            )
+        self.client.force_authenticate(self.owner)
+
+        response = self.client.get('/knowledge-graph/me/')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual([node['slug'] for node in response.data['nodes']], ['django', 'isolated', 'rest-api'])
+        self.assertEqual(
+            response.data['edges'],
+            [
+                {
+                    'id': f'shared-question:{min(self.django.pk, self.rest.pk)}:{max(self.django.pk, self.rest.pk)}',
+                    'source_concept_id': min(self.django.pk, self.rest.pk),
+                    'target_concept_id': max(self.django.pk, self.rest.pk),
+                    'weight': '2.0000',
+                    'shared_question_count': 2,
+                    'reason': 'shared_question',
+                    'related_questions': [
+                        {
+                            'question_id': str(self.question.pk),
+                            'title': 'How do I expose a graph safely?',
+                            'status': Question.Status.OPEN_STATUS,
+                        },
+                        {
+                            'question_id': str(second_question.pk),
+                            'title': 'How do I serialize a graph edge?',
+                            'status': Question.Status.OPEN_STATUS,
+                        },
+                    ],
+                }
+            ],
+        )
+        self.assertNotIn(f'shared-question:{isolated.pk}:{isolated.pk}', repr(response.data['edges']))
+        self.assertNotIn(str(isolated_question.pk), repr(response.data['edges']))
+        self.assert_private_activity_fields_are_redacted(response.data)
+
     def test_public_user_graph_returns_aggregate_non_owner_contract_without_private_fields(self):
         self.client.force_authenticate(self.viewer)
 
@@ -179,8 +292,10 @@ class KnowledgeGraphAPIContractTests(APITestCase):
         self.assertEqual(response.data['total_weight'], '1.7500')
         self.assertEqual(response.data['state']['status'], UserKnowledgeGraphState.Status.FAILED)
         self.assertIn('nodes', response.data)
+        self.assertIn('edges', response.data)
         self.assertEqual(response.data['nodes'], response.data['concepts'])
         self.assertEqual([entry['slug'] for entry in response.data['nodes']], ['django', 'rest-api'])
+        self.assertEqual(len(response.data['edges']), 1)
         self.assert_private_activity_fields_are_redacted(response.data)
 
     def test_question_graph_returns_question_concept_edges_without_question_body(self):
@@ -220,6 +335,7 @@ class KnowledgeGraphAPIContractTests(APITestCase):
         self.assertEqual(user_response.data['total_weight'], '0.0000')
         self.assertEqual(user_response.data['concepts'], [])
         self.assertEqual(user_response.data['nodes'], [])
+        self.assertEqual(user_response.data['edges'], [])
         self.assertEqual(user_response.data['activity_breakdown'], [])
         self.assertEqual(question_response.status_code, status.HTTP_200_OK, question_response.data)
         self.assertEqual(question_response.data['concepts'], [])

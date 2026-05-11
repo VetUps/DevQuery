@@ -43,6 +43,16 @@ class UserGraphNodeSerializer(UserGraphConceptEntrySerializer):
     """Explicit graph topology node entry matching the aggregate concept shape."""
 
 
+class KnowledgeGraphEdgeSerializer(serializers.Serializer):
+    id = serializers.CharField()
+    source_concept_id = serializers.IntegerField()
+    target_concept_id = serializers.IntegerField()
+    weight = serializers.DecimalField(max_digits=12, decimal_places=4)
+    shared_question_count = serializers.IntegerField(min_value=1)
+    reason = serializers.CharField()
+    related_questions = RelatedQuestionSummarySerializer(many=True)
+
+
 class UserGraphResponseSerializer(serializers.Serializer):
     user_id = serializers.UUIDField()
     viewer = ViewerSerializer()
@@ -51,6 +61,7 @@ class UserGraphResponseSerializer(serializers.Serializer):
     activity_breakdown = ActivityBreakdownEntrySerializer(many=True)
     concepts = UserGraphConceptEntrySerializer(many=True)
     nodes = UserGraphNodeSerializer(many=True)
+    edges = KnowledgeGraphEdgeSerializer(many=True)
 
 
 class RebuildSummarySerializer(serializers.Serializer):
