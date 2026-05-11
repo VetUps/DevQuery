@@ -232,12 +232,20 @@ test.describe('profile knowledge graph smoke', () => {
     await expect(page.getByTestId('knowledge-graph-selected-details')).toContainText('Принятые ответы')
     await expect(page.getByTestId('knowledge-graph-selected-neighbours')).toContainText('Pinia')
     await expect(page.getByText('Почему эти концепты рядом')).toBeVisible()
-    await expect(page.getByText('1 общих вопросов · вес 3,25')).toBeVisible()
+    await expect(page.getByTestId('knowledge-selected-edge-explanation')).toContainText('Нажмите соседний концепт')
+
+    await page.getByTestId('knowledge-neighbour-option-8').click()
+    await expect(page.getByTestId('knowledge-selected-edge-explanation')).toContainText('1 общих вопросов · вес 3,25')
     await expect(page.getByRole('link', { name: sharedQuestion.title }).first()).toHaveAttribute(
       'href',
       `/questions/${RELATED_QUESTION_ID}`,
     )
-    await expect(page.getByTestId('knowledge-graph-state-context')).toContainText('activity_changed')
+
+    await page.getByTestId('knowledge-related-questions-open').click()
+    await expect(page.getByTestId('knowledge-related-questions-modal')).toContainText(sharedQuestion.title)
+    await page.getByTestId('knowledge-related-questions-close').click()
+    await expect(page.getByTestId('knowledge-related-questions-modal')).toHaveCount(0)
+    await expect(page.getByTestId('knowledge-state-banner')).toContainText('activity_changed')
 
     await page.getByTestId('knowledge-view-mode-list').click()
     await expect(page.getByTestId('knowledge-view-mode-graph')).toHaveAttribute('aria-pressed', 'false')
@@ -291,8 +299,8 @@ test.describe('profile knowledge graph smoke', () => {
 
     await page.getByTestId('knowledge-graph-concept-option-8').click()
     await expect(page.getByTestId('knowledge-graph-selected-details')).toContainText('Pinia')
-    await expect(page.getByTestId('knowledge-graph-state-context')).toContainText('question_authoring')
-    await expect(page.getByTestId('knowledge-graph-state-context')).toContainText('Технические детали скрыты')
+    await expect(page.getByTestId('knowledge-state-banner')).toContainText('question_authoring')
+    await expect(page.getByTestId('knowledge-graph-state-context')).toHaveCount(0)
 
     await page.getByTestId('knowledge-view-mode-list').click()
     await expect(page.getByTestId('knowledge-list-panel')).toBeVisible()
