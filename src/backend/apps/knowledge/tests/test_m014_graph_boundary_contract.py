@@ -21,6 +21,7 @@ class M014KnowledgeGraphBoundaryContractTests(SimpleTestCase):
     def test_r187_r188_knowledge_urls_expose_only_existing_aggregate_graph_routes(self):
         expected_route_names = {
             'own-user-graph',
+            'own-user-graph-layout',
             'own-user-graph-rebuild',
             'public-user-graph',
             'question-graph',
@@ -71,6 +72,7 @@ class M014KnowledgeGraphBoundaryContractTests(SimpleTestCase):
             'ConceptTagMapping',
             'QuestionConceptEdge',
             'UserConceptActivity',
+            'UserKnowledgeGraphLayout',
             'UserKnowledgeGraphState',
         }
         knowledge_models = list(apps.get_app_config('knowledge').get_models())

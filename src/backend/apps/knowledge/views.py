@@ -7,6 +7,8 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.knowledge.serializers import (
+    KnowledgeGraphLayoutSaveSerializer,
+    KnowledgeGraphLayoutSerializer,
     QuestionGraphResponseSerializer,
     UserGraphRebuildErrorResponseSerializer,
     UserGraphRebuildResponseSerializer,
@@ -16,7 +18,10 @@ from apps.knowledge.services.api_service import (
     get_question_graph_payload,
     get_rebuild_error_payload,
     get_rebuild_summary_payload,
+    get_user_graph_layout_payload,
     get_user_graph_payload,
+    reset_user_graph_layout,
+    save_user_graph_layout,
 )
 from apps.knowledge.services.graph_state_service import UserKnowledgeGraphRebuildError, rebuild_user_knowledge_graph
 from apps.qa.models import Question
@@ -32,6 +37,42 @@ class OwnUserGraphView(APIView):
     def get(self, request):
         payload = get_user_graph_payload(request.user, is_owner=True)
         return Response(UserGraphResponseSerializer(payload).data)
+
+
+class OwnUserGraphLayoutView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        responses={200: KnowledgeGraphLayoutSerializer},
+        description='Return the authenticated owner saved knowledge graph layout positions.',
+    )
+    def get(self, request):
+        payload = get_user_graph_layout_payload(request.user)
+        return Response(KnowledgeGraphLayoutSerializer(payload).data)
+
+    @extend_schema(
+        request=KnowledgeGraphLayoutSaveSerializer,
+        responses={200: KnowledgeGraphLayoutSerializer},
+        description='Replace the authenticated owner saved knowledge graph layout positions.',
+    )
+    def put(self, request):
+        serializer = KnowledgeGraphLayoutSaveSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        payload = save_user_graph_layout(
+            request.user,
+            schema_version=serializer.validated_data.get('schema_version', 1),
+            positions=serializer.validated_data['positions'],
+        )
+        return Response(KnowledgeGraphLayoutSerializer(payload).data, status=status.HTTP_200_OK)
+
+    @extend_schema(
+        request=None,
+        responses={200: KnowledgeGraphLayoutSerializer},
+        description='Reset the authenticated owner saved knowledge graph layout positions.',
+    )
+    def delete(self, request):
+        payload = reset_user_graph_layout(request.user)
+        return Response(KnowledgeGraphLayoutSerializer(payload).data, status=status.HTTP_200_OK)
 
 
 class OwnUserGraphRebuildView(APIView):
