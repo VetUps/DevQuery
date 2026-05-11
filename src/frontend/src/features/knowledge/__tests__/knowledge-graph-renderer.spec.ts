@@ -457,6 +457,109 @@ describe('KnowledgeGraphRenderer', () => {
     expect(wrapper.emitted('node-selected')).toEqual([[10]])
   })
 
+  it('renders accessible concept selector controls from parsed nodes', async () => {
+    const wrapper = mount(KnowledgeGraphRenderer, {
+      props: {
+        nodes: buildNodes(),
+        edges: buildEdges(),
+      },
+    })
+    await flushPromises()
+
+    const selector = wrapper.get('[data-testid="knowledge-graph-concept-selector"]')
+    const options = wrapper.findAll('[data-testid^="knowledge-graph-concept-option-"]')
+
+    expect(selector.attributes('aria-label')).toBe('Выбор концепта на графе знаний')
+    expect(options).toHaveLength(3)
+    expect(wrapper.get('[data-testid="knowledge-graph-concept-option-10"]').text()).toContain('Vue')
+    expect(wrapper.get('[data-testid="knowledge-graph-concept-option-10"]').text()).toContain('7 источников')
+    expect(wrapper.get('[data-testid="knowledge-graph-concept-option-10"]').attributes('aria-pressed')).toBe('false')
+  })
+
+  it('emits the same node-selected contract from concept selector controls', async () => {
+    const wrapper = mount(KnowledgeGraphRenderer, {
+      props: {
+        nodes: buildNodes(),
+        edges: buildEdges(),
+      },
+    })
+    await flushPromises()
+
+    await wrapper.get('[data-testid="knowledge-graph-concept-option-11"]').trigger('click')
+
+    expect(wrapper.emitted('node-selected')).toEqual([[11]])
+  })
+
+  it('marks only the matching selector control as selected', async () => {
+    const wrapper = mount(KnowledgeGraphRenderer, {
+      props: {
+        nodes: buildNodes(),
+        edges: buildEdges(),
+        selectedConceptId: 11,
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="knowledge-graph-concept-option-10"]').attributes('aria-pressed')).toBe('false')
+    expect(wrapper.get('[data-testid="knowledge-graph-concept-option-11"]').attributes('aria-pressed')).toBe('true')
+    expect(wrapper.get('[data-testid="knowledge-graph-concept-option-12"]').attributes('aria-pressed')).toBe('false')
+
+    await wrapper.setProps({ selectedConceptId: 404 })
+
+    expect(wrapper.get('[data-testid="knowledge-graph-concept-option-10"]').attributes('aria-pressed')).toBe('false')
+    expect(wrapper.get('[data-testid="knowledge-graph-concept-option-11"]').attributes('aria-pressed')).toBe('false')
+    expect(wrapper.get('[data-testid="knowledge-graph-concept-option-12"]').attributes('aria-pressed')).toBe('false')
+  })
+
+  it('does not render selector controls for empty nodes', async () => {
+    const wrapper = mount(KnowledgeGraphRenderer, {
+      props: {
+        nodes: [],
+        edges: [],
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="knowledge-graph-concept-selector"]').exists()).toBe(false)
+    expect(wrapper.findAll('[data-testid^="knowledge-graph-concept-option-"]')).toHaveLength(0)
+  })
+
+  it('keeps isolated nodes selectable through the concept selector', async () => {
+    const wrapper = mount(KnowledgeGraphRenderer, {
+      props: {
+        nodes: [buildNodes()[0]],
+        edges: [],
+      },
+    })
+    await flushPromises()
+
+    await wrapper.get('[data-testid="knowledge-graph-concept-option-10"]').trigger('click')
+
+    expect(wrapper.emitted('node-selected')).toEqual([[10]])
+  })
+
+  it('keeps selector controls usable when Cytoscape cannot initialize', async () => {
+    cytoscapeMock.constructor.mockImplementationOnce(() => {
+      throw new Error('container unavailable')
+    })
+
+    const wrapper = mount(KnowledgeGraphRenderer, {
+      props: {
+        nodes: buildNodes(),
+        edges: buildEdges(),
+      },
+    })
+    await flushPromises()
+
+    await wrapper.get('[data-testid="knowledge-graph-concept-option-10"]').trigger('click')
+
+    expect(wrapper.get('[data-testid="knowledge-graph-renderer-unavailable"]').text()).toContain(
+      'Не удалось отобразить интерактивный граф',
+    )
+    expect(wrapper.text()).not.toContain('container unavailable')
+    expect(wrapper.emitted('node-selected')).toEqual([[10]])
+  })
+
   it('renders empty topology copy without constructing Cytoscape', async () => {
     const wrapper = mount(KnowledgeGraphRenderer, {
       props: {
