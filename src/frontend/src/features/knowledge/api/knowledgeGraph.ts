@@ -50,6 +50,22 @@ export interface KnowledgeGraphEdge {
   related_questions: KnowledgeGraphRelatedQuestion[]
 }
 
+export interface KnowledgeGraphLayoutPosition {
+  x: number
+  y: number
+}
+
+export interface KnowledgeGraphLayout {
+  schema_version: 1
+  positions: Record<string, KnowledgeGraphLayoutPosition>
+  updated_at: string | null
+}
+
+export interface SaveKnowledgeGraphLayoutRequest {
+  schema_version: 1
+  positions: Record<string, KnowledgeGraphLayoutPosition>
+}
+
 export interface UserKnowledgeGraphResponse {
   user_id: string
   viewer: KnowledgeGraphViewer
@@ -59,6 +75,7 @@ export interface UserKnowledgeGraphResponse {
   concepts: KnowledgeGraphConceptEntry[]
   nodes: KnowledgeGraphNode[]
   edges: KnowledgeGraphEdge[]
+  layout?: KnowledgeGraphLayout
 }
 
 export interface KnowledgeGraphRebuildSummary {
@@ -286,6 +303,45 @@ function parseEdges(value: unknown, path: string): KnowledgeGraphEdge[] {
   return assertArray(value, path).map((entry, index) => parseEdge(entry, `${path}[${index}]`))
 }
 
+function assertLayoutSchemaVersion(value: unknown, path: string): 1 {
+  const parsed = assertNonNegativeInteger(value, path)
+
+  if (parsed !== 1) {
+    throw new MalformedKnowledgeGraphResponseError(path, 'layout schema version 1')
+  }
+
+  return 1
+}
+
+function parseLayoutPosition(value: unknown, path: string): KnowledgeGraphLayoutPosition {
+  const record = assertRecord(value, path)
+
+  return {
+    x: assertNumber(record.x, `${path}.x`),
+    y: assertNumber(record.y, `${path}.y`),
+  }
+}
+
+export function parseKnowledgeGraphLayout(value: unknown): KnowledgeGraphLayout {
+  const record = assertRecord(value, 'layout')
+  const rawPositions = assertRecord(record.positions, 'layout.positions')
+  const positions: Record<string, KnowledgeGraphLayoutPosition> = {}
+
+  Object.entries(rawPositions).forEach(([conceptId, position]) => {
+    if (!/^\d+$/.test(conceptId)) {
+      throw new MalformedKnowledgeGraphResponseError(`layout.positions.${conceptId}`, 'a numeric concept id key')
+    }
+
+    positions[conceptId] = parseLayoutPosition(position, `layout.positions.${conceptId}`)
+  })
+
+  return {
+    schema_version: assertLayoutSchemaVersion(record.schema_version, 'layout.schema_version'),
+    positions,
+    updated_at: assertNullableString(record.updated_at, 'layout.updated_at'),
+  }
+}
+
 function validateEdgeEndpoints(edges: KnowledgeGraphEdge[], nodes: KnowledgeGraphNode[]): void {
   const nodeIds = new Set(nodes.map((node) => node.concept_id))
 
@@ -324,7 +380,7 @@ export function parseUserKnowledgeGraphResponse(value: unknown): UserKnowledgeGr
 
   validateEdgeEndpoints(edges, nodes)
 
-  return {
+  const parsed: UserKnowledgeGraphResponse = {
     user_id: assertUuidString(record.user_id, 'user_id'),
     viewer: parseViewer(record.viewer, 'viewer'),
     state: parseGraphState(record.state, 'state'),
@@ -334,6 +390,12 @@ export function parseUserKnowledgeGraphResponse(value: unknown): UserKnowledgeGr
     nodes,
     edges,
   }
+
+  if ('layout' in record) {
+    parsed.layout = parseKnowledgeGraphLayout(record.layout)
+  }
+
+  return parsed
 }
 
 export function parseKnowledgeGraphRebuildResponse(value: unknown): KnowledgeGraphRebuildResponse {
@@ -378,4 +440,18 @@ export async function rebuildOwnKnowledgeGraph(): Promise<KnowledgeGraphRebuildR
   const response = await http.post<unknown>('/knowledge-graph/me/rebuild/')
 
   return parseKnowledgeGraphRebuildResponse(response.data)
+}
+
+export async function saveOwnKnowledgeGraphLayout(
+  payload: SaveKnowledgeGraphLayoutRequest,
+): Promise<KnowledgeGraphLayout> {
+  const response = await http.put<unknown>('/knowledge-graph/me/layout/', payload)
+
+  return parseKnowledgeGraphLayout(response.data)
+}
+
+export async function resetOwnKnowledgeGraphLayout(): Promise<KnowledgeGraphLayout> {
+  const response = await http.delete<unknown>('/knowledge-graph/me/layout/')
+
+  return parseKnowledgeGraphLayout(response.data)
 }
