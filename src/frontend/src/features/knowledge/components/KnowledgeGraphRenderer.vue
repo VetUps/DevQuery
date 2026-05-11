@@ -457,17 +457,18 @@ function focusSelectedConcept(): void {
   inset: 0;
   display: grid;
   place-items: center;
-  padding: var(--space-md);
+  padding: var(--space-xs);
   background: rgb(15 23 42 / 0.48);
 }
 
 .knowledge-graph-renderer__modal {
   display: grid;
-  width: min(1120px, 96vw);
-  max-height: 92vh;
-  gap: var(--space-md);
-  overflow: auto;
-  padding: var(--space-lg);
+  width: min(1480px, 98vw);
+  height: 96vh;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: var(--space-sm);
+  overflow: hidden;
+  padding: var(--space-md);
   border: 1px solid rgb(14 116 144 / 0.18);
   border-radius: calc(var(--radius-lg) + var(--space-sm));
   background: rgb(255 255 255 / 0.96);
@@ -490,7 +491,7 @@ function focusSelectedConcept(): void {
 }
 
 .knowledge-graph-renderer__modal-footer {
-  padding: var(--space-md);
+  padding: var(--space-sm) var(--space-md);
   border: 1px solid rgb(14 116 144 / 0.14);
   border-radius: var(--radius-lg);
   background: linear-gradient(135deg, rgb(236 254 255 / 0.7), rgb(255 255 255 / 0.78));
@@ -511,7 +512,8 @@ function focusSelectedConcept(): void {
 }
 
 :deep(.knowledge-graph-renderer__modal-canvas) {
-  min-height: min(62vh, 620px);
+  height: 100%;
+  min-height: 680px;
 }
 
 @media (width <= 720px) {
@@ -522,7 +524,11 @@ function focusSelectedConcept(): void {
 
   .knowledge-graph-renderer__modal {
     width: 100%;
-    max-height: 100%;
+    height: 100%;
+  }
+
+  :deep(.knowledge-graph-renderer__modal-canvas) {
+    min-height: 60vh;
   }
 }
 </style>
