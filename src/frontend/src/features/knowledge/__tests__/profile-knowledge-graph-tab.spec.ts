@@ -48,7 +48,42 @@ vi.mock('@/features/knowledge/mutations/useRebuildKnowledgeGraphMutation', () =>
 const mountedWrappers: VueWrapper[] = []
 
 function buildGraph(overrides: Partial<UserKnowledgeGraphResponse> = {}): UserKnowledgeGraphResponse {
-  return {
+  const baseConcepts: UserKnowledgeGraphResponse['concepts'] = [
+    {
+      concept_id: 10,
+      slug: 'django',
+      name: 'Django',
+      source: 'tag',
+      provider: 'tag-sync',
+      confidence: '1.0000',
+      total_weight: '2.5000',
+      source_count: 5,
+      activity_breakdown: [
+        { activity_type: 'authored_answer', total_weight: '2.0000', source_count: 3 },
+      ],
+      related_questions: [
+        {
+          question_id: '22222222-2222-4222-8222-222222222222',
+          title: 'Как построить безопасный граф знаний?',
+          status: 'open',
+        },
+      ],
+    },
+    {
+      concept_id: 11,
+      slug: 'vue',
+      name: 'Vue',
+      source: 'tag',
+      provider: 'tag-sync',
+      confidence: '0.8000',
+      total_weight: '0.0000',
+      source_count: 0,
+      activity_breakdown: [],
+      related_questions: [],
+    },
+  ]
+
+  const graphWithoutTopology = {
     user_id: '11111111-1111-4111-8111-111111111111',
     viewer: { is_owner: true },
     state: {
@@ -64,41 +99,29 @@ function buildGraph(overrides: Partial<UserKnowledgeGraphResponse> = {}): UserKn
       { activity_type: 'authored_answer', total_weight: '2.0000', source_count: 3 },
       { activity_type: 'question_upvote', total_weight: '1.7500', source_count: 4 },
     ],
-    concepts: [
-      {
-        concept_id: 10,
-        slug: 'django',
-        name: 'Django',
-        source: 'tag',
-        provider: 'tag-sync',
-        confidence: '1.0000',
-        total_weight: '2.5000',
-        source_count: 5,
-        activity_breakdown: [
-          { activity_type: 'authored_answer', total_weight: '2.0000', source_count: 3 },
-        ],
-        related_questions: [
-          {
-            question_id: '22222222-2222-4222-8222-222222222222',
-            title: 'Как построить безопасный граф знаний?',
-            status: 'open',
-          },
-        ],
-      },
-      {
-        concept_id: 11,
-        slug: 'vue',
-        name: 'Vue',
-        source: 'tag',
-        provider: 'tag-sync',
-        confidence: '0.8000',
-        total_weight: '0.0000',
-        source_count: 0,
-        activity_breakdown: [],
-        related_questions: [],
-      },
-    ],
+    concepts: baseConcepts,
     ...overrides,
+  }
+
+  const nodes = overrides.nodes ?? graphWithoutTopology.concepts.map((concept) => ({ ...concept }))
+  const edges = overrides.edges ?? (nodes.length >= 2
+    ? [
+        {
+          id: `${nodes[0].concept_id}-${nodes[1].concept_id}`,
+          source_concept_id: nodes[0].concept_id,
+          target_concept_id: nodes[1].concept_id,
+          weight: '1.0000',
+          shared_question_count: 1,
+          reason: 'shared_question' as const,
+          related_questions: nodes[0].related_questions,
+        },
+      ]
+    : [])
+
+  return {
+    ...graphWithoutTopology,
+    nodes,
+    edges,
   }
 }
 
