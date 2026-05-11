@@ -167,6 +167,10 @@ function weightClass(weight: number): string {
   return 'knowledge-node--quiet'
 }
 
+function conceptLabel(node: KnowledgeGraphNode): string {
+  return node.name || node.slug || `Концепт ${node.concept_id}`
+}
+
 function mapNodeToElement(node: KnowledgeGraphNode): ElementDefinition {
   const weight = toNumber(node.total_weight)
   const activitySourceCount = node.activity_breakdown.reduce((sum, entry) => sum + entry.source_count, 0)
@@ -176,7 +180,7 @@ function mapNodeToElement(node: KnowledgeGraphNode): ElementDefinition {
     data: {
       id: conceptElementId(node.concept_id),
       conceptId: node.concept_id,
-      label: node.name || node.slug || `Концепт ${node.concept_id}`,
+      label: conceptLabel(node),
       weight,
       confidence: toNumber(node.confidence),
       sourceCount: node.source_count,
@@ -261,11 +265,21 @@ function syncHighlightClasses(): void {
   })
 }
 
+function emitNodeSelected(conceptId: number): void {
+  if (Number.isFinite(conceptId)) {
+    emit('node-selected', conceptId)
+  }
+}
+
+function isConceptSelected(conceptId: number): boolean {
+  return props.selectedConceptId === conceptId
+}
+
 function handleNodeTap(event: EventObject): void {
   const conceptId = event.target.data('conceptId')
 
-  if (typeof conceptId === 'number' && Number.isFinite(conceptId)) {
-    emit('node-selected', conceptId)
+  if (typeof conceptId === 'number') {
+    emitNodeSelected(conceptId)
   }
 }
 
@@ -417,6 +431,37 @@ onBeforeUnmount(() => {
     </p>
 
     <div
+      v-if="hasNodes"
+      class="knowledge-graph-renderer__selector"
+      data-testid="knowledge-graph-concept-selector"
+      role="group"
+      aria-label="Выбор концепта на графе знаний"
+    >
+      <p class="knowledge-graph-renderer__selector-title">Выбрать концепт</p>
+      <div class="knowledge-graph-renderer__selector-list">
+        <button
+          v-for="node in props.nodes"
+          :key="node.concept_id"
+          class="knowledge-graph-renderer__concept-option"
+          :class="{ 'knowledge-graph-renderer__concept-option--selected': isConceptSelected(node.concept_id) }"
+          type="button"
+          :data-testid="`knowledge-graph-concept-option-${node.concept_id}`"
+          :data-concept-id="node.concept_id"
+          :aria-pressed="isConceptSelected(node.concept_id)"
+          :aria-label="`Выбрать концепт ${conceptLabel(node)}`"
+          @click="emitNodeSelected(node.concept_id)"
+        >
+          <span class="knowledge-graph-renderer__concept-name">
+            {{ conceptLabel(node) }}
+          </span>
+          <span class="knowledge-graph-renderer__concept-meta">
+            {{ node.source_count }} источников · вес {{ node.total_weight }} · {{ node.related_questions.length }} вопросов
+          </span>
+        </button>
+      </div>
+    </div>
+
+    <div
       v-show="hasNodes && !graphError"
       ref="graphContainer"
       class="knowledge-graph-renderer__surface"
@@ -485,6 +530,59 @@ onBeforeUnmount(() => {
 
 .knowledge-graph-renderer__control:hover {
   background: rgb(255 255 255 / 0.9);
+}
+
+.knowledge-graph-renderer__selector {
+  display: grid;
+  gap: var(--space-sm);
+}
+
+.knowledge-graph-renderer__selector-title {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.knowledge-graph-renderer__selector-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+.knowledge-graph-renderer__concept-option {
+  display: grid;
+  gap: 2px;
+  max-width: 220px;
+  min-height: 48px;
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid rgb(14 116 144 / 0.22);
+  border-radius: var(--radius-md);
+  background: rgb(255 255 255 / 0.72);
+  color: var(--color-text);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.knowledge-graph-renderer__concept-option:hover,
+.knowledge-graph-renderer__concept-option--selected {
+  border-color: rgb(14 116 144 / 0.55);
+  background: rgb(236 254 255 / 0.86);
+}
+
+.knowledge-graph-renderer__concept-option:focus-visible {
+  outline: 3px solid rgb(14 116 144 / 0.4);
+  outline-offset: 2px;
+}
+
+.knowledge-graph-renderer__concept-name {
+  font-weight: 800;
+}
+
+.knowledge-graph-renderer__concept-meta {
+  color: var(--color-muted);
+  font-size: 12px;
 }
 
 .knowledge-graph-renderer__surface {
