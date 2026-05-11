@@ -20,6 +20,7 @@ class DeferredKnowledgeGraphScopeContractTests(SimpleTestCase):
     def test_r162_r164_knowledge_urls_expose_only_aggregate_graph_endpoints(self):
         expected_route_names = {
             'own-user-graph',
+            'own-user-graph-layout',
             'own-user-graph-rebuild',
             'public-user-graph',
             'question-graph',
@@ -62,6 +63,7 @@ class DeferredKnowledgeGraphScopeContractTests(SimpleTestCase):
             'ConceptTagMapping',
             'QuestionConceptEdge',
             'UserConceptActivity',
+            'UserKnowledgeGraphLayout',
             'UserKnowledgeGraphState',
         }
         knowledge_models = apps.get_app_config('knowledge').get_models()
