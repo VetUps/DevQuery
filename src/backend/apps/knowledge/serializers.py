@@ -53,6 +53,22 @@ class KnowledgeGraphEdgeSerializer(serializers.Serializer):
     related_questions = RelatedQuestionSummarySerializer(many=True)
 
 
+class KnowledgeGraphLayoutPositionSerializer(serializers.Serializer):
+    x = serializers.FloatField()
+    y = serializers.FloatField()
+
+
+class KnowledgeGraphLayoutSerializer(serializers.Serializer):
+    schema_version = serializers.IntegerField(min_value=1)
+    positions = serializers.DictField(child=KnowledgeGraphLayoutPositionSerializer())
+    updated_at = serializers.DateTimeField(allow_null=True)
+
+
+class KnowledgeGraphLayoutSaveSerializer(serializers.Serializer):
+    schema_version = serializers.IntegerField(min_value=1, default=1)
+    positions = serializers.DictField(child=KnowledgeGraphLayoutPositionSerializer())
+
+
 class UserGraphResponseSerializer(serializers.Serializer):
     user_id = serializers.UUIDField()
     viewer = ViewerSerializer()
@@ -62,6 +78,7 @@ class UserGraphResponseSerializer(serializers.Serializer):
     concepts = UserGraphConceptEntrySerializer(many=True)
     nodes = UserGraphNodeSerializer(many=True)
     edges = KnowledgeGraphEdgeSerializer(many=True)
+    layout = KnowledgeGraphLayoutSerializer(required=False)
 
 
 class RebuildSummarySerializer(serializers.Serializer):

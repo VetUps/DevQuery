@@ -157,6 +157,27 @@ class UserKnowledgeGraphState(models.Model):
         return f'{self.user_id} graph {self.status}'
 
 
+class UserKnowledgeGraphLayout(models.Model):
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='knowledge_graph_layout',
+    )
+    schema_version = models.PositiveSmallIntegerField(default=1)
+    positions = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'user_knowledge_graph_layouts'
+        indexes = [
+            models.Index(fields=['user'], name='ukglayout_user_idx'),
+        ]
+
+    def __str__(self):
+        return f'{self.user_id} graph layout v{self.schema_version}'
+
+
 class UserConceptActivity(models.Model):
     class ActivityType(models.TextChoices):
         AUTHORED_QUESTION = 'authored_question', 'Authored question'

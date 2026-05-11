@@ -3,16 +3,27 @@ from __future__ import annotations
 from collections import defaultdict
 from decimal import Decimal
 from itertools import combinations
+from math import isfinite
 from typing import Any
 
+from django.db import transaction
 from django.db.models import Count, Sum
+from rest_framework import serializers
 
-from apps.knowledge.models import KnowledgeConcept, QuestionConceptEdge, UserConceptActivity, UserKnowledgeGraphState
+from apps.knowledge.models import (
+    KnowledgeConcept,
+    QuestionConceptEdge,
+    UserConceptActivity,
+    UserKnowledgeGraphLayout,
+    UserKnowledgeGraphState,
+)
 from apps.knowledge.services.graph_state_service import UserKnowledgeGraphRebuildSummary, get_user_graph_state
 from apps.qa.models import Question
 
 ZERO_WEIGHT = Decimal('0.0000')
 RELATED_QUESTION_PREVIEW_LIMIT = 5
+LAYOUT_SCHEMA_VERSION = 1
+MAX_LAYOUT_POSITIONS = 500
 
 
 def _safe_decimal(value: Decimal | None) -> Decimal:
@@ -93,6 +104,101 @@ def _shared_question_edges_payload(
         )
 
     return edge_payloads
+
+
+def _get_layout_for_user(user) -> UserKnowledgeGraphLayout | None:
+    try:
+        return user.knowledge_graph_layout
+    except UserKnowledgeGraphLayout.DoesNotExist:
+        return None
+
+
+def _layout_payload(layout: UserKnowledgeGraphLayout | None, *, allowed_concept_ids: set[int]) -> dict[str, Any]:
+    if layout is None:
+        return {
+            'schema_version': LAYOUT_SCHEMA_VERSION,
+            'positions': {},
+            'updated_at': None,
+        }
+
+    allowed_keys = {str(concept_id) for concept_id in allowed_concept_ids}
+    positions = {
+        concept_id: {
+            'x': float(position['x']),
+            'y': float(position['y']),
+        }
+        for concept_id, position in layout.positions.items()
+        if concept_id in allowed_keys and isinstance(position, dict) and 'x' in position and 'y' in position
+    }
+
+    return {
+        'schema_version': layout.schema_version,
+        'positions': positions,
+        'updated_at': layout.updated_at,
+    }
+
+
+def _user_graph_concept_ids(user) -> set[int]:
+    return set(UserConceptActivity.objects.filter(user=user).values_list('concept_id', flat=True).distinct())
+
+
+def get_user_graph_layout_payload(user) -> dict[str, Any]:
+    return _layout_payload(_get_layout_for_user(user), allowed_concept_ids=_user_graph_concept_ids(user))
+
+
+def save_user_graph_layout(user, *, schema_version: int, positions: dict[str, dict[str, float]]) -> dict[str, Any]:
+    if schema_version != LAYOUT_SCHEMA_VERSION:
+        raise serializers.ValidationError({'schema_version': 'Unsupported layout schema version.'})
+
+    if len(positions) > MAX_LAYOUT_POSITIONS:
+        raise serializers.ValidationError({'positions': 'Too many layout positions.'})
+
+    allowed_concept_ids = _user_graph_concept_ids(user)
+    normalized_positions: dict[str, dict[str, float]] = {}
+    unknown_concept_ids: list[str] = []
+
+    for concept_id, position in positions.items():
+        try:
+            normalized_concept_id = int(concept_id)
+        except (TypeError, ValueError):
+            raise serializers.ValidationError({'positions': f'Invalid concept id: {concept_id}.'})
+
+        if normalized_concept_id not in allowed_concept_ids:
+            unknown_concept_ids.append(str(concept_id))
+            continue
+
+        x = float(position['x'])
+        y = float(position['y'])
+        if not isfinite(x) or not isfinite(y):
+            raise serializers.ValidationError({'positions': f'Invalid coordinates for concept id: {concept_id}.'})
+
+        normalized_positions[str(normalized_concept_id)] = {
+            'x': x,
+            'y': y,
+        }
+
+    if unknown_concept_ids:
+        raise serializers.ValidationError({'positions': f'Unknown concept ids: {", ".join(sorted(unknown_concept_ids))}.'})
+
+    with transaction.atomic():
+        layout, _ = UserKnowledgeGraphLayout.objects.select_for_update().get_or_create(
+            user=user,
+            defaults={'schema_version': LAYOUT_SCHEMA_VERSION, 'positions': {}},
+        )
+        layout.schema_version = LAYOUT_SCHEMA_VERSION
+        layout.positions = normalized_positions
+        layout.save(update_fields=['schema_version', 'positions', 'updated_at'])
+
+    return _layout_payload(layout, allowed_concept_ids=allowed_concept_ids)
+
+
+def reset_user_graph_layout(user) -> dict[str, Any]:
+    UserKnowledgeGraphLayout.objects.filter(user=user).delete()
+    return {
+        'schema_version': LAYOUT_SCHEMA_VERSION,
+        'positions': {},
+        'updated_at': None,
+    }
 
 
 def get_user_graph_payload(user, *, is_owner: bool) -> dict[str, Any]:
@@ -186,7 +292,7 @@ def get_user_graph_payload(user, *, is_owner: bool) -> dict[str, Any]:
         related_question_ids=related_question_ids,
     )
 
-    return {
+    payload = {
         'user_id': user.pk,
         'viewer': {'is_owner': is_owner},
         'state': _state_payload(state),
@@ -196,6 +302,11 @@ def get_user_graph_payload(user, *, is_owner: bool) -> dict[str, Any]:
         'nodes': concepts,
         'edges': edges,
     }
+
+    if is_owner:
+        payload['layout'] = _layout_payload(_get_layout_for_user(user), allowed_concept_ids=node_concept_ids)
+
+    return payload
 
 
 def get_rebuild_summary_payload(summary: UserKnowledgeGraphRebuildSummary) -> dict[str, Any]:
