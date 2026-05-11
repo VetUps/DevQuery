@@ -295,7 +295,31 @@ class KnowledgeGraphAPIContractTests(APITestCase):
         self.assertIn('edges', response.data)
         self.assertEqual(response.data['nodes'], response.data['concepts'])
         self.assertEqual([entry['slug'] for entry in response.data['nodes']], ['django', 'rest-api'])
-        self.assertEqual(len(response.data['edges']), 1)
+        self.assertEqual(
+            response.data['edges'],
+            [
+                {
+                    'id': f'shared-question:{min(self.django.pk, self.rest.pk)}:{max(self.django.pk, self.rest.pk)}',
+                    'source_concept_id': min(self.django.pk, self.rest.pk),
+                    'target_concept_id': max(self.django.pk, self.rest.pk),
+                    'weight': '1.0000',
+                    'shared_question_count': 1,
+                    'reason': 'shared_question',
+                    'related_questions': [
+                        {
+                            'question_id': str(self.question.pk),
+                            'title': 'How do I expose a graph safely?',
+                            'status': Question.Status.OPEN_STATUS,
+                        }
+                    ],
+                }
+            ],
+        )
+        public_payload_repr = repr(response.data)
+        self.assertIn('How do I expose a graph safely?', public_payload_repr)
+        self.assertNotIn('Private question body must never appear in graph API responses.', public_payload_repr)
+        self.assertNotIn('source_object_id', public_payload_repr)
+        self.assertNotIn('idempotency_key', public_payload_repr)
         self.assert_private_activity_fields_are_redacted(response.data)
 
     def test_question_graph_returns_question_concept_edges_without_question_body(self):
