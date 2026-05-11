@@ -12,6 +12,7 @@ import type {
 import AppButton from '@/shared/ui/AppButton.vue'
 import InlineFeedbackPanel from '@/shared/ui/InlineFeedbackPanel.vue'
 import SurfacePanel from '@/shared/ui/SurfacePanel.vue'
+import KnowledgeGraphRenderer from './KnowledgeGraphRenderer.vue'
 
 const STALE_COPY = 'Мы обнаружили расхождение между графом и вашей активностью. Перестройте граф.'
 const SAFE_API_ERROR_COPY = 'Не удалось загрузить граф знаний. Попробуйте обновить вкладку.'
@@ -35,6 +36,7 @@ const rebuildActionError = shallowRef('')
 const graph = computed<UserKnowledgeGraphResponse | undefined>(() => graphQuery.data.value)
 const hasGraph = computed(() => Boolean(graph.value))
 const hasConcepts = computed(() => (graph.value?.concepts.length ?? 0) > 0)
+const hasTopologyNodes = computed(() => (graph.value?.nodes.length ?? 0) > 0)
 const isInitialLoading = computed(() => graphQuery.isPending.value && !hasGraph.value)
 const isInitialError = computed(() => graphQuery.isError.value && !hasGraph.value)
 const isStaleQueryError = computed(() => graphQuery.isError.value && hasGraph.value)
@@ -293,6 +295,10 @@ async function rebuildGraph() {
         title="Концепты пока не найдены"
         description="Задавайте вопросы, отвечайте и получайте оценки — после активности граф покажет веса тем."
       />
+
+      <SurfacePanel v-if="hasTopologyNodes" data-testid="knowledge-graph-mode" padding="lg">
+        <KnowledgeGraphRenderer :nodes="graph.nodes" :edges="graph.edges" />
+      </SurfacePanel>
 
       <SurfacePanel v-if="graph.activity_breakdown.length > 0" variant="muted" padding="lg">
         <div class="knowledge-tab__section-heading">
