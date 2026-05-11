@@ -400,7 +400,12 @@ describe('ProfileKnowledgeGraphTab', () => {
     expect(wrapper.get('[data-testid="renderer-edge-ids"]').text()).toBe('10-11')
     expect(wrapper.get('[data-testid="knowledge-graph-selected-details"]').text()).toContain('Django')
     expect(wrapper.get('[data-testid="knowledge-graph-selected-neighbours"]').text()).toContain('Vue')
-    expect(wrapper.get('[data-testid="knowledge-graph-selected-details"]').text()).toContain('Как построить безопасный граф знаний?')
+    expect(wrapper.get('[data-testid="knowledge-graph-selected-details"]').text()).toContain('Связанные вопросы')
+    expect(wrapper.find('a[href="/questions/22222222-2222-4222-8222-222222222222"]').exists()).toBe(false)
+
+    await wrapper.get('[data-testid="knowledge-related-questions-open"]').trigger('click')
+    await nextTick()
+    expect(wrapper.get('[data-testid="knowledge-related-questions-modal"]').text()).toContain('Как построить безопасный граф знаний?')
 
     await wrapper.get('[data-testid="knowledge-view-mode-list"]').trigger('click')
     await nextTick()
@@ -454,8 +459,8 @@ describe('ProfileKnowledgeGraphTab', () => {
 
     expect(wrapper.find('[data-testid="knowledge-rebuild-button"]').exists()).toBe(false)
     expect(wrapper.get('[data-testid="knowledge-public-readonly"]').text()).toContain('только владельцу')
-    expect(wrapper.get('[data-testid="knowledge-graph-state-context"]').text()).toContain('question_authoring')
-    expect(wrapper.get('[data-testid="knowledge-graph-state-context"]').text()).toContain('Технические детали скрыты')
+    expect(wrapper.get('[data-testid="knowledge-state-banner"]').text()).toContain('question_authoring')
+    expect(wrapper.find('[data-testid="knowledge-graph-state-context"]').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('provider stack token leaked')
     expect(wrapper.text()).not.toContain('Traceback')
   })
