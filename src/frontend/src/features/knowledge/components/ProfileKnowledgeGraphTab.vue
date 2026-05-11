@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, shallowRef } from 'vue'
+import { computed, shallowRef, watch } from 'vue'
 
 import { useRebuildKnowledgeGraphMutation } from '@/features/knowledge/mutations/useRebuildKnowledgeGraphMutation'
 import { useOwnKnowledgeGraphQuery, usePublicUserKnowledgeGraphQuery } from '@/features/knowledge/queries/useKnowledgeGraphQuery'
@@ -13,6 +13,7 @@ import AppButton from '@/shared/ui/AppButton.vue'
 import InlineFeedbackPanel from '@/shared/ui/InlineFeedbackPanel.vue'
 import SurfacePanel from '@/shared/ui/SurfacePanel.vue'
 import KnowledgeGraphRenderer from './KnowledgeGraphRenderer.vue'
+import KnowledgeGraphConceptDetails from './KnowledgeGraphConceptDetails.vue'
 
 const STALE_COPY = 'Мы обнаружили расхождение между графом и вашей активностью. Перестройте граф.'
 const SAFE_API_ERROR_COPY = 'Не удалось загрузить граф знаний. Попробуйте обновить вкладку.'
@@ -32,6 +33,7 @@ const graphQuery = normalizedUserId.value
   : useOwnKnowledgeGraphQuery()
 const rebuildMutation = useRebuildKnowledgeGraphMutation()
 const rebuildActionError = shallowRef('')
+const selectedConceptId = shallowRef<number | null>(null)
 
 const graph = computed<UserKnowledgeGraphResponse | undefined>(() => graphQuery.data.value)
 const hasGraph = computed(() => Boolean(graph.value))
@@ -52,6 +54,48 @@ const sortedConcepts = computed(() => {
 
     return left.name.localeCompare(right.name, 'ru')
   })
+})
+
+const selectedConcept = computed(() => {
+  if (selectedConceptId.value === null) {
+    return null
+  }
+
+  return graph.value?.nodes.find((node) => node.concept_id === selectedConceptId.value) ?? null
+})
+
+const neighbourEdges = computed(() => {
+  if (!selectedConcept.value) {
+    return []
+  }
+
+  return graph.value?.edges.filter((edge) => (
+    edge.source_concept_id === selectedConcept.value?.concept_id
+    || edge.target_concept_id === selectedConcept.value?.concept_id
+  )) ?? []
+})
+
+const neighbourConceptIds = computed(() => {
+  if (!selectedConcept.value) {
+    return []
+  }
+
+  const selectedId = selectedConcept.value.concept_id
+  const ids = new Set<number>()
+
+  for (const edge of neighbourEdges.value) {
+    ids.add(edge.source_concept_id === selectedId ? edge.target_concept_id : edge.source_concept_id)
+  }
+
+  return [...ids]
+})
+
+const neighbourEdgeIds = computed(() => neighbourEdges.value.map((edge) => edge.id))
+
+const neighbourConcepts = computed(() => {
+  const ids = new Set(neighbourConceptIds.value)
+
+  return graph.value?.nodes.filter((node) => ids.has(node.concept_id)) ?? []
 })
 
 const normalizedStatus = computed<GraphStatus | 'unknown'>(() => {
@@ -105,7 +149,7 @@ const stateBanner = computed(() => {
       tone: 'danger' as const,
       label: 'Сбой перестроения',
       title: 'Последнее перестроение не завершилось',
-      description: `Фаза: ${state.last_failed_phase || 'не указана'}. Сообщение: ${state.last_error_message || 'Безопасные детали недоступны.'}`,
+      description: `Фаза: ${state.last_failed_phase || 'не указана'}. Технические детали скрыты для безопасности.`,
     }
   }
 
@@ -202,6 +246,27 @@ async function rebuildGraph() {
     rebuildActionError.value = SAFE_REBUILD_ERROR_COPY
   }
 }
+
+function handleNodeSelected(conceptId: number) {
+  const existsInTopology = graph.value?.nodes.some((node) => node.concept_id === conceptId) ?? false
+
+  selectedConceptId.value = existsInTopology ? conceptId : null
+}
+
+watch(
+  () => graph.value?.nodes.map((node) => node.concept_id).join('|') ?? '',
+  () => {
+    if (selectedConceptId.value === null) {
+      return
+    }
+
+    const existsInTopology = graph.value?.nodes.some((node) => node.concept_id === selectedConceptId.value) ?? false
+
+    if (!existsInTopology) {
+      selectedConceptId.value = null
+    }
+  },
+)
 </script>
 
 <template>
@@ -297,7 +362,23 @@ async function rebuildGraph() {
       />
 
       <SurfacePanel v-if="hasTopologyNodes" data-testid="knowledge-graph-mode" padding="lg">
-        <KnowledgeGraphRenderer :nodes="graph.nodes" :edges="graph.edges" />
+        <KnowledgeGraphRenderer
+          :nodes="graph.nodes"
+          :edges="graph.edges"
+          :selected-concept-id="selectedConceptId"
+          :neighbour-concept-ids="neighbourConceptIds"
+          :neighbour-edge-ids="neighbourEdgeIds"
+          @node-selected="handleNodeSelected"
+        />
+      </SurfacePanel>
+
+      <SurfacePanel v-if="hasTopologyNodes" padding="lg">
+        <KnowledgeGraphConceptDetails
+          :selected-node="selectedConcept"
+          :neighbour-nodes="neighbourConcepts"
+          :neighbour-edges="neighbourEdges"
+          :graph-state="graph.state"
+        />
       </SurfacePanel>
 
       <SurfacePanel v-if="graph.activity_breakdown.length > 0" variant="muted" padding="lg">
