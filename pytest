@@ -14,7 +14,20 @@ if [[ ! -x "$python_exe" ]]; then
 fi
 
 if [[ $# -gt 0 ]]; then
-  exec "$python_exe" src/backend/manage.py test "$@"
+  translated_args=()
+  for arg in "$@"; do
+    case "$arg" in
+      src/backend/*.py)
+        module_path="${arg#src/backend/}"
+        module_path="${module_path%.py}"
+        translated_args+=("${module_path//\//.}")
+        ;;
+      *)
+        translated_args+=("$arg")
+        ;;
+    esac
+  done
+  exec "$python_exe" src/backend/manage.py test "${translated_args[@]}"
 fi
 
 exec "$python_exe" src/backend/manage.py test apps.qa apps.user
