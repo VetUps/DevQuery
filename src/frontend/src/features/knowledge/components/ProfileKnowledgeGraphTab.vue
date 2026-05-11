@@ -20,6 +20,7 @@ const SAFE_API_ERROR_COPY = 'Не удалось загрузить граф з�
 const SAFE_REBUILD_ERROR_COPY = 'Не удалось запустить перестроение графа. Попробуйте ещё раз позже.'
 
 type GraphStatus = 'fresh' | 'stale' | 'rebuilding' | 'failed'
+type KnowledgeGraphViewMode = 'graph' | 'list'
 
 const props = withDefaults(defineProps<{
   userId?: string
@@ -34,6 +35,7 @@ const graphQuery = normalizedUserId.value
 const rebuildMutation = useRebuildKnowledgeGraphMutation()
 const rebuildActionError = shallowRef('')
 const selectedConceptId = shallowRef<number | null>(null)
+const viewMode = shallowRef<KnowledgeGraphViewMode>('graph')
 
 const graph = computed<UserKnowledgeGraphResponse | undefined>(() => graphQuery.data.value)
 const hasGraph = computed(() => Boolean(graph.value))
@@ -179,6 +181,18 @@ const totalActivitySources = computed(() => {
 const rebuildButtonLabel = computed(() => (
   rebuildMutation.isPending.value ? 'Перестраиваем…' : 'Перестроить граф'
 ))
+const modeHelpCopy = computed(() => (
+  viewMode.value === 'graph'
+    ? 'Граф показывает связи между концептами. Список остаётся доступен как подробная fallback-панель.'
+    : 'Список показывает активность, концепты и связанные вопросы без интерактивного графа.'
+))
+const isGraphMode = computed(() => viewMode.value === 'graph')
+const isListMode = computed(() => viewMode.value === 'list')
+const hasListContent = computed(() => (graph.value?.activity_breakdown.length ?? 0) > 0 || hasConcepts.value)
+
+function setViewMode(mode: KnowledgeGraphViewMode) {
+  viewMode.value = mode
+}
 
 function toNumber(value: string): number {
   const parsed = Number.parseFloat(value)
@@ -342,6 +356,37 @@ watch(
         >
           {{ rebuildActionError }}
         </p>
+
+        <div
+          class="knowledge-tab__mode-switch"
+          data-testid="knowledge-view-mode-switch"
+          role="group"
+          aria-label="Режим просмотра графа знаний"
+        >
+          <button
+            type="button"
+            class="knowledge-tab__mode-button"
+            :class="{ 'knowledge-tab__mode-button--active': isGraphMode }"
+            data-testid="knowledge-view-mode-graph"
+            :aria-pressed="isGraphMode"
+            @click="setViewMode('graph')"
+          >
+            Граф
+          </button>
+          <button
+            type="button"
+            class="knowledge-tab__mode-button"
+            :class="{ 'knowledge-tab__mode-button--active': isListMode }"
+            data-testid="knowledge-view-mode-list"
+            :aria-pressed="isListMode"
+            @click="setViewMode('list')"
+          >
+            Список
+          </button>
+        </div>
+        <p class="knowledge-tab__mode-help" data-testid="knowledge-view-mode-help">
+          {{ modeHelpCopy }}
+        </p>
       </SurfacePanel>
 
       <InlineFeedbackPanel
@@ -361,86 +406,90 @@ watch(
         description="Задавайте вопросы, отвечайте и получайте оценки — после активности граф покажет веса тем."
       />
 
-      <SurfacePanel v-if="hasTopologyNodes" data-testid="knowledge-graph-mode" padding="lg">
-        <KnowledgeGraphRenderer
-          :nodes="graph.nodes"
-          :edges="graph.edges"
-          :selected-concept-id="selectedConceptId"
-          :neighbour-concept-ids="neighbourConceptIds"
-          :neighbour-edge-ids="neighbourEdgeIds"
-          @node-selected="handleNodeSelected"
-        />
-      </SurfacePanel>
+      <div v-if="isGraphMode && hasTopologyNodes" class="knowledge-tab__mode-panel" data-testid="knowledge-graph-panel">
+        <SurfacePanel data-testid="knowledge-graph-mode" padding="lg">
+          <KnowledgeGraphRenderer
+            :nodes="graph.nodes"
+            :edges="graph.edges"
+            :selected-concept-id="selectedConceptId"
+            :neighbour-concept-ids="neighbourConceptIds"
+            :neighbour-edge-ids="neighbourEdgeIds"
+            @node-selected="handleNodeSelected"
+          />
+        </SurfacePanel>
 
-      <SurfacePanel v-if="hasTopologyNodes" padding="lg">
-        <KnowledgeGraphConceptDetails
-          :selected-node="selectedConcept"
-          :neighbour-nodes="neighbourConcepts"
-          :neighbour-edges="neighbourEdges"
-          :graph-state="graph.state"
-        />
-      </SurfacePanel>
+        <SurfacePanel padding="lg">
+          <KnowledgeGraphConceptDetails
+            :selected-node="selectedConcept"
+            :neighbour-nodes="neighbourConcepts"
+            :neighbour-edges="neighbourEdges"
+            :graph-state="graph.state"
+          />
+        </SurfacePanel>
+      </div>
 
-      <SurfacePanel v-if="graph.activity_breakdown.length > 0" variant="muted" padding="lg">
-        <div class="knowledge-tab__section-heading">
-          <p class="knowledge-tab__eyebrow">Активность</p>
-          <h3>Из чего складывается общий вес</h3>
-        </div>
-        <ul class="knowledge-tab__breakdown" data-testid="knowledge-activity-breakdown">
-          <li v-for="entry in graph.activity_breakdown" :key="entry.activity_type" class="knowledge-tab__breakdown-row">
-            <span>{{ activityLabel(entry.activity_type) }}</span>
-            <strong>{{ formatWeight(entry.total_weight) }}</strong>
-            <small>{{ entry.source_count }} сигналов</small>
-          </li>
-        </ul>
-      </SurfacePanel>
-
-      <div v-if="hasConcepts" class="knowledge-tab__concept-grid" data-testid="knowledge-concepts">
-        <SurfacePanel
-          v-for="concept in sortedConcepts"
-          :key="concept.concept_id"
-          class="knowledge-concept"
-          padding="lg"
-        >
-          <header class="knowledge-concept__header">
-            <div>
-              <p class="knowledge-tab__eyebrow">{{ sourceLabel(concept) }}</p>
-              <h3>{{ concept.name }}</h3>
-            </div>
-            <div class="knowledge-concept__weight">
-              <span>{{ formatWeight(concept.total_weight) }}</span>
-              <small>вес</small>
-            </div>
-          </header>
-
-          <p class="knowledge-concept__explanation">
-            Уверенность {{ formatWeight(concept.confidence) }} · {{ concept.source_count }} агрегированных сигналов.
-          </p>
-
-          <ul v-if="concept.activity_breakdown.length > 0" class="knowledge-tab__breakdown">
-            <li
-              v-for="entry in concept.activity_breakdown"
-              :key="`${concept.concept_id}-${entry.activity_type}`"
-              class="knowledge-tab__breakdown-row"
-            >
+      <div v-if="isListMode && hasListContent" class="knowledge-tab__mode-panel" data-testid="knowledge-list-panel">
+        <SurfacePanel v-if="graph.activity_breakdown.length > 0" variant="muted" padding="lg">
+          <div class="knowledge-tab__section-heading">
+            <p class="knowledge-tab__eyebrow">Активность</p>
+            <h3>Из чего складывается общий вес</h3>
+          </div>
+          <ul class="knowledge-tab__breakdown" data-testid="knowledge-activity-breakdown">
+            <li v-for="entry in graph.activity_breakdown" :key="entry.activity_type" class="knowledge-tab__breakdown-row">
               <span>{{ activityLabel(entry.activity_type) }}</span>
               <strong>{{ formatWeight(entry.total_weight) }}</strong>
               <small>{{ entry.source_count }} сигналов</small>
             </li>
           </ul>
-          <p v-else class="knowledge-concept__muted">Разбивка активности для концепта пока пустая.</p>
+        </SurfacePanel>
 
-          <div class="knowledge-concept__questions">
-            <h4>Связанные вопросы</h4>
-            <ul v-if="concept.related_questions.length > 0">
-              <li v-for="question in concept.related_questions" :key="question.question_id">
-                <a :href="relatedQuestionHref(question)">{{ question.title || 'Вопрос без названия' }}</a>
-                <span>{{ question.status || 'status_unknown' }}</span>
+        <div v-if="hasConcepts" class="knowledge-tab__concept-grid" data-testid="knowledge-concepts">
+          <SurfacePanel
+            v-for="concept in sortedConcepts"
+            :key="concept.concept_id"
+            class="knowledge-concept"
+            padding="lg"
+          >
+            <header class="knowledge-concept__header">
+              <div>
+                <p class="knowledge-tab__eyebrow">{{ sourceLabel(concept) }}</p>
+                <h3>{{ concept.name }}</h3>
+              </div>
+              <div class="knowledge-concept__weight">
+                <span>{{ formatWeight(concept.total_weight) }}</span>
+                <small>вес</small>
+              </div>
+            </header>
+
+            <p class="knowledge-concept__explanation">
+              Уверенность {{ formatWeight(concept.confidence) }} · {{ concept.source_count }} агрегированных сигналов.
+            </p>
+
+            <ul v-if="concept.activity_breakdown.length > 0" class="knowledge-tab__breakdown">
+              <li
+                v-for="entry in concept.activity_breakdown"
+                :key="`${concept.concept_id}-${entry.activity_type}`"
+                class="knowledge-tab__breakdown-row"
+              >
+                <span>{{ activityLabel(entry.activity_type) }}</span>
+                <strong>{{ formatWeight(entry.total_weight) }}</strong>
+                <small>{{ entry.source_count }} сигналов</small>
               </li>
             </ul>
-            <p v-else class="knowledge-concept__muted">Связанных вопросов пока нет.</p>
-          </div>
-        </SurfacePanel>
+            <p v-else class="knowledge-concept__muted">Разбивка активности для концепта пока пустая.</p>
+
+            <div class="knowledge-concept__questions">
+              <h4>Связанные вопросы</h4>
+              <ul v-if="concept.related_questions.length > 0">
+                <li v-for="question in concept.related_questions" :key="question.question_id">
+                  <a :href="relatedQuestionHref(question)">{{ question.title || 'Вопрос без названия' }}</a>
+                  <span>{{ question.status || 'status_unknown' }}</span>
+                </li>
+              </ul>
+              <p v-else class="knowledge-concept__muted">Связанных вопросов пока нет.</p>
+            </div>
+          </SurfacePanel>
+        </div>
       </div>
     </div>
 
@@ -457,7 +506,8 @@ watch(
 
 <style scoped>
 .knowledge-tab,
-.knowledge-tab__content {
+.knowledge-tab__content,
+.knowledge-tab__mode-panel {
   display: grid;
   gap: var(--space-xl);
 }
@@ -529,11 +579,47 @@ watch(
   color: var(--color-muted);
 }
 
-.knowledge-tab__actions {
+.knowledge-tab__actions,
+.knowledge-tab__mode-switch {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-md);
   align-items: center;
+}
+
+.knowledge-tab__mode-switch {
+  gap: var(--space-sm);
+}
+
+.knowledge-tab__mode-button {
+  min-height: 40px;
+  padding: 0 var(--space-lg);
+  border: 1px solid rgb(14 116 144 / 0.24);
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.68);
+  color: var(--color-text);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+}
+
+.knowledge-tab__mode-button:hover,
+.knowledge-tab__mode-button:focus-visible {
+  border-color: var(--color-accent);
+  outline: 2px solid rgb(14 116 144 / 0.22);
+  outline-offset: 2px;
+}
+
+.knowledge-tab__mode-button--active {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+  color: white;
+}
+
+.knowledge-tab__mode-help {
+  max-width: 68ch;
+  margin: 0;
+  color: var(--color-muted);
 }
 
 .knowledge-tab__pending {
