@@ -6,7 +6,6 @@ import KnowledgeGraphCanvas from './KnowledgeGraphCanvas.vue'
 
 interface Emits {
   'node-selected': [conceptId: number]
-  'focus-selected-concept': []
 }
 
 const props = withDefaults(defineProps<{
@@ -28,13 +27,6 @@ const isFullscreenOpen = shallowRef(false)
 
 const hasNodes = computed(() => props.nodes.length > 0)
 const graphSummary = computed(() => `${props.nodes.length} концептов · ${props.edges.length} связей`)
-const selectedNode = computed(() => {
-  if (props.selectedConceptId === null || props.selectedConceptId === undefined) {
-    return null
-  }
-
-  return props.nodes.find((node) => node.concept_id === props.selectedConceptId) ?? null
-})
 
 function conceptLabel(node: KnowledgeGraphNode): string {
   return node.name || node.slug || `Концепт ${node.concept_id}`
@@ -68,15 +60,6 @@ function openFullscreenGraph(): void {
 
 function closeFullscreenGraph(): void {
   isFullscreenOpen.value = false
-}
-
-function focusSelectedConcept(): void {
-  if (!selectedNode.value) {
-    return
-  }
-
-  closeFullscreenGraph()
-  emit('focus-selected-concept')
 }
 </script>
 
@@ -215,30 +198,6 @@ function focusSelectedConcept(): void {
           surface-class="knowledge-graph-renderer__modal-canvas"
           @node-selected="emitNodeSelected"
         />
-
-        <footer class="knowledge-graph-renderer__modal-footer" data-testid="knowledge-graph-fullscreen-selection">
-          <div v-if="selectedNode" class="knowledge-graph-renderer__modal-selection">
-            <div>
-              <p class="knowledge-graph-renderer__toolbar-label">Выбранный концепт</p>
-              <strong>{{ conceptLabel(selectedNode) }}</strong>
-              <span>
-                {{ selectedNode.source_count }} сигналов · вес {{ selectedNode.total_weight }} ·
-                {{ selectedNode.related_questions.length }} вопросов
-              </span>
-            </div>
-            <button
-              class="knowledge-graph-renderer__control knowledge-graph-renderer__control--reset"
-              type="button"
-              data-testid="knowledge-graph-focus-selected-control"
-              @click="focusSelectedConcept"
-            >
-              Перейти к концепту
-            </button>
-          </div>
-          <p v-else class="knowledge-graph-renderer__modal-help">
-            Выберите узел на большом графе — здесь появится переход к панели концепта на странице.
-          </p>
-        </footer>
       </section>
     </div>
   </section>
@@ -260,8 +219,7 @@ function focusSelectedConcept(): void {
 
 .knowledge-graph-renderer__eyebrow,
 .knowledge-graph-renderer__title,
-.knowledge-graph-renderer__summary,
-.knowledge-graph-renderer__modal-help {
+.knowledge-graph-renderer__summary {
   margin: 0;
 }
 
@@ -277,8 +235,7 @@ function focusSelectedConcept(): void {
   margin-top: var(--space-xs);
 }
 
-.knowledge-graph-renderer__summary,
-.knowledge-graph-renderer__modal-help {
+.knowledge-graph-renderer__summary {
   color: var(--color-muted);
 }
 
@@ -465,7 +422,7 @@ function focusSelectedConcept(): void {
   display: grid;
   width: min(1480px, 98vw);
   height: 96vh;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr);
   gap: var(--space-sm);
   overflow: hidden;
   padding: var(--space-md);
@@ -475,8 +432,7 @@ function focusSelectedConcept(): void {
   box-shadow: 0 30px 90px rgb(15 23 42 / 0.3);
 }
 
-.knowledge-graph-renderer__modal-header,
-.knowledge-graph-renderer__modal-selection {
+.knowledge-graph-renderer__modal-header {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-md);
@@ -488,27 +444,6 @@ function focusSelectedConcept(): void {
   padding: 0;
   font-size: 24px;
   line-height: 1;
-}
-
-.knowledge-graph-renderer__modal-footer {
-  padding: var(--space-sm) var(--space-md);
-  border: 1px solid rgb(14 116 144 / 0.14);
-  border-radius: var(--radius-lg);
-  background: linear-gradient(135deg, rgb(236 254 255 / 0.7), rgb(255 255 255 / 0.78));
-}
-
-.knowledge-graph-renderer__modal-selection > div {
-  display: grid;
-  gap: 2px;
-}
-
-.knowledge-graph-renderer__modal-selection strong {
-  font-size: 20px;
-}
-
-.knowledge-graph-renderer__modal-selection span {
-  color: var(--color-muted);
-  font-variant-numeric: tabular-nums;
 }
 
 :deep(.knowledge-graph-renderer__modal-canvas) {

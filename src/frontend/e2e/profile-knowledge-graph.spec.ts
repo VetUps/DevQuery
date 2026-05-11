@@ -233,8 +233,9 @@ test.describe('profile knowledge graph smoke', () => {
 
     await page.getByTestId('knowledge-graph-fullscreen-control').click()
     await expect(page.getByTestId('knowledge-graph-fullscreen-modal')).toContainText('Топология концептов на весь экран')
-    await expect(page.getByTestId('knowledge-graph-fullscreen-selection')).toContainText('Vue Query')
-    await page.getByTestId('knowledge-graph-focus-selected-control').click()
+    await expect(page.getByTestId('knowledge-graph-fullscreen-modal')).not.toContainText('Перейти к концепту')
+    await expect(page.getByTestId('knowledge-graph-fullscreen-selection')).toHaveCount(0)
+    await page.getByTestId('knowledge-graph-fullscreen-close').click()
     await expect(page.getByTestId('knowledge-graph-fullscreen-modal')).toHaveCount(0)
     await expect(page.getByTestId('knowledge-graph-selected-details')).toBeVisible()
 
