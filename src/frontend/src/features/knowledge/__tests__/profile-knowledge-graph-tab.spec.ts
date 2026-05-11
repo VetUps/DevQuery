@@ -460,7 +460,7 @@ describe('ProfileKnowledgeGraphTab', () => {
     expect(wrapper.text()).not.toContain('Traceback')
   })
 
-  it('keeps prior graph data visible when a stale refetch error is reported', async () => {
+  it('keeps prior graph data and the safe stale banner visible when a stale refetch error is reported', async () => {
     setQueryState({ data: buildGraph(), isError: true })
 
     const wrapper = await mountTab()
@@ -469,6 +469,8 @@ describe('ProfileKnowledgeGraphTab', () => {
     expect(wrapper.get('[data-testid="knowledge-graph-mode"]').text()).toContain('2 nodes / 1 edges')
     await wrapper.get('[data-testid="knowledge-view-mode-list"]').trigger('click')
     await nextTick()
+    expect(wrapper.get('[data-testid="knowledge-state-banner"]').text()).toContain('Показываем последнюю сохранённую версию графа')
+    expect(wrapper.get('[data-testid="knowledge-state-banner"]').text()).toContain('Не удалось загрузить граф знаний')
     expect(wrapper.get('[data-testid="knowledge-concepts"]').text()).toContain('Django')
   })
 
@@ -488,7 +490,7 @@ describe('ProfileKnowledgeGraphTab', () => {
     expect(wrapper.get('[data-testid="knowledge-total-weight"]').text()).toBe('0')
   })
 
-  it('uses the public user hook and hides rebuild controls for public viewers', async () => {
+  it('uses the public user hook and hides rebuild controls for public viewers across modes', async () => {
     const graph = buildGraph({ viewer: { is_owner: false } })
     setQueryState({ data: graph })
 
@@ -499,6 +501,14 @@ describe('ProfileKnowledgeGraphTab', () => {
     expect(computed(() => userIdArg.value).value).toBe('user-42')
     expect(wrapper.find('[data-testid="knowledge-rebuild-button"]').exists()).toBe(false)
     expect(wrapper.get('[data-testid="knowledge-public-readonly"]').text()).toContain('только владельцу')
+
+    await wrapper.get('[data-testid="knowledge-view-mode-list"]').trigger('click')
+    await nextTick()
+
+    expect(wrapper.find('[data-testid="knowledge-rebuild-button"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="knowledge-public-readonly"]').text()).toContain('только владельцу')
+    expect(wrapper.text()).not.toContain('provider stack token leaked')
+    expect(wrapper.text()).not.toContain('Traceback')
   })
 
   it('shows owner-only rebuild controls and calls the spoof-resistant mutation without a user id', async () => {
