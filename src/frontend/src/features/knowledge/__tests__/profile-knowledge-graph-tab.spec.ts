@@ -55,14 +55,14 @@ vi.mock('@/features/knowledge/components/KnowledgeGraphRenderer.vue', () => ({
       neighbourConceptIds: { type: Array, default: () => [] },
       neighbourEdgeIds: { type: Array, default: () => [] },
     },
-    emits: ['node-selected'],
+    emits: ['node-selected', 'focus-selected-concept'],
     setup(props: {
       nodes: UserKnowledgeGraphResponse['nodes']
       edges: UserKnowledgeGraphResponse['edges']
       selectedConceptId: number | null
       neighbourConceptIds: number[]
       neighbourEdgeIds: string[]
-    }, { emit }: { emit: (event: 'node-selected', conceptId: number) => void }) {
+    }, { emit }: { emit: (event: 'node-selected' | 'focus-selected-concept', conceptId?: number) => void }) {
       rendererHarness.props.push({
         nodes: props.nodes,
         edges: props.edges,
@@ -75,7 +75,11 @@ vi.mock('@/features/knowledge/components/KnowledgeGraphRenderer.vue', () => ({
         emit('node-selected', conceptId)
       }
 
-      return { props, selectConcept }
+      function focusSelectedConcept() {
+        emit('focus-selected-concept')
+      }
+
+      return { props, selectConcept, focusSelectedConcept }
     },
     template: `
       <section data-testid="knowledge-graph-renderer-stub">
@@ -86,6 +90,7 @@ vi.mock('@/features/knowledge/components/KnowledgeGraphRenderer.vue', () => ({
         <button type="button" data-testid="select-concept-10" @click="selectConcept(10)">select 10</button>
         <button type="button" data-testid="select-concept-11" @click="selectConcept(11)">select 11</button>
         <button type="button" data-testid="select-concept-404" @click="selectConcept(404)">select missing</button>
+        <button type="button" data-testid="focus-selected-concept" @click="focusSelectedConcept">focus selected</button>
       </section>
     `,
   },
@@ -406,6 +411,12 @@ describe('ProfileKnowledgeGraphTab', () => {
     await wrapper.get('[data-testid="knowledge-related-questions-open"]').trigger('click')
     await nextTick()
     expect(wrapper.get('[data-testid="knowledge-related-questions-modal"]').text()).toContain('Как построить безопасный граф знаний?')
+
+    const scrollSpy = vi.fn()
+    Element.prototype.scrollIntoView = scrollSpy
+    await wrapper.get('[data-testid="focus-selected-concept"]').trigger('click')
+    await nextTick()
+    expect(scrollSpy).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' })
 
     await wrapper.get('[data-testid="knowledge-view-mode-list"]').trigger('click')
     await nextTick()

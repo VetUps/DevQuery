@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, shallowRef, watch } from 'vue'
+import { computed, nextTick, shallowRef, useTemplateRef, watch } from 'vue'
 
 import { useRebuildKnowledgeGraphMutation } from '@/features/knowledge/mutations/useRebuildKnowledgeGraphMutation'
 import { useOwnKnowledgeGraphQuery, usePublicUserKnowledgeGraphQuery } from '@/features/knowledge/queries/useKnowledgeGraphQuery'
@@ -35,6 +35,7 @@ const graphQuery = normalizedUserId.value
 const rebuildMutation = useRebuildKnowledgeGraphMutation()
 const rebuildActionError = shallowRef('')
 const selectedConceptId = shallowRef<number | null>(null)
+const selectedConceptDetailsRef = useTemplateRef<HTMLElement>('selectedConceptDetails')
 const viewMode = shallowRef<KnowledgeGraphViewMode>('graph')
 
 const graph = computed<UserKnowledgeGraphResponse | undefined>(() => graphQuery.data.value)
@@ -267,6 +268,16 @@ function handleNodeSelected(conceptId: number) {
   selectedConceptId.value = existsInTopology ? conceptId : null
 }
 
+async function focusSelectedConceptDetails() {
+  if (!selectedConcept.value) {
+    return
+  }
+
+  viewMode.value = 'graph'
+  await nextTick()
+  selectedConceptDetailsRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
 watch(
   () => graph.value?.nodes.map((node) => node.concept_id).join('|') ?? '',
   () => {
@@ -415,16 +426,19 @@ watch(
             :neighbour-concept-ids="neighbourConceptIds"
             :neighbour-edge-ids="neighbourEdgeIds"
             @node-selected="handleNodeSelected"
+            @focus-selected-concept="focusSelectedConceptDetails"
           />
         </SurfacePanel>
 
-        <SurfacePanel padding="lg">
-          <KnowledgeGraphConceptDetails
-            :selected-node="selectedConcept"
-            :neighbour-nodes="neighbourConcepts"
-            :neighbour-edges="neighbourEdges"
-          />
-        </SurfacePanel>
+        <div ref="selectedConceptDetails" data-testid="knowledge-selected-details-anchor">
+          <SurfacePanel padding="lg">
+            <KnowledgeGraphConceptDetails
+              :selected-node="selectedConcept"
+              :neighbour-nodes="neighbourConcepts"
+              :neighbour-edges="neighbourEdges"
+            />
+          </SurfacePanel>
+        </div>
       </div>
 
       <div v-if="isListMode && hasListContent" class="knowledge-tab__mode-panel" data-testid="knowledge-list-panel">
