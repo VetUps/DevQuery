@@ -347,10 +347,6 @@ async function syncGraph(): Promise<void> {
   updateGraphElements()
 }
 
-function fitGraph(): void {
-  cyInstance.value?.fit(undefined, GRAPH_PADDING)
-}
-
 function resetGraphView(): void {
   const cy = cyInstance.value
 
@@ -360,6 +356,28 @@ function resetGraphView(): void {
 
   cy.zoom(1)
   cy.pan({ x: 0, y: 0 })
+  cy.fit(undefined, GRAPH_PADDING)
+}
+
+function zoomGraphBy(factor: number): void {
+  const cy = cyInstance.value
+
+  if (!cy) {
+    return
+  }
+
+  const currentZoom = cy.zoom()
+  const nextZoom = (typeof currentZoom === 'number' && Number.isFinite(currentZoom) ? currentZoom : 1) * factor
+
+  cy.zoom(nextZoom)
+}
+
+function zoomGraphIn(): void {
+  zoomGraphBy(1.18)
+}
+
+function zoomGraphOut(): void {
+  zoomGraphBy(0.85)
 }
 
 onMounted(() => {
@@ -393,25 +411,6 @@ onBeforeUnmount(() => {
           {{ graphSummary }}
         </p>
       </div>
-
-      <div v-if="hasNodes" class="knowledge-graph-renderer__controls" aria-label="Управление графом знаний">
-        <button
-          class="knowledge-graph-renderer__control"
-          type="button"
-          data-testid="knowledge-graph-fit-control"
-          @click="fitGraph"
-        >
-          Фокусировать граф
-        </button>
-        <button
-          class="knowledge-graph-renderer__control"
-          type="button"
-          data-testid="knowledge-graph-reset-control"
-          @click="resetGraphView"
-        >
-          Сбросить масштаб
-        </button>
-      </div>
     </div>
 
     <p
@@ -437,7 +436,10 @@ onBeforeUnmount(() => {
       role="group"
       aria-label="Выбор концепта на графе знаний"
     >
-      <p class="knowledge-graph-renderer__selector-title">Выбрать концепт</p>
+      <div class="knowledge-graph-renderer__selector-heading">
+        <p class="knowledge-graph-renderer__selector-title">Концепты</p>
+        <span class="knowledge-graph-renderer__selector-count">{{ props.nodes.length }}</span>
+      </div>
       <div class="knowledge-graph-renderer__selector-list">
         <button
           v-for="node in props.nodes"
@@ -455,8 +457,40 @@ onBeforeUnmount(() => {
             {{ conceptLabel(node) }}
           </span>
           <span class="knowledge-graph-renderer__concept-meta">
-            {{ node.source_count }} источников · вес {{ node.total_weight }} · {{ node.related_questions.length }} вопросов
+            {{ node.source_count }} · вес {{ node.total_weight }} · {{ node.related_questions.length }} вопр.
           </span>
+        </button>
+      </div>
+    </div>
+
+    <div v-if="hasNodes" class="knowledge-graph-renderer__viewport-toolbar" data-testid="knowledge-graph-viewport-toolbar">
+      <p class="knowledge-graph-renderer__toolbar-label">Управление масштабом</p>
+      <div class="knowledge-graph-renderer__controls" aria-label="Управление масштабом графа знаний">
+        <button
+          class="knowledge-graph-renderer__control knowledge-graph-renderer__control--reset"
+          type="button"
+          data-testid="knowledge-graph-reset-control"
+          @click="resetGraphView"
+        >
+          Сбросить масштаб
+        </button>
+        <button
+          class="knowledge-graph-renderer__control knowledge-graph-renderer__control--icon"
+          type="button"
+          data-testid="knowledge-graph-zoom-in-control"
+          aria-label="Приблизить граф"
+          @click="zoomGraphIn"
+        >
+          +
+        </button>
+        <button
+          class="knowledge-graph-renderer__control knowledge-graph-renderer__control--icon"
+          type="button"
+          data-testid="knowledge-graph-zoom-out-control"
+          aria-label="Отдалить граф"
+          @click="zoomGraphOut"
+        >
+          −
         </button>
       </div>
     </div>
@@ -516,59 +550,143 @@ onBeforeUnmount(() => {
   gap: var(--space-sm);
 }
 
+.knowledge-graph-renderer__viewport-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm) var(--space-md);
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid rgb(14 116 144 / 0.14);
+  border-radius: calc(var(--radius-md) + var(--space-sm));
+  background: linear-gradient(135deg, rgb(236 254 255 / 0.76), rgb(255 255 255 / 0.72));
+  box-shadow: 0 10px 28px rgb(15 23 42 / 0.07);
+}
+
+.knowledge-graph-renderer__toolbar-label {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
 .knowledge-graph-renderer__control {
+  min-width: 40px;
   min-height: 40px;
   padding: 0 var(--space-md);
-  border: 1px solid var(--color-border);
+  border: 1px solid rgb(14 116 144 / 0.24);
   border-radius: 999px;
-  background: rgb(255 255 255 / 0.68);
+  background: rgb(255 255 255 / 0.78);
   color: var(--color-text);
   cursor: pointer;
   font: inherit;
-  font-weight: 700;
+  font-weight: 800;
+  box-shadow: 0 8px 18px rgb(15 23 42 / 0.06);
+  transition-duration: 160ms;
+  transition-property: background-color, border-color, box-shadow, transform;
+  transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
 }
 
-.knowledge-graph-renderer__control:hover {
-  background: rgb(255 255 255 / 0.9);
+.knowledge-graph-renderer__control:hover,
+.knowledge-graph-renderer__control:focus-visible {
+  border-color: rgb(14 116 144 / 0.5);
+  background: rgb(255 255 255 / 0.96);
+  box-shadow: 0 12px 24px rgb(15 23 42 / 0.1);
+}
+
+.knowledge-graph-renderer__control:active {
+  transform: scale(0.96);
+}
+
+.knowledge-graph-renderer__control--icon {
+  width: 40px;
+  padding: 0;
+  font-size: 20px;
+  line-height: 1;
+}
+
+.knowledge-graph-renderer__control--reset {
+  min-width: max-content;
 }
 
 .knowledge-graph-renderer__selector {
   display: grid;
   gap: var(--space-sm);
+  padding: var(--space-sm);
+  border: 1px solid rgb(14 116 144 / 0.12);
+  border-radius: var(--radius-lg);
+  background: rgb(255 255 255 / 0.42);
+}
+
+.knowledge-graph-renderer__selector-heading {
+  display: flex;
+  gap: var(--space-sm);
+  align-items: center;
+  justify-content: space-between;
 }
 
 .knowledge-graph-renderer__selector-title {
   margin: 0;
   color: var(--color-muted);
   font-size: 14px;
-  font-weight: 700;
+  font-weight: 800;
+}
+
+.knowledge-graph-renderer__selector-count {
+  display: inline-grid;
+  min-width: 28px;
+  min-height: 28px;
+  place-items: center;
+  padding: 0 var(--space-xs);
+  border-radius: 999px;
+  background: rgb(14 116 144 / 0.1);
+  color: var(--color-accent);
+  font-size: 12px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
 }
 
 .knowledge-graph-renderer__selector-list {
   display: flex;
+  max-height: 148px;
   flex-wrap: wrap;
-  gap: var(--space-sm);
+  gap: var(--space-xs);
+  overflow: auto;
+  padding: 2px;
+  scrollbar-gutter: stable;
 }
 
 .knowledge-graph-renderer__concept-option {
-  display: grid;
-  gap: 2px;
-  max-width: 220px;
-  min-height: 48px;
-  padding: var(--space-sm) var(--space-md);
-  border: 1px solid rgb(14 116 144 / 0.22);
-  border-radius: var(--radius-md);
-  background: rgb(255 255 255 / 0.72);
+  display: inline-flex;
+  min-height: 40px;
+  max-width: 210px;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid rgb(14 116 144 / 0.2);
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.76);
   color: var(--color-text);
   cursor: pointer;
   font: inherit;
   text-align: left;
+  box-shadow: 0 6px 14px rgb(15 23 42 / 0.04);
+  transition-duration: 160ms;
+  transition-property: background-color, border-color, box-shadow, transform;
+  transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
 }
 
 .knowledge-graph-renderer__concept-option:hover,
 .knowledge-graph-renderer__concept-option--selected {
   border-color: rgb(14 116 144 / 0.55);
-  background: rgb(236 254 255 / 0.86);
+  background: rgb(236 254 255 / 0.92);
+  box-shadow: 0 10px 20px rgb(15 23 42 / 0.08);
+}
+
+.knowledge-graph-renderer__concept-option:active {
+  transform: scale(0.96);
 }
 
 .knowledge-graph-renderer__concept-option:focus-visible {
@@ -577,12 +695,17 @@ onBeforeUnmount(() => {
 }
 
 .knowledge-graph-renderer__concept-name {
+  overflow: hidden;
   font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .knowledge-graph-renderer__concept-meta {
   color: var(--color-muted);
   font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .knowledge-graph-renderer__surface {
