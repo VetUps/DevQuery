@@ -39,6 +39,9 @@ const rendererHarness = vi.hoisted(() => ({
   props: [] as Array<{
     nodes: UserKnowledgeGraphResponse['nodes']
     edges: UserKnowledgeGraphResponse['edges']
+    selectedConceptId: number | null
+    neighbourConceptIds: number[]
+    neighbourEdgeIds: string[]
   }>,
 }))
 
@@ -48,19 +51,43 @@ vi.mock('@/features/knowledge/components/KnowledgeGraphRenderer.vue', () => ({
     props: {
       nodes: { type: Array, required: true },
       edges: { type: Array, required: true },
+      selectedConceptId: { type: Number, default: null },
+      neighbourConceptIds: { type: Array, default: () => [] },
+      neighbourEdgeIds: { type: Array, default: () => [] },
     },
+    emits: ['node-selected'],
     setup(props: {
       nodes: UserKnowledgeGraphResponse['nodes']
       edges: UserKnowledgeGraphResponse['edges']
-    }) {
+      selectedConceptId: number | null
+      neighbourConceptIds: number[]
+      neighbourEdgeIds: string[]
+    }, { emit }: { emit: (event: 'node-selected', conceptId: number) => void }) {
       rendererHarness.props.push({
         nodes: props.nodes,
         edges: props.edges,
+        selectedConceptId: props.selectedConceptId,
+        neighbourConceptIds: props.neighbourConceptIds,
+        neighbourEdgeIds: props.neighbourEdgeIds,
       })
 
-      return { props }
+      function selectConcept(conceptId: number) {
+        emit('node-selected', conceptId)
+      }
+
+      return { props, selectConcept }
     },
-    template: '<section data-testid="knowledge-graph-renderer-stub">{{ props.nodes.length }} nodes / {{ props.edges.length }} edges</section>',
+    template: `
+      <section data-testid="knowledge-graph-renderer-stub">
+        {{ props.nodes.length }} nodes / {{ props.edges.length }} edges
+        <span data-testid="renderer-selected-id">{{ props.selectedConceptId ?? 'none' }}</span>
+        <span data-testid="renderer-neighbour-ids">{{ props.neighbourConceptIds.join(',') }}</span>
+        <span data-testid="renderer-edge-ids">{{ props.neighbourEdgeIds.join(',') }}</span>
+        <button type="button" data-testid="select-concept-10" @click="selectConcept(10)">select 10</button>
+        <button type="button" data-testid="select-concept-11" @click="selectConcept(11)">select 11</button>
+        <button type="button" data-testid="select-concept-404" @click="selectConcept(404)">select missing</button>
+      </section>
+    `,
   },
 }))
 
@@ -317,6 +344,73 @@ describe('ProfileKnowledgeGraphTab', () => {
     setQueryState()
     const missingWrapper = await mountTab()
     expect(missingWrapper.get('[data-testid="knowledge-graph-missing"]').text()).toContain('Данные графа недоступны')
+  })
+
+  it('wires renderer node selection into details and topology-derived highlight props', async () => {
+    const graph = buildGraph()
+    setQueryState({ data: graph })
+
+    const wrapper = await mountTab()
+
+    expect(wrapper.get('[data-testid="knowledge-graph-selection-empty"]').text()).toContain('Выберите концепт')
+    expect(wrapper.get('[data-testid="renderer-selected-id"]').text()).toBe('none')
+
+    await wrapper.get('[data-testid="select-concept-10"]').trigger('click')
+    await nextTick()
+
+    expect(wrapper.get('[data-testid="renderer-selected-id"]').text()).toBe('10')
+    expect(wrapper.get('[data-testid="renderer-neighbour-ids"]').text()).toBe('11')
+    expect(wrapper.get('[data-testid="renderer-edge-ids"]').text()).toBe('10-11')
+    expect(wrapper.get('[data-testid="knowledge-graph-selected-details"]').text()).toContain('Django')
+    expect(wrapper.get('[data-testid="knowledge-graph-selected-neighbours"]').text()).toContain('Vue')
+    expect(wrapper.get('[data-testid="knowledge-graph-selected-details"]').text()).toContain('Как построить безопасный граф знаний?')
+    expect(wrapper.text()).not.toContain('provider stack token leaked')
+    expect(wrapper.text()).not.toContain('Traceback')
+  })
+
+  it('ignores missing selected ids and returns to guidance without stale details', async () => {
+    const graph = buildGraph()
+    setQueryState({ data: graph })
+
+    const wrapper = await mountTab()
+
+    await wrapper.get('[data-testid="select-concept-10"]').trigger('click')
+    await nextTick()
+    expect(wrapper.get('[data-testid="knowledge-graph-selected-details"]').text()).toContain('Django')
+
+    await wrapper.get('[data-testid="select-concept-404"]').trigger('click')
+    await nextTick()
+
+    expect(wrapper.get('[data-testid="knowledge-graph-selection-empty"]').text()).toContain('Выберите концепт')
+    expect(wrapper.get('[data-testid="renderer-selected-id"]').text()).toBe('none')
+    expect(wrapper.text()).not.toContain('provider stack token leaked')
+    expect(wrapper.text()).not.toContain('Traceback')
+  })
+
+  it('renders selected details in public readonly mode without rebuild controls or raw diagnostics', async () => {
+    const graph = buildGraph({
+      viewer: { is_owner: false },
+      state: {
+        status: 'failed',
+        stale_reason: '',
+        last_error_message: 'Traceback provider stack token leaked',
+        last_failed_phase: 'question_authoring',
+        last_rebuild_started_at: '2026-05-06T11:30:00Z',
+        last_rebuild_finished_at: null,
+      },
+    })
+    setQueryState({ data: graph })
+
+    const wrapper = await mountTab({ userId: '  user-42  ' })
+    await wrapper.get('[data-testid="select-concept-10"]').trigger('click')
+    await nextTick()
+
+    expect(wrapper.find('[data-testid="knowledge-rebuild-button"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="knowledge-public-readonly"]').text()).toContain('только владельцу')
+    expect(wrapper.get('[data-testid="knowledge-graph-state-context"]').text()).toContain('question_authoring')
+    expect(wrapper.get('[data-testid="knowledge-graph-state-context"]').text()).toContain('Технические детали скрыты')
+    expect(wrapper.text()).not.toContain('provider stack token leaked')
+    expect(wrapper.text()).not.toContain('Traceback')
   })
 
   it('keeps prior graph data visible when a stale refetch error is reported', async () => {
