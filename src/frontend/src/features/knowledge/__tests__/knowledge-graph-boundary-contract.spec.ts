@@ -8,9 +8,15 @@ import {
   fetchOwnKnowledgeGraph,
   fetchPublicUserKnowledgeGraph,
   rebuildOwnKnowledgeGraph,
+  resetOwnKnowledgeGraphLayout,
+  saveOwnKnowledgeGraphLayout,
   type UserKnowledgeGraphResponse,
 } from '@/features/knowledge/api/knowledgeGraph'
 import { buildRebuildKnowledgeGraphMutationOptions } from '@/features/knowledge/mutations/useRebuildKnowledgeGraphMutation'
+import {
+  buildResetKnowledgeGraphLayoutMutationOptions,
+  buildSaveKnowledgeGraphLayoutMutationOptions,
+} from '@/features/knowledge/mutations/useKnowledgeGraphLayoutMutation'
 import {
   buildKnowledgeGraphQueryKey,
   knowledgeGraphQueryKeys,
@@ -18,8 +24,10 @@ import {
 import ProfileKnowledgeGraphTab from '@/features/knowledge/components/ProfileKnowledgeGraphTab.vue'
 
 const httpMock = vi.hoisted(() => ({
+  delete: vi.fn(),
   get: vi.fn(),
   post: vi.fn(),
+  put: vi.fn(),
 }))
 
 const queryClientMock = vi.hoisted(() => ({
@@ -141,6 +149,7 @@ const SOURCE_FILES_UNDER_CONTRACT = [
   '../api/knowledgeGraph.ts',
   '../queries/useKnowledgeGraphQuery.ts',
   '../mutations/useRebuildKnowledgeGraphMutation.ts',
+  '../mutations/useKnowledgeGraphLayoutMutation.ts',
   '../components/ProfileKnowledgeGraphTab.vue',
   '../components/KnowledgeGraphRenderer.vue',
   '../components/KnowledgeGraphConceptDetails.vue',
@@ -271,6 +280,12 @@ describe('knowledge graph frontend boundary contract', () => {
         state: buildGraph().state,
       },
     })
+    httpMock.put.mockResolvedValue({
+      data: { schema_version: 1, positions: { 10: { x: 1, y: 2 } }, updated_at: '2026-05-11T12:00:00Z' },
+    })
+    httpMock.delete.mockResolvedValue({
+      data: { schema_version: 1, positions: {}, updated_at: null },
+    })
   })
 
   afterEach(() => {
@@ -279,24 +294,35 @@ describe('knowledge graph frontend boundary contract', () => {
     }
   })
 
-  it('calls only visualization knowledge graph read and rebuild endpoints', async () => {
+  it('calls only visualization knowledge graph read, rebuild, and owner layout endpoints', async () => {
     await fetchOwnKnowledgeGraph()
     await fetchPublicUserKnowledgeGraph(PUBLIC_USER_ID)
     await rebuildOwnKnowledgeGraph()
+    await saveOwnKnowledgeGraphLayout({ schema_version: 1, positions: { 10: { x: 1, y: 2 } } })
+    await resetOwnKnowledgeGraphLayout()
 
     expect(httpMock.get).toHaveBeenNthCalledWith(1, '/knowledge-graph/me/')
     expect(httpMock.get).toHaveBeenNthCalledWith(2, `/knowledge-graph/users/${PUBLIC_USER_ID}/`)
     expect(httpMock.post).toHaveBeenCalledExactlyOnceWith('/knowledge-graph/me/rebuild/')
+    expect(httpMock.put).toHaveBeenCalledExactlyOnceWith('/knowledge-graph/me/layout/', {
+      schema_version: 1,
+      positions: { 10: { x: 1, y: 2 } },
+    })
+    expect(httpMock.delete).toHaveBeenCalledExactlyOnceWith('/knowledge-graph/me/layout/')
 
     const calledUrls = [
       ...httpMock.get.mock.calls.map(([url]) => String(url)),
       ...httpMock.post.mock.calls.map(([url]) => String(url)),
+      ...httpMock.put.mock.calls.map(([url]) => String(url)),
+      ...httpMock.delete.mock.calls.map(([url]) => String(url)),
     ]
 
     expect(calledUrls).toEqual([
       '/knowledge-graph/me/',
       `/knowledge-graph/users/${PUBLIC_USER_ID}/`,
       '/knowledge-graph/me/rebuild/',
+      '/knowledge-graph/me/layout/',
+      '/knowledge-graph/me/layout/',
     ])
     calledUrls.forEach(expectNoForbiddenBoundaryTerms)
   })
@@ -313,8 +339,22 @@ describe('knowledge graph frontend boundary contract', () => {
     expect(options.mutationFn).toBe(rebuildOwnKnowledgeGraph)
     await options.onSuccess()
 
-    expect(queryClientMock.invalidateQueries).toHaveBeenCalledExactlyOnceWith({
+    const saveOptions = buildSaveKnowledgeGraphLayoutMutationOptions()
+    const resetOptions = buildResetKnowledgeGraphLayoutMutationOptions()
+
+    expect(saveOptions.mutationFn).toBe(saveOwnKnowledgeGraphLayout)
+    expect(resetOptions.mutationFn).toBe(resetOwnKnowledgeGraphLayout)
+    await saveOptions.onSuccess()
+    await resetOptions.onSuccess()
+
+    expect(queryClientMock.invalidateQueries).toHaveBeenNthCalledWith(1, {
       queryKey: ['knowledge-graph'],
+    })
+    expect(queryClientMock.invalidateQueries).toHaveBeenNthCalledWith(2, {
+      queryKey: ['knowledge-graph', 'me'],
+    })
+    expect(queryClientMock.invalidateQueries).toHaveBeenNthCalledWith(3, {
+      queryKey: ['knowledge-graph', 'me'],
     })
     queryClientMock.invalidateQueries.mock.calls
       .map(([args]) => JSON.stringify(args))

@@ -8,8 +8,11 @@ import {
   fetchPublicUserKnowledgeGraph,
   parseKnowledgeGraphRebuildErrorResponse,
   parseKnowledgeGraphRebuildResponse,
+  parseKnowledgeGraphLayout,
   parseUserKnowledgeGraphResponse,
   rebuildOwnKnowledgeGraph,
+  resetOwnKnowledgeGraphLayout,
+  saveOwnKnowledgeGraphLayout,
   type KnowledgeGraphRebuildResponse,
   type UserKnowledgeGraphResponse,
 } from '@/features/knowledge/api/knowledgeGraph'
@@ -18,11 +21,17 @@ import {
   knowledgeGraphQueryKeys,
 } from '@/features/knowledge/queries/useKnowledgeGraphQuery'
 import { buildRebuildKnowledgeGraphMutationOptions } from '@/features/knowledge/mutations/useRebuildKnowledgeGraphMutation'
+import {
+  buildResetKnowledgeGraphLayoutMutationOptions,
+  buildSaveKnowledgeGraphLayoutMutationOptions,
+} from '@/features/knowledge/mutations/useKnowledgeGraphLayoutMutation'
 
 vi.mock('@/shared/api/http', () => ({
   http: {
+    delete: vi.fn(),
     get: vi.fn(),
     post: vi.fn(),
+    put: vi.fn(),
   },
 }))
 
@@ -121,6 +130,17 @@ const graphPayload = (overrides: Record<string, unknown> = {}) => ({
     },
   ],
   user_email: 'graph-owner@example.com',
+  raw_exception: 'Traceback provider token leaked',
+  ...overrides,
+})
+
+const layoutPayload = (overrides: Record<string, unknown> = {}) => ({
+  schema_version: 1,
+  positions: {
+    10: { x: 120.5, y: -40.25 },
+    20: { x: 300, y: 80 },
+  },
+  updated_at: '2026-05-11T12:00:00Z',
   raw_exception: 'Traceback provider token leaked',
   ...overrides,
 })
@@ -337,6 +357,24 @@ describe('knowledge graph API contract', () => {
     )
   })
 
+  it('parses optional owner layout positions and rejects malformed layout DTOs', () => {
+    expect(parseUserKnowledgeGraphResponse(graphPayload({ layout: layoutPayload() })).layout).toEqual({
+      schema_version: 1,
+      positions: {
+        10: { x: 120.5, y: -40.25 },
+        20: { x: 300, y: 80 },
+      },
+      updated_at: '2026-05-11T12:00:00Z',
+    })
+    expect(parseKnowledgeGraphLayout(layoutPayload()).positions['10']).toEqual({ x: 120.5, y: -40.25 })
+    expect(JSON.stringify(parseKnowledgeGraphLayout(layoutPayload()))).not.toContain('raw_exception')
+
+    expect(() => parseKnowledgeGraphLayout(layoutPayload({ schema_version: 2 }))).toThrow(/layout\.schema_version/)
+    expect(() => parseKnowledgeGraphLayout(layoutPayload({ positions: { abc: { x: 1, y: 2 } } }))).toThrow(/layout\.positions\.abc/)
+    expect(() => parseKnowledgeGraphLayout(layoutPayload({ positions: { 10: { x: Number.NaN, y: 2 } } }))).toThrow(/layout\.positions\.10\.x/)
+    expect(() => parseKnowledgeGraphLayout(layoutPayload({ positions: { 10: { x: 1 } } }))).toThrow(/layout\.positions\.10\.y/)
+  })
+
   it('fetches own and public graph endpoints through strict parsers', async () => {
     mockedHttp.get.mockResolvedValueOnce({ data: graphPayload() })
     mockedHttp.get.mockResolvedValueOnce({ data: graphPayload({ viewer: { is_owner: false } }) })
@@ -383,6 +421,33 @@ describe('knowledge graph API contract', () => {
 
     expect(mockedHttp.post).toHaveBeenCalledWith('/knowledge-graph/me/rebuild/')
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: knowledgeGraphQueryKeys.all })
+  })
+
+  it('saves and resets owner graph layout through owner-only endpoints', async () => {
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries').mockResolvedValue(undefined)
+    const request = {
+      schema_version: 1 as const,
+      positions: {
+        10: { x: 120.5, y: -40.25 },
+      },
+    }
+    mockedHttp.put.mockResolvedValueOnce({ data: layoutPayload({ positions: request.positions }) })
+    mockedHttp.delete.mockResolvedValueOnce({ data: layoutPayload({ positions: {}, updated_at: null }) })
+
+    await expect(saveOwnKnowledgeGraphLayout(request)).resolves.toMatchObject({ positions: request.positions })
+    await expect(resetOwnKnowledgeGraphLayout()).resolves.toMatchObject({ positions: {}, updated_at: null })
+
+    expect(mockedHttp.put).toHaveBeenCalledWith('/knowledge-graph/me/layout/', request)
+    expect(mockedHttp.delete).toHaveBeenCalledWith('/knowledge-graph/me/layout/')
+
+    const saveMutationOptions = buildSaveKnowledgeGraphLayoutMutationOptions()
+    const resetMutationOptions = buildResetKnowledgeGraphLayoutMutationOptions()
+
+    await saveMutationOptions.onSuccess()
+    await resetMutationOptions.onSuccess()
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: knowledgeGraphQueryKeys.own() })
+    expect(invalidateSpy).toHaveBeenCalledTimes(2)
   })
 
   it('builds distinct own and public query keys with blank public-id guards', () => {
