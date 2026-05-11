@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, useTemplateRef } from 'vue'
+import { computed, shallowRef, useTemplateRef } from 'vue'
 
 import type { KnowledgeGraphEdge, KnowledgeGraphNode } from '@/features/knowledge/api/knowledgeGraph'
 import KnowledgeGraphCanvas from './KnowledgeGraphCanvas.vue'
 
 interface Emits {
   'node-selected': [conceptId: number]
+  'focus-selected-concept': []
 }
 
 const props = withDefaults(defineProps<{
@@ -23,9 +24,17 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<Emits>()
 
 const graphCanvasRef = useTemplateRef<InstanceType<typeof KnowledgeGraphCanvas>>('graphCanvas')
+const isFullscreenOpen = shallowRef(false)
 
 const hasNodes = computed(() => props.nodes.length > 0)
 const graphSummary = computed(() => `${props.nodes.length} концептов · ${props.edges.length} связей`)
+const selectedNode = computed(() => {
+  if (props.selectedConceptId === null || props.selectedConceptId === undefined) {
+    return null
+  }
+
+  return props.nodes.find((node) => node.concept_id === props.selectedConceptId) ?? null
+})
 
 function conceptLabel(node: KnowledgeGraphNode): string {
   return node.name || node.slug || `Концепт ${node.concept_id}`
@@ -51,6 +60,23 @@ function zoomGraphIn(): void {
 
 function zoomGraphOut(): void {
   graphCanvasRef.value?.zoomOut()
+}
+
+function openFullscreenGraph(): void {
+  isFullscreenOpen.value = true
+}
+
+function closeFullscreenGraph(): void {
+  isFullscreenOpen.value = false
+}
+
+function focusSelectedConcept(): void {
+  if (!selectedNode.value) {
+    return
+  }
+
+  closeFullscreenGraph()
+  emit('focus-selected-concept')
 }
 </script>
 
@@ -129,6 +155,14 @@ function zoomGraphOut(): void {
         >
           −
         </button>
+        <button
+          class="knowledge-graph-renderer__control knowledge-graph-renderer__control--fullscreen"
+          type="button"
+          data-testid="knowledge-graph-fullscreen-control"
+          @click="openFullscreenGraph"
+        >
+          На весь экран
+        </button>
       </div>
     </div>
 
@@ -141,6 +175,72 @@ function zoomGraphOut(): void {
       :neighbour-edge-ids="props.neighbourEdgeIds"
       @node-selected="emitNodeSelected"
     />
+
+    <div
+      v-if="isFullscreenOpen"
+      class="knowledge-graph-renderer__modal-backdrop"
+      data-testid="knowledge-graph-fullscreen-modal"
+      role="presentation"
+      @click.self="closeFullscreenGraph"
+    >
+      <section
+        class="knowledge-graph-renderer__modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="knowledge-graph-fullscreen-title"
+      >
+        <header class="knowledge-graph-renderer__modal-header">
+          <div>
+            <p class="knowledge-graph-renderer__eyebrow">Большой граф</p>
+            <h3 id="knowledge-graph-fullscreen-title">Топология концептов на весь экран</h3>
+            <p class="knowledge-graph-renderer__summary">{{ graphSummary }}</p>
+          </div>
+          <button
+            class="knowledge-graph-renderer__modal-close"
+            type="button"
+            data-testid="knowledge-graph-fullscreen-close"
+            aria-label="Закрыть большой граф"
+            @click="closeFullscreenGraph"
+          >
+            ×
+          </button>
+        </header>
+
+        <KnowledgeGraphCanvas
+          :nodes="props.nodes"
+          :edges="props.edges"
+          :selected-concept-id="props.selectedConceptId"
+          :neighbour-concept-ids="props.neighbourConceptIds"
+          :neighbour-edge-ids="props.neighbourEdgeIds"
+          surface-class="knowledge-graph-renderer__modal-canvas"
+          @node-selected="emitNodeSelected"
+        />
+
+        <footer class="knowledge-graph-renderer__modal-footer" data-testid="knowledge-graph-fullscreen-selection">
+          <div v-if="selectedNode" class="knowledge-graph-renderer__modal-selection">
+            <div>
+              <p class="knowledge-graph-renderer__toolbar-label">Выбранный концепт</p>
+              <strong>{{ conceptLabel(selectedNode) }}</strong>
+              <span>
+                {{ selectedNode.source_count }} сигналов · вес {{ selectedNode.total_weight }} ·
+                {{ selectedNode.related_questions.length }} вопросов
+              </span>
+            </div>
+            <button
+              class="knowledge-graph-renderer__control knowledge-graph-renderer__control--reset"
+              type="button"
+              data-testid="knowledge-graph-focus-selected-control"
+              @click="focusSelectedConcept"
+            >
+              Перейти к концепту
+            </button>
+          </div>
+          <p v-else class="knowledge-graph-renderer__modal-help">
+            Выберите узел на большом графе — здесь появится переход к панели концепта на странице.
+          </p>
+        </footer>
+      </section>
+    </div>
   </section>
 </template>
 
@@ -160,7 +260,8 @@ function zoomGraphOut(): void {
 
 .knowledge-graph-renderer__eyebrow,
 .knowledge-graph-renderer__title,
-.knowledge-graph-renderer__summary {
+.knowledge-graph-renderer__summary,
+.knowledge-graph-renderer__modal-help {
   margin: 0;
 }
 
@@ -176,7 +277,8 @@ function zoomGraphOut(): void {
   margin-top: var(--space-xs);
 }
 
-.knowledge-graph-renderer__summary {
+.knowledge-graph-renderer__summary,
+.knowledge-graph-renderer__modal-help {
   color: var(--color-muted);
 }
 
@@ -208,7 +310,8 @@ function zoomGraphOut(): void {
   text-transform: uppercase;
 }
 
-.knowledge-graph-renderer__control {
+.knowledge-graph-renderer__control,
+.knowledge-graph-renderer__modal-close {
   min-width: 40px;
   min-height: 40px;
   padding: 0 var(--space-md);
@@ -226,13 +329,16 @@ function zoomGraphOut(): void {
 }
 
 .knowledge-graph-renderer__control:hover,
-.knowledge-graph-renderer__control:focus-visible {
+.knowledge-graph-renderer__control:focus-visible,
+.knowledge-graph-renderer__modal-close:hover,
+.knowledge-graph-renderer__modal-close:focus-visible {
   border-color: rgb(14 116 144 / 0.5);
   background: rgb(255 255 255 / 0.96);
   box-shadow: 0 12px 24px rgb(15 23 42 / 0.1);
 }
 
-.knowledge-graph-renderer__control:active {
+.knowledge-graph-renderer__control:active,
+.knowledge-graph-renderer__modal-close:active {
   transform: scale(0.96);
 }
 
@@ -243,7 +349,8 @@ function zoomGraphOut(): void {
   line-height: 1;
 }
 
-.knowledge-graph-renderer__control--reset {
+.knowledge-graph-renderer__control--reset,
+.knowledge-graph-renderer__control--fullscreen {
   min-width: max-content;
 }
 
@@ -342,5 +449,80 @@ function zoomGraphOut(): void {
   font-size: 12px;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+
+.knowledge-graph-renderer__modal-backdrop {
+  position: fixed;
+  z-index: 60;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: var(--space-md);
+  background: rgb(15 23 42 / 0.48);
+}
+
+.knowledge-graph-renderer__modal {
+  display: grid;
+  width: min(1120px, 96vw);
+  max-height: 92vh;
+  gap: var(--space-md);
+  overflow: auto;
+  padding: var(--space-lg);
+  border: 1px solid rgb(14 116 144 / 0.18);
+  border-radius: calc(var(--radius-lg) + var(--space-sm));
+  background: rgb(255 255 255 / 0.96);
+  box-shadow: 0 30px 90px rgb(15 23 42 / 0.3);
+}
+
+.knowledge-graph-renderer__modal-header,
+.knowledge-graph-renderer__modal-selection {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-md);
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.knowledge-graph-renderer__modal-close {
+  padding: 0;
+  font-size: 24px;
+  line-height: 1;
+}
+
+.knowledge-graph-renderer__modal-footer {
+  padding: var(--space-md);
+  border: 1px solid rgb(14 116 144 / 0.14);
+  border-radius: var(--radius-lg);
+  background: linear-gradient(135deg, rgb(236 254 255 / 0.7), rgb(255 255 255 / 0.78));
+}
+
+.knowledge-graph-renderer__modal-selection > div {
+  display: grid;
+  gap: 2px;
+}
+
+.knowledge-graph-renderer__modal-selection strong {
+  font-size: 20px;
+}
+
+.knowledge-graph-renderer__modal-selection span {
+  color: var(--color-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+:deep(.knowledge-graph-renderer__modal-canvas) {
+  min-height: min(62vh, 620px);
+}
+
+@media (width <= 720px) {
+  .knowledge-graph-renderer__modal-backdrop {
+    align-items: stretch;
+    padding: var(--space-sm);
+  }
+
+  .knowledge-graph-renderer__modal {
+    width: 100%;
+    max-height: 100%;
+  }
 }
 </style>
