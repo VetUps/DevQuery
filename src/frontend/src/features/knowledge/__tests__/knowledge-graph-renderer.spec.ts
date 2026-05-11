@@ -4,9 +4,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { KnowledgeGraphEdge, KnowledgeGraphNode } from '@/features/knowledge/api/knowledgeGraph'
 import KnowledgeGraphRenderer from '@/features/knowledge/components/KnowledgeGraphRenderer.vue'
 
+type CytoscapeElementInput = {
+  group?: 'nodes' | 'edges'
+  data?: Record<string, unknown>
+  classes?: string
+}
+
 type CytoscapeOptions = {
   container?: HTMLElement
-  elements?: unknown[]
+  elements?: CytoscapeElementInput[]
   style?: unknown[]
   layout?: { name: string }
   userZoomingEnabled?: boolean
@@ -16,6 +22,73 @@ type CytoscapeOptions = {
 
 type TapHandler = (event: { target: { data: (key: string) => unknown } }) => void
 
+type MockElement = {
+  group?: 'nodes' | 'edges'
+  dataStore: Record<string, unknown>
+  classes: Set<string>
+  id: ReturnType<typeof vi.fn<() => string>>
+  data: ReturnType<typeof vi.fn<(key: string) => unknown>>
+  addClass: ReturnType<typeof vi.fn<(classes: string) => void>>
+  removeClass: ReturnType<typeof vi.fn<(classes: string) => void>>
+  nonempty: ReturnType<typeof vi.fn<() => boolean>>
+}
+
+type MockCollection = {
+  remove: ReturnType<typeof vi.fn<() => void>>
+  removeClass: ReturnType<typeof vi.fn<(classes: string) => void>>
+  forEach: ReturnType<typeof vi.fn<(callback: (element: MockElement) => void) => void>>
+  nonempty: ReturnType<typeof vi.fn<() => boolean>>
+}
+
+function createMockElement(input: CytoscapeElementInput): MockElement {
+  const element = {
+    group: input.group,
+    dataStore: input.data ?? {},
+    classes: new Set((input.classes ?? '').split(' ').filter(Boolean)),
+    id: vi.fn(() => String(input.data?.id ?? '')),
+    data: vi.fn((key: string) => input.data?.[key]),
+    addClass: vi.fn((classes: string) => {
+      for (const className of classes.split(' ').filter(Boolean)) {
+        element.classes.add(className)
+      }
+    }),
+    removeClass: vi.fn((classes: string) => {
+      for (const className of classes.split(' ').filter(Boolean)) {
+        element.classes.delete(className)
+      }
+    }),
+    nonempty: vi.fn(() => true),
+  }
+
+  return element
+}
+
+function createEmptyElement(id: string): MockElement {
+  const element = createMockElement({ data: { id }, classes: '' })
+  element.nonempty.mockReturnValue(false)
+  element.addClass.mockImplementation(() => undefined)
+  element.removeClass.mockImplementation(() => undefined)
+
+  return element
+}
+
+function createCollection(elements: MockElement[], removeElements?: () => void): MockCollection {
+  return {
+    remove: vi.fn(() => {
+      removeElements?.()
+    }),
+    removeClass: vi.fn((classes: string) => {
+      for (const element of elements) {
+        element.removeClass(classes)
+      }
+    }),
+    forEach: vi.fn((callback: (element: MockElement) => void) => {
+      elements.forEach(callback)
+    }),
+    nonempty: vi.fn(() => elements.length > 0),
+  }
+}
+
 const cytoscapeMock = vi.hoisted(() => {
   const instances: Array<{
     fit: ReturnType<typeof vi.fn>
@@ -24,23 +97,50 @@ const cytoscapeMock = vi.hoisted(() => {
     destroy: ReturnType<typeof vi.fn>
     add: ReturnType<typeof vi.fn>
     elements: ReturnType<typeof vi.fn>
+    nodes: ReturnType<typeof vi.fn>
+    edges: ReturnType<typeof vi.fn>
+    getElementById: ReturnType<typeof vi.fn>
     layout: ReturnType<typeof vi.fn>
     on: ReturnType<typeof vi.fn>
     handlers: Record<string, TapHandler>
+    elementsById: Map<string, MockElement>
+    options: CytoscapeOptions
   }> = []
   const constructor = vi.fn((options: CytoscapeOptions) => {
+    const elementStore: MockElement[] = []
+    const elementsById = new Map<string, MockElement>()
+    const addElements = (elements: CytoscapeElementInput[] = []) => {
+      for (const elementInput of elements) {
+        const element = createMockElement(elementInput)
+        elementStore.push(element)
+        elementsById.set(element.id(), element)
+      }
+    }
+    const removeElements = () => {
+      elementStore.length = 0
+      elementsById.clear()
+    }
+
+    addElements(options.elements)
+
     const instance = {
       fit: vi.fn(),
       zoom: vi.fn(),
       pan: vi.fn(),
       destroy: vi.fn(),
-      add: vi.fn(),
-      elements: vi.fn(() => ({ remove: vi.fn() })),
+      add: vi.fn((elements: CytoscapeElementInput[]) => {
+        addElements(elements)
+      }),
+      elements: vi.fn(() => createCollection(elementStore, removeElements)),
+      nodes: vi.fn(() => createCollection(elementStore.filter((element) => element.group === 'nodes'))),
+      edges: vi.fn(() => createCollection(elementStore.filter((element) => element.group === 'edges'))),
+      getElementById: vi.fn((id: string) => elementsById.get(id) ?? createEmptyElement(id)),
       layout: vi.fn(() => ({ run: vi.fn() })),
       on: vi.fn((eventName: string, selector: string, handler: TapHandler) => {
         instance.handlers[`${eventName}:${selector}`] = handler
       }),
       handlers: {} as Record<string, TapHandler>,
+      elementsById,
       options,
     }
 
@@ -89,6 +189,18 @@ function buildNodes(): KnowledgeGraphNode[] {
       activity_breakdown: [],
       related_questions: [],
     },
+    {
+      concept_id: 12,
+      slug: 'python',
+      name: 'Python',
+      source: 'tag',
+      provider: 'tag-sync',
+      confidence: '0.8000',
+      total_weight: '0.0000',
+      source_count: 1,
+      activity_breakdown: [],
+      related_questions: [],
+    },
   ]
 }
 
@@ -109,7 +221,22 @@ function buildEdges(): KnowledgeGraphEdge[] {
         },
       ],
     },
+    {
+      id: '11-12',
+      source_concept_id: 11,
+      target_concept_id: 12,
+      weight: '0.5000',
+      shared_question_count: 0,
+      reason: 'shared_activity',
+      related_questions: [],
+    },
   ]
+}
+
+function classListFor(elementId: string): string[] {
+  const element = cytoscapeMock.instances[0].elementsById.get(elementId)
+
+  return [...(element?.classes ?? [])].sort()
 }
 
 describe('KnowledgeGraphRenderer', () => {
@@ -121,8 +248,8 @@ describe('KnowledgeGraphRenderer', () => {
   it('maps parsed concepts and shared-question edges into safe Cytoscape elements', async () => {
     mount(KnowledgeGraphRenderer, {
       props: {
-        nodes: buildNodes(),
-        edges: buildEdges(),
+        nodes: buildNodes().slice(0, 2),
+        edges: buildEdges().slice(0, 1),
       },
     })
     await flushPromises()
@@ -179,7 +306,121 @@ describe('KnowledgeGraphRenderer', () => {
       expect.objectContaining({ selector: 'node' }),
       expect.objectContaining({ selector: 'edge' }),
       expect.objectContaining({ selector: '.knowledge-node--strong' }),
+      expect.objectContaining({ selector: 'node:selected, .knowledge-node--selected' }),
+      expect.objectContaining({ selector: '.knowledge-node--neighbour' }),
+      expect.objectContaining({ selector: '.knowledge-node--dimmed' }),
+      expect.objectContaining({ selector: '.knowledge-edge--neighbour' }),
+      expect.objectContaining({ selector: '.knowledge-edge--dimmed' }),
     ]))
+  })
+
+  it('applies selected, neighbouring, and dimmed classes from props', async () => {
+    mount(KnowledgeGraphRenderer, {
+      props: {
+        nodes: buildNodes(),
+        edges: buildEdges(),
+        selectedConceptId: 10,
+        neighbourConceptIds: [11, 999],
+        neighbourEdgeIds: ['10-11', 'missing-edge'],
+      },
+    })
+    await flushPromises()
+
+    expect(classListFor('concept-10')).toEqual(expect.arrayContaining(['knowledge-node--selected']))
+    expect(classListFor('concept-11')).toEqual(expect.arrayContaining(['knowledge-node--neighbour']))
+    expect(classListFor('concept-12')).toEqual(expect.arrayContaining(['knowledge-node--dimmed']))
+    expect(classListFor('10-11')).toEqual(expect.arrayContaining(['knowledge-edge--neighbour']))
+    expect(classListFor('11-12')).toEqual(expect.arrayContaining(['knowledge-edge--dimmed']))
+    expect(cytoscapeMock.instances[0].getElementById).toHaveBeenCalledWith('concept-999')
+    expect(cytoscapeMock.instances[0].getElementById).toHaveBeenCalledWith('missing-edge')
+  })
+
+  it('refreshes highlight props without recreating Cytoscape or rebuilding elements', async () => {
+    const wrapper = mount(KnowledgeGraphRenderer, {
+      props: {
+        nodes: buildNodes(),
+        edges: buildEdges(),
+      },
+    })
+    await flushPromises()
+
+    const instance = cytoscapeMock.instances[0]
+    const addCallsBeforeHighlight = instance.add.mock.calls.length
+    const layoutCallsBeforeHighlight = instance.layout.mock.calls.length
+
+    await wrapper.setProps({
+      selectedConceptId: 10,
+      neighbourConceptIds: [11],
+      neighbourEdgeIds: ['10-11'],
+    })
+    await flushPromises()
+
+    expect(cytoscapeMock.constructor).toHaveBeenCalledOnce()
+    expect(instance.add).toHaveBeenCalledTimes(addCallsBeforeHighlight)
+    expect(instance.layout).toHaveBeenCalledTimes(layoutCallsBeforeHighlight)
+    expect(classListFor('concept-10')).toEqual(expect.arrayContaining(['knowledge-node--selected']))
+    expect(classListFor('concept-11')).toEqual(expect.arrayContaining(['knowledge-node--neighbour']))
+  })
+
+  it('clears stale highlight classes when the selected concept switches', async () => {
+    const wrapper = mount(KnowledgeGraphRenderer, {
+      props: {
+        nodes: buildNodes(),
+        edges: buildEdges(),
+        selectedConceptId: 10,
+        neighbourConceptIds: [11],
+        neighbourEdgeIds: ['10-11'],
+      },
+    })
+    await flushPromises()
+
+    await wrapper.setProps({
+      selectedConceptId: 11,
+      neighbourConceptIds: [],
+      neighbourEdgeIds: [],
+    })
+    await flushPromises()
+
+    expect(classListFor('concept-10')).not.toContain('knowledge-node--selected')
+    expect(classListFor('concept-10')).not.toContain('knowledge-node--neighbour')
+    expect(classListFor('concept-10')).toContain('knowledge-node--dimmed')
+    expect(classListFor('concept-11')).toContain('knowledge-node--selected')
+    expect(classListFor('10-11')).not.toContain('knowledge-edge--neighbour')
+    expect(classListFor('10-11')).toContain('knowledge-edge--dimmed')
+  })
+
+  it('ignores unknown selected and neighbour ids without creating phantom elements', async () => {
+    mount(KnowledgeGraphRenderer, {
+      props: {
+        nodes: buildNodes(),
+        edges: buildEdges(),
+        selectedConceptId: 404,
+        neighbourConceptIds: [11],
+        neighbourEdgeIds: ['10-11'],
+      },
+    })
+    await flushPromises()
+
+    expect(cytoscapeMock.instances[0].elementsById.has('concept-404')).toBe(false)
+    expect(classListFor('concept-11')).not.toContain('knowledge-node--neighbour')
+    expect(classListFor('10-11')).not.toContain('knowledge-edge--neighbour')
+    expect(classListFor('concept-10')).not.toContain('knowledge-node--dimmed')
+  })
+
+  it('keeps an isolated selected node highlighted without requiring neighbour edges', async () => {
+    mount(KnowledgeGraphRenderer, {
+      props: {
+        nodes: [buildNodes()[0]],
+        edges: [],
+        selectedConceptId: 10,
+        neighbourConceptIds: [],
+        neighbourEdgeIds: [],
+      },
+    })
+    await flushPromises()
+
+    expect(classListFor('concept-10')).toContain('knowledge-node--selected')
+    expect(cytoscapeMock.instances[0].edges).toHaveBeenCalled()
   })
 
   it('focuses and resets the graph through accessible controls', async () => {
@@ -221,6 +462,9 @@ describe('KnowledgeGraphRenderer', () => {
       props: {
         nodes: [],
         edges: [],
+        selectedConceptId: 10,
+        neighbourConceptIds: [11],
+        neighbourEdgeIds: ['10-11'],
       },
     })
     await flushPromises()
@@ -238,6 +482,9 @@ describe('KnowledgeGraphRenderer', () => {
       props: {
         nodes: buildNodes(),
         edges: buildEdges(),
+        selectedConceptId: 10,
+        neighbourConceptIds: [11],
+        neighbourEdgeIds: ['10-11'],
       },
     })
     await flushPromises()
@@ -248,7 +495,7 @@ describe('KnowledgeGraphRenderer', () => {
     expect(wrapper.text()).not.toContain('container unavailable')
   })
 
-  it('renders a single isolated node safely and destroys Cytoscape on unmount', async () => {
+  it('updates topology without recreating Cytoscape and destroys Cytoscape on unmount', async () => {
     const wrapper = mount(KnowledgeGraphRenderer, {
       props: {
         nodes: [buildNodes()[0]],
@@ -259,6 +506,21 @@ describe('KnowledgeGraphRenderer', () => {
 
     const options = cytoscapeMock.constructor.mock.calls[0][0] as CytoscapeOptions
     expect(options.elements).toHaveLength(1)
+
+    await wrapper.setProps({
+      nodes: buildNodes(),
+      edges: buildEdges(),
+      selectedConceptId: 10,
+      neighbourConceptIds: [11],
+      neighbourEdgeIds: ['10-11'],
+    })
+    await flushPromises()
+
+    expect(cytoscapeMock.constructor).toHaveBeenCalledOnce()
+    expect(cytoscapeMock.instances[0].add).toHaveBeenCalledWith(expect.arrayContaining([
+      expect.objectContaining({ data: expect.objectContaining({ id: 'concept-12' }) }),
+    ]))
+    expect(classListFor('concept-10')).toContain('knowledge-node--selected')
 
     wrapper.unmount()
 

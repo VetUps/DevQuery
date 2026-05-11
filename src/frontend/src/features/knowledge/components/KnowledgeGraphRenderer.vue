@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import cytoscape from 'cytoscape'
-import type { Core, ElementDefinition, EventObject, Stylesheet } from 'cytoscape'
+import type { CollectionReturnValue, Core, ElementDefinition, EventObject, Stylesheet } from 'cytoscape'
 import { computed, nextTick, onBeforeUnmount, onMounted, shallowRef, useTemplateRef, watch } from 'vue'
 
 import type { KnowledgeGraphEdge, KnowledgeGraphNode } from '@/features/knowledge/api/knowledgeGraph'
@@ -9,14 +9,28 @@ interface Emits {
   'node-selected': [conceptId: number]
 }
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   nodes: KnowledgeGraphNode[]
   edges: KnowledgeGraphEdge[]
-}>()
+  selectedConceptId?: number | null
+  neighbourConceptIds?: number[]
+  neighbourEdgeIds?: string[]
+}>(), {
+  selectedConceptId: null,
+  neighbourConceptIds: () => [],
+  neighbourEdgeIds: () => [],
+})
 
 const emit = defineEmits<Emits>()
 
 const GRAPH_PADDING = 32
+const HIGHLIGHT_CLASSES = [
+  'knowledge-node--selected',
+  'knowledge-node--neighbour',
+  'knowledge-node--dimmed',
+  'knowledge-edge--neighbour',
+  'knowledge-edge--dimmed',
+]
 const graphContainer = useTemplateRef<HTMLElement>('graphContainer')
 const cyInstance = shallowRef<Core | null>(null)
 const graphError = shallowRef('')
@@ -62,10 +76,31 @@ const cytoscapeStyles: Stylesheet[] = [
     },
   },
   {
-    selector: 'node:selected',
+    selector: 'node:selected, .knowledge-node--selected',
     style: {
-      'border-color': '#f59e0b',
+      'background-color': '#f59e0b',
+      'border-color': '#7c2d12',
       'border-width': 5,
+      'border-style': 'double',
+      'z-index': 20,
+    },
+  },
+  {
+    selector: '.knowledge-node--neighbour',
+    style: {
+      'background-color': '#22c55e',
+      'border-color': '#14532d',
+      'border-width': 4,
+      'border-style': 'solid',
+      opacity: 0.96,
+      'z-index': 10,
+    },
+  },
+  {
+    selector: '.knowledge-node--dimmed',
+    style: {
+      opacity: 0.28,
+      'border-style': 'dotted',
     },
   },
   {
@@ -88,6 +123,24 @@ const cytoscapeStyles: Stylesheet[] = [
     selector: '.knowledge-edge--shared-question',
     style: {
       'line-style': 'solid',
+    },
+  },
+  {
+    selector: '.knowledge-edge--neighbour',
+    style: {
+      'line-color': '#16a34a',
+      'target-arrow-color': '#16a34a',
+      width: 7,
+      opacity: 1,
+      'line-style': 'solid',
+      'z-index': 9,
+    },
+  },
+  {
+    selector: '.knowledge-edge--dimmed',
+    style: {
+      opacity: 0.2,
+      'line-style': 'dotted',
     },
   },
 ]
@@ -150,6 +203,64 @@ function mapEdgeToElement(edge: KnowledgeGraphEdge): ElementDefinition {
   }
 }
 
+function hasElement(element: CollectionReturnValue): boolean {
+  return element.nonempty()
+}
+
+function syncHighlightClasses(): void {
+  const cy = cyInstance.value
+
+  if (!cy) {
+    return
+  }
+
+  cy.elements().removeClass(HIGHLIGHT_CLASSES.join(' '))
+
+  if (props.selectedConceptId === null || props.selectedConceptId === undefined) {
+    return
+  }
+
+  const selectedNode = cy.getElementById(conceptElementId(props.selectedConceptId))
+
+  if (!hasElement(selectedNode)) {
+    return
+  }
+
+  const neighbourConceptIds = new Set(props.neighbourConceptIds.map(conceptElementId))
+  const neighbourEdgeIds = new Set(props.neighbourEdgeIds)
+  const highlightedNodeIds = new Set([selectedNode.id(), ...neighbourConceptIds])
+
+  selectedNode.addClass('knowledge-node--selected')
+
+  for (const nodeId of neighbourConceptIds) {
+    const node = cy.getElementById(nodeId)
+
+    if (hasElement(node)) {
+      node.addClass('knowledge-node--neighbour')
+    }
+  }
+
+  for (const edgeId of neighbourEdgeIds) {
+    const edge = cy.getElementById(edgeId)
+
+    if (hasElement(edge)) {
+      edge.addClass('knowledge-edge--neighbour')
+    }
+  }
+
+  cy.nodes().forEach((node) => {
+    if (!highlightedNodeIds.has(node.id())) {
+      node.addClass('knowledge-node--dimmed')
+    }
+  })
+
+  cy.edges().forEach((edge) => {
+    if (!neighbourEdgeIds.has(edge.id())) {
+      edge.addClass('knowledge-edge--dimmed')
+    }
+  })
+}
+
 function handleNodeTap(event: EventObject): void {
   const conceptId = event.target.data('conceptId')
 
@@ -171,6 +282,7 @@ function updateGraphElements(): void {
 
   cy.elements().remove()
   cy.add(graphElements.value)
+  syncHighlightClasses()
   runLayout()
 }
 
@@ -194,6 +306,7 @@ function createGraph(): void {
 
     cy.on('tap', 'node', handleNodeTap)
     cyInstance.value = cy
+    syncHighlightClasses()
   } catch {
     graphError.value = 'Не удалось отобразить интерактивный граф. Список концептов остаётся доступен.'
   }
@@ -242,6 +355,14 @@ onMounted(() => {
 watch(graphElements, () => {
   void syncGraph()
 })
+
+watch(
+  () => [props.selectedConceptId, props.neighbourConceptIds, props.neighbourEdgeIds] as const,
+  () => {
+    syncHighlightClasses()
+  },
+  { deep: true },
+)
 
 onBeforeUnmount(() => {
   destroyGraph()
