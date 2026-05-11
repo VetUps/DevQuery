@@ -1,11 +1,18 @@
 <script setup lang="ts">
 import { computed, shallowRef, useTemplateRef } from 'vue'
 
-import type { KnowledgeGraphEdge, KnowledgeGraphNode } from '@/features/knowledge/api/knowledgeGraph'
+import type {
+  KnowledgeGraphEdge,
+  KnowledgeGraphLayoutPosition,
+  KnowledgeGraphNode,
+} from '@/features/knowledge/api/knowledgeGraph'
 import KnowledgeGraphCanvas from './KnowledgeGraphCanvas.vue'
 
 interface Emits {
   'node-selected': [conceptId: number]
+  'layout-changed': [positions: Record<string, KnowledgeGraphLayoutPosition>]
+  'layout-save-requested': []
+  'layout-reset-requested': []
 }
 
 const props = withDefaults(defineProps<{
@@ -14,10 +21,20 @@ const props = withDefaults(defineProps<{
   selectedConceptId?: number | null
   neighbourConceptIds?: number[]
   neighbourEdgeIds?: string[]
+  layoutPositions?: Record<string, KnowledgeGraphLayoutPosition>
+  isOwner?: boolean
+  isLayoutDirty?: boolean
+  isLayoutSaving?: boolean
+  isLayoutResetting?: boolean
 }>(), {
   selectedConceptId: null,
   neighbourConceptIds: () => [],
   neighbourEdgeIds: () => [],
+  layoutPositions: () => ({}),
+  isOwner: false,
+  isLayoutDirty: false,
+  isLayoutSaving: false,
+  isLayoutResetting: false,
 })
 
 const emit = defineEmits<Emits>()
@@ -27,6 +44,7 @@ const isFullscreenOpen = shallowRef(false)
 
 const hasNodes = computed(() => props.nodes.length > 0)
 const graphSummary = computed(() => `${props.nodes.length} концептов · ${props.edges.length} связей`)
+const isLayoutActionDisabled = computed(() => !props.isLayoutDirty || props.isLayoutSaving || props.isLayoutResetting)
 
 function conceptLabel(node: KnowledgeGraphNode): string {
   return node.name || node.slug || `Концепт ${node.concept_id}`
@@ -60,6 +78,18 @@ function openFullscreenGraph(): void {
 
 function closeFullscreenGraph(): void {
   isFullscreenOpen.value = false
+}
+
+function emitLayoutChanged(positions: Record<string, KnowledgeGraphLayoutPosition>): void {
+  emit('layout-changed', positions)
+}
+
+function requestLayoutSave(): void {
+  emit('layout-save-requested')
+}
+
+function requestLayoutReset(): void {
+  emit('layout-reset-requested')
 }
 </script>
 
@@ -110,7 +140,7 @@ function closeFullscreenGraph(): void {
     </div>
 
     <div v-if="hasNodes" class="knowledge-graph-renderer__viewport-toolbar" data-testid="knowledge-graph-viewport-toolbar">
-      <p class="knowledge-graph-renderer__toolbar-label">Управление масштабом</p>
+      <p class="knowledge-graph-renderer__toolbar-label">Управление графом</p>
       <div class="knowledge-graph-renderer__controls" aria-label="Управление масштабом графа знаний">
         <button
           class="knowledge-graph-renderer__control knowledge-graph-renderer__control--reset"
@@ -139,6 +169,26 @@ function closeFullscreenGraph(): void {
           −
         </button>
         <button
+          v-if="props.isOwner"
+          class="knowledge-graph-renderer__control knowledge-graph-renderer__control--reset"
+          type="button"
+          data-testid="knowledge-graph-layout-save-control"
+          :disabled="isLayoutActionDisabled"
+          @click="requestLayoutSave"
+        >
+          {{ props.isLayoutSaving ? 'Сохраняем…' : 'Сохранить' }}
+        </button>
+        <button
+          v-if="props.isOwner"
+          class="knowledge-graph-renderer__control knowledge-graph-renderer__control--reset"
+          type="button"
+          data-testid="knowledge-graph-layout-reset-control"
+          :disabled="isLayoutActionDisabled"
+          @click="requestLayoutReset"
+        >
+          {{ props.isLayoutResetting ? 'Сбрасываем…' : 'Сбросить' }}
+        </button>
+        <button
           class="knowledge-graph-renderer__control knowledge-graph-renderer__control--fullscreen"
           type="button"
           data-testid="knowledge-graph-fullscreen-control"
@@ -156,7 +206,10 @@ function closeFullscreenGraph(): void {
       :selected-concept-id="props.selectedConceptId"
       :neighbour-concept-ids="props.neighbourConceptIds"
       :neighbour-edge-ids="props.neighbourEdgeIds"
+      :layout-positions="props.layoutPositions"
+      :is-layout-editable="props.isOwner"
       @node-selected="emitNodeSelected"
+      @layout-changed="emitLayoutChanged"
     />
 
     <div
@@ -178,15 +231,37 @@ function closeFullscreenGraph(): void {
             <h3 id="knowledge-graph-fullscreen-title">Топология концептов на весь экран</h3>
             <p class="knowledge-graph-renderer__summary">{{ graphSummary }}</p>
           </div>
-          <button
-            class="knowledge-graph-renderer__modal-close"
-            type="button"
-            data-testid="knowledge-graph-fullscreen-close"
-            aria-label="Закрыть большой граф"
-            @click="closeFullscreenGraph"
-          >
-            ×
-          </button>
+          <div class="knowledge-graph-renderer__modal-actions">
+            <button
+              v-if="props.isOwner"
+              class="knowledge-graph-renderer__control knowledge-graph-renderer__control--reset"
+              type="button"
+              data-testid="knowledge-graph-modal-layout-save-control"
+              :disabled="isLayoutActionDisabled"
+              @click="requestLayoutSave"
+            >
+              {{ props.isLayoutSaving ? 'Сохраняем…' : 'Сохранить' }}
+            </button>
+            <button
+              v-if="props.isOwner"
+              class="knowledge-graph-renderer__control knowledge-graph-renderer__control--reset"
+              type="button"
+              data-testid="knowledge-graph-modal-layout-reset-control"
+              :disabled="isLayoutActionDisabled"
+              @click="requestLayoutReset"
+            >
+              {{ props.isLayoutResetting ? 'Сбрасываем…' : 'Сбросить' }}
+            </button>
+            <button
+              class="knowledge-graph-renderer__modal-close"
+              type="button"
+              data-testid="knowledge-graph-fullscreen-close"
+              aria-label="Закрыть большой граф"
+              @click="closeFullscreenGraph"
+            >
+              ×
+            </button>
+          </div>
         </header>
 
         <KnowledgeGraphCanvas
@@ -195,8 +270,11 @@ function closeFullscreenGraph(): void {
           :selected-concept-id="props.selectedConceptId"
           :neighbour-concept-ids="props.neighbourConceptIds"
           :neighbour-edge-ids="props.neighbourEdgeIds"
+          :layout-positions="props.layoutPositions"
+          :is-layout-editable="props.isOwner"
           surface-class="knowledge-graph-renderer__modal-canvas"
           @node-selected="emitNodeSelected"
+          @layout-changed="emitLayoutChanged"
         />
       </section>
     </div>
@@ -285,13 +363,19 @@ function closeFullscreenGraph(): void {
   transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
 }
 
-.knowledge-graph-renderer__control:hover,
-.knowledge-graph-renderer__control:focus-visible,
+.knowledge-graph-renderer__control:hover:not(:disabled),
+.knowledge-graph-renderer__control:focus-visible:not(:disabled),
 .knowledge-graph-renderer__modal-close:hover,
 .knowledge-graph-renderer__modal-close:focus-visible {
   border-color: rgb(14 116 144 / 0.5);
   background: rgb(255 255 255 / 0.96);
   box-shadow: 0 12px 24px rgb(15 23 42 / 0.1);
+}
+
+.knowledge-graph-renderer__control:disabled {
+  cursor: not-allowed;
+  opacity: 0.46;
+  transform: none;
 }
 
 .knowledge-graph-renderer__control:active,
@@ -432,12 +516,18 @@ function closeFullscreenGraph(): void {
   box-shadow: 0 30px 90px rgb(15 23 42 / 0.3);
 }
 
-.knowledge-graph-renderer__modal-header {
+.knowledge-graph-renderer__modal-header,
+.knowledge-graph-renderer__modal-actions {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-md);
   align-items: flex-start;
   justify-content: space-between;
+}
+
+.knowledge-graph-renderer__modal-actions {
+  align-items: center;
+  justify-content: flex-end;
 }
 
 .knowledge-graph-renderer__modal-close {

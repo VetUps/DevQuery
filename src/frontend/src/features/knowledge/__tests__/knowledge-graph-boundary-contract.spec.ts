@@ -64,6 +64,8 @@ const mutationHarness = vi.hoisted(() => ({
 const useOwnKnowledgeGraphQueryMock = vi.hoisted(() => vi.fn(() => queryHarness.ownQuery))
 const usePublicUserKnowledgeGraphQueryMock = vi.hoisted(() => vi.fn(() => queryHarness.publicQuery))
 const useRebuildKnowledgeGraphMutationMock = vi.hoisted(() => vi.fn(() => mutationHarness.mutation))
+const useSaveKnowledgeGraphLayoutMutationMock = vi.hoisted(() => vi.fn(() => mutationHarness.mutation))
+const useResetKnowledgeGraphLayoutMutationMock = vi.hoisted(() => vi.fn(() => mutationHarness.mutation))
 
 vi.mock('@/shared/api/http', () => ({
   http: httpMock,
@@ -116,6 +118,16 @@ vi.mock('@/features/knowledge/mutations/useRebuildKnowledgeGraphMutation', async
   return {
     ...actual,
     useRebuildKnowledgeGraphMutation: useRebuildKnowledgeGraphMutationMock,
+  }
+})
+
+vi.mock('@/features/knowledge/mutations/useKnowledgeGraphLayoutMutation', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/features/knowledge/mutations/useKnowledgeGraphLayoutMutation')>()
+
+  return {
+    ...actual,
+    useSaveKnowledgeGraphLayoutMutation: useSaveKnowledgeGraphLayoutMutationMock,
+    useResetKnowledgeGraphLayoutMutation: useResetKnowledgeGraphLayoutMutationMock,
   }
 })
 

@@ -116,20 +116,29 @@ const staleGraphFixture = {
       related_questions: [sharedQuestion],
     },
   ],
-}
-
-const publicGraphFixture = {
-  ...staleGraphFixture,
-  viewer: { is_owner: false },
-  state: {
-    status: 'failed',
-    stale_reason: '',
-    last_error_message: 'provider exception private@example.test source_object_id=abc Traceback token=secret',
-    last_failed_phase: 'question_authoring',
-    last_rebuild_started_at: '2024-06-10T12:05:00Z',
-    last_rebuild_finished_at: null,
+  layout: {
+    schema_version: 1,
+    positions: {},
+    updated_at: null,
   },
 }
+
+const publicGraphFixture = (() => {
+  const { layout: _layout, ...graphWithoutLayout } = staleGraphFixture
+
+  return {
+    ...graphWithoutLayout,
+    viewer: { is_owner: false },
+    state: {
+      status: 'failed',
+      stale_reason: '',
+      last_error_message: 'provider exception private@example.test source_object_id=abc Traceback token=secret',
+      last_failed_phase: 'question_authoring',
+      last_rebuild_started_at: '2024-06-10T12:05:00Z',
+      last_rebuild_finished_at: null,
+    },
+  }
+})()
 
 const rebuildFixture = {
   user_id: USER_ID,
@@ -207,6 +216,10 @@ test.describe('profile knowledge graph smoke', () => {
       await json(route, 200, rebuildFixture)
     })
 
+    await page.route(`${API_ORIGIN}/knowledge-graph/me/layout/`, async (route) => {
+      throw new Error(`Layout endpoint should stay untouched before node drag: ${route.request().method()}`)
+    })
+
     await page.goto('/profile?tab=knowledge')
 
     await expect(page.getByTestId('profile-page')).toBeVisible()
@@ -223,6 +236,8 @@ test.describe('profile knowledge graph smoke', () => {
     await expect(page.getByTestId('knowledge-view-mode-help')).toContainText('Граф показывает связи между концептами')
     await expect(page.getByTestId('knowledge-graph-renderer-summary')).toHaveText('2 концептов · 1 связей')
     await expect(page.getByTestId('knowledge-graph-canvas')).toBeVisible()
+    await expect(page.getByTestId('knowledge-graph-layout-save-control')).toBeDisabled()
+    await expect(page.getByTestId('knowledge-graph-layout-reset-control')).toBeDisabled()
     await expect(page.getByTestId('knowledge-graph-selection-empty')).toContainText('Выберите концепт')
 
     await page.getByTestId('knowledge-graph-concept-option-7').click()
@@ -233,6 +248,8 @@ test.describe('profile knowledge graph smoke', () => {
 
     await page.getByTestId('knowledge-graph-fullscreen-control').click()
     await expect(page.getByTestId('knowledge-graph-fullscreen-modal')).toContainText('Топология концептов на весь экран')
+    await expect(page.getByTestId('knowledge-graph-modal-layout-save-control')).toBeDisabled()
+    await expect(page.getByTestId('knowledge-graph-modal-layout-reset-control')).toBeDisabled()
     await expect(page.getByTestId('knowledge-graph-fullscreen-modal')).not.toContainText('Перейти к концепту')
     await expect(page.getByTestId('knowledge-graph-fullscreen-selection')).toHaveCount(0)
     await page.getByTestId('knowledge-graph-fullscreen-close').click()
@@ -305,6 +322,8 @@ test.describe('profile knowledge graph smoke', () => {
     await expect(page.getByTestId('knowledge-state-banner')).toContainText('Сбой перестроения')
     await expect(page.getByTestId('knowledge-state-banner')).toContainText('Технические детали скрыты')
     await expect(page.getByTestId('knowledge-graph-renderer-summary')).toHaveText('2 концептов · 1 связей')
+    await expect(page.getByTestId('knowledge-graph-layout-save-control')).toHaveCount(0)
+    await expect(page.getByTestId('knowledge-graph-layout-reset-control')).toHaveCount(0)
 
     await page.getByTestId('knowledge-graph-concept-option-8').click()
     await expect(page.getByTestId('knowledge-graph-selected-details')).toContainText('Pinia')

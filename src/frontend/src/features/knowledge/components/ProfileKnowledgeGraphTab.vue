@@ -6,9 +6,11 @@ import { useOwnKnowledgeGraphQuery, usePublicUserKnowledgeGraphQuery } from '@/f
 import type {
   KnowledgeGraphActivityBreakdownEntry,
   KnowledgeGraphConceptEntry,
+  KnowledgeGraphLayoutPosition,
   KnowledgeGraphRelatedQuestion,
   UserKnowledgeGraphResponse,
 } from '@/features/knowledge/api/knowledgeGraph'
+import { useSaveKnowledgeGraphLayoutMutation, useResetKnowledgeGraphLayoutMutation } from '@/features/knowledge/mutations/useKnowledgeGraphLayoutMutation'
 import AppButton from '@/shared/ui/AppButton.vue'
 import InlineFeedbackPanel from '@/shared/ui/InlineFeedbackPanel.vue'
 import SurfacePanel from '@/shared/ui/SurfacePanel.vue'
@@ -18,6 +20,7 @@ import KnowledgeGraphConceptDetails from './KnowledgeGraphConceptDetails.vue'
 const STALE_COPY = 'Мы обнаружили расхождение между графом и вашей активностью. Перестройте граф.'
 const SAFE_API_ERROR_COPY = 'Не удалось загрузить граф знаний. Попробуйте обновить вкладку.'
 const SAFE_REBUILD_ERROR_COPY = 'Не удалось запустить перестроение графа. Попробуйте ещё раз позже.'
+const SAFE_LAYOUT_ERROR_COPY = 'Не удалось сохранить расположение графа. Попробуйте ещё раз позже.'
 
 type GraphStatus = 'fresh' | 'stale' | 'rebuilding' | 'failed'
 type KnowledgeGraphViewMode = 'graph' | 'list'
@@ -33,7 +36,12 @@ const graphQuery = normalizedUserId.value
   ? usePublicUserKnowledgeGraphQuery(normalizedUserId)
   : useOwnKnowledgeGraphQuery()
 const rebuildMutation = useRebuildKnowledgeGraphMutation()
+const saveLayoutMutation = useSaveKnowledgeGraphLayoutMutation()
+const resetLayoutMutation = useResetKnowledgeGraphLayoutMutation()
 const rebuildActionError = shallowRef('')
+const layoutActionError = shallowRef('')
+const draftLayoutPositions = shallowRef<Record<string, KnowledgeGraphLayoutPosition>>({})
+const isLayoutDirty = shallowRef(false)
 const selectedConceptId = shallowRef<number | null>(null)
 const viewMode = shallowRef<KnowledgeGraphViewMode>('graph')
 
@@ -189,6 +197,9 @@ const modeHelpCopy = computed(() => (
 const isGraphMode = computed(() => viewMode.value === 'graph')
 const isListMode = computed(() => viewMode.value === 'list')
 const hasListContent = computed(() => (graph.value?.activity_breakdown.length ?? 0) > 0 || hasConcepts.value)
+const graphLayoutPositions = computed(() => (isLayoutDirty.value ? draftLayoutPositions.value : graph.value?.layout?.positions ?? {}))
+const isLayoutSaving = computed(() => saveLayoutMutation.isPending.value)
+const isLayoutResetting = computed(() => resetLayoutMutation.isPending.value)
 
 function setViewMode(mode: KnowledgeGraphViewMode) {
   viewMode.value = mode
@@ -261,11 +272,64 @@ async function rebuildGraph() {
   }
 }
 
+function handleLayoutChanged(positions: Record<string, KnowledgeGraphLayoutPosition>) {
+  if (!isOwner.value) {
+    return
+  }
+
+  layoutActionError.value = ''
+  draftLayoutPositions.value = positions
+  isLayoutDirty.value = true
+}
+
+async function saveGraphLayout() {
+  if (!isOwner.value || !isLayoutDirty.value) {
+    return
+  }
+
+  layoutActionError.value = ''
+
+  try {
+    await saveLayoutMutation.mutateAsync({
+      schema_version: 1,
+      positions: draftLayoutPositions.value,
+    })
+    isLayoutDirty.value = false
+  } catch {
+    layoutActionError.value = SAFE_LAYOUT_ERROR_COPY
+  }
+}
+
+async function resetGraphLayout() {
+  if (!isOwner.value || !isLayoutDirty.value) {
+    return
+  }
+
+  layoutActionError.value = ''
+
+  try {
+    await resetLayoutMutation.mutateAsync()
+    draftLayoutPositions.value = {}
+    isLayoutDirty.value = false
+  } catch {
+    layoutActionError.value = SAFE_LAYOUT_ERROR_COPY
+  }
+}
+
 function handleNodeSelected(conceptId: number) {
   const existsInTopology = graph.value?.nodes.some((node) => node.concept_id === conceptId) ?? false
 
   selectedConceptId.value = existsInTopology ? conceptId : null
 }
+
+watch(
+  () => `${graph.value?.user_id ?? ''}:${graph.value?.layout?.updated_at ?? ''}:${Object.keys(graph.value?.layout?.positions ?? {}).join('|')}`,
+  () => {
+    draftLayoutPositions.value = graph.value?.layout?.positions ?? {}
+    isLayoutDirty.value = false
+    layoutActionError.value = ''
+  },
+)
 
 watch(
   () => graph.value?.nodes.map((node) => node.concept_id).join('|') ?? '',
@@ -357,6 +421,14 @@ watch(
           {{ rebuildActionError }}
         </p>
 
+        <p
+          v-if="layoutActionError"
+          class="knowledge-tab__action-error"
+          data-testid="knowledge-layout-error"
+        >
+          {{ layoutActionError }}
+        </p>
+
         <div
           class="knowledge-tab__mode-switch"
           data-testid="knowledge-view-mode-switch"
@@ -414,7 +486,15 @@ watch(
             :selected-concept-id="selectedConceptId"
             :neighbour-concept-ids="neighbourConceptIds"
             :neighbour-edge-ids="neighbourEdgeIds"
+            :layout-positions="graphLayoutPositions"
+            :is-owner="isOwner"
+            :is-layout-dirty="isLayoutDirty"
+            :is-layout-saving="isLayoutSaving"
+            :is-layout-resetting="isLayoutResetting"
             @node-selected="handleNodeSelected"
+            @layout-changed="handleLayoutChanged"
+            @layout-save-requested="saveGraphLayout"
+            @layout-reset-requested="resetGraphLayout"
           />
         </SurfacePanel>
 

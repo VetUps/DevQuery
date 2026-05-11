@@ -3,10 +3,15 @@ import cytoscape from 'cytoscape'
 import type { CollectionReturnValue, Core, ElementDefinition, EventObject, Stylesheet } from 'cytoscape'
 import { computed, nextTick, onBeforeUnmount, onMounted, shallowRef, useTemplateRef, watch } from 'vue'
 
-import type { KnowledgeGraphEdge, KnowledgeGraphNode } from '@/features/knowledge/api/knowledgeGraph'
+import type {
+  KnowledgeGraphEdge,
+  KnowledgeGraphLayoutPosition,
+  KnowledgeGraphNode,
+} from '@/features/knowledge/api/knowledgeGraph'
 
 interface Emits {
   'node-selected': [conceptId: number]
+  'layout-changed': [positions: Record<string, KnowledgeGraphLayoutPosition>]
 }
 
 const props = withDefaults(defineProps<{
@@ -16,11 +21,15 @@ const props = withDefaults(defineProps<{
   neighbourConceptIds?: number[]
   neighbourEdgeIds?: string[]
   surfaceClass?: string
+  layoutPositions?: Record<string, KnowledgeGraphLayoutPosition>
+  isLayoutEditable?: boolean
 }>(), {
   selectedConceptId: null,
   neighbourConceptIds: () => [],
   neighbourEdgeIds: () => [],
   surfaceClass: '',
+  layoutPositions: () => ({}),
+  isLayoutEditable: false,
 })
 
 const emit = defineEmits<Emits>()
@@ -43,6 +52,7 @@ const graphElements = computed<ElementDefinition[]>(() => [
   ...props.nodes.map(mapNodeToElement),
   ...props.edges.map(mapEdgeToElement),
 ])
+const hasLayoutPositions = computed(() => Object.keys(props.layoutPositions).length > 0)
 
 const cytoscapeStyles: Stylesheet[] = [
   {
@@ -173,11 +183,21 @@ function conceptLabel(node: KnowledgeGraphNode): string {
   return node.name || node.slug || `Концепт ${node.concept_id}`
 }
 
-function mapNodeToElement(node: KnowledgeGraphNode): ElementDefinition {
+function fallbackPosition(index: number): KnowledgeGraphLayoutPosition {
+  const columns = Math.max(1, Math.ceil(Math.sqrt(props.nodes.length)))
+
+  return {
+    x: (index % columns) * 180,
+    y: Math.floor(index / columns) * 140,
+  }
+}
+
+function mapNodeToElement(node: KnowledgeGraphNode, index: number): ElementDefinition {
   const weight = toNumber(node.total_weight)
   const activitySourceCount = node.activity_breakdown.reduce((sum, entry) => sum + entry.source_count, 0)
 
-  return {
+  const position = props.layoutPositions[String(node.concept_id)]
+  const element: ElementDefinition = {
     group: 'nodes',
     data: {
       id: conceptElementId(node.concept_id),
@@ -191,6 +211,12 @@ function mapNodeToElement(node: KnowledgeGraphNode): ElementDefinition {
     },
     classes: `knowledge-node ${weightClass(weight)}`,
   }
+
+  if (hasLayoutPositions.value) {
+    element.position = position ?? fallbackPosition(index)
+  }
+
+  return element
 }
 
 function mapEdgeToElement(edge: KnowledgeGraphEdge): ElementDefinition {
@@ -282,7 +308,40 @@ function handleNodeTap(event: EventObject): void {
 }
 
 function runLayout(): void {
-  cyInstance.value?.layout({ name: 'grid', fit: true, padding: GRAPH_PADDING }).run()
+  const layoutName = hasLayoutPositions.value ? 'preset' : 'grid'
+
+  cyInstance.value?.layout({ name: layoutName, fit: true, padding: GRAPH_PADDING }).run()
+}
+
+function syncGrabState(): void {
+  cyInstance.value?.autoungrabify(!props.isLayoutEditable)
+}
+
+function collectCurrentPositions(): Record<string, KnowledgeGraphLayoutPosition> {
+  const positions: Record<string, KnowledgeGraphLayoutPosition> = {}
+  const cy = cyInstance.value
+
+  if (!cy) {
+    return positions
+  }
+
+  cy.nodes().forEach((node) => {
+    const conceptId = node.data('conceptId')
+    const position = node.position()
+
+    if (typeof conceptId === 'number') {
+      positions[String(conceptId)] = {
+        x: position.x,
+        y: position.y,
+      }
+    }
+  })
+
+  return positions
+}
+
+function handleNodeDragFree(): void {
+  emit('layout-changed', collectCurrentPositions())
 }
 
 function updateGraphElements(): void {
@@ -294,6 +353,7 @@ function updateGraphElements(): void {
 
   cy.elements().remove()
   cy.add(graphElements.value)
+  syncGrabState()
   syncHighlightClasses()
   runLayout()
 }
@@ -310,14 +370,16 @@ function createGraph(): void {
       container: graphContainer.value,
       elements: graphElements.value,
       style: cytoscapeStyles,
-      layout: { name: 'grid', fit: true, padding: GRAPH_PADDING },
+      layout: { name: hasLayoutPositions.value ? 'preset' : 'grid', fit: true, padding: GRAPH_PADDING },
       userZoomingEnabled: true,
       userPanningEnabled: true,
       selectionType: 'single',
     })
 
     cy.on('tap', 'node', handleNodeTap)
+    cy.on('dragfree', 'node', handleNodeDragFree)
     cyInstance.value = cy
+    syncGrabState()
     syncHighlightClasses()
   } catch {
     graphError.value = 'Не удалось отобразить интерактивный граф. Список концептов остаётся доступен.'
@@ -394,11 +456,19 @@ watch(
   { deep: true },
 )
 
+watch(
+  () => props.isLayoutEditable,
+  () => {
+    syncGrabState()
+  },
+)
+
 onBeforeUnmount(() => {
   destroyGraph()
 })
 
 defineExpose({
+  collectCurrentPositions,
   resetView,
   zoomIn,
   zoomOut,
