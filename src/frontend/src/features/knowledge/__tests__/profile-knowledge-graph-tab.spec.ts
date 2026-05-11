@@ -30,11 +30,21 @@ const mutationHarness = vi.hoisted(() => ({
     isPending: { value: false },
     mutateAsync: vi.fn(),
   },
+  saveLayoutMutation: {
+    isPending: { value: false },
+    mutateAsync: vi.fn(),
+  },
+  resetLayoutMutation: {
+    isPending: { value: false },
+    mutateAsync: vi.fn(),
+  },
 }))
 
 const useOwnKnowledgeGraphQueryMock = vi.hoisted(() => vi.fn(() => queryHarness.ownQuery))
 const usePublicUserKnowledgeGraphQueryMock = vi.hoisted(() => vi.fn(() => queryHarness.publicQuery))
 const useRebuildKnowledgeGraphMutationMock = vi.hoisted(() => vi.fn(() => mutationHarness.mutation))
+const useSaveKnowledgeGraphLayoutMutationMock = vi.hoisted(() => vi.fn(() => mutationHarness.saveLayoutMutation))
+const useResetKnowledgeGraphLayoutMutationMock = vi.hoisted(() => vi.fn(() => mutationHarness.resetLayoutMutation))
 const rendererHarness = vi.hoisted(() => ({
   props: [] as Array<{
     nodes: UserKnowledgeGraphResponse['nodes']
@@ -42,6 +52,11 @@ const rendererHarness = vi.hoisted(() => ({
     selectedConceptId: number | null
     neighbourConceptIds: number[]
     neighbourEdgeIds: string[]
+    layoutPositions: Record<string, { x: number; y: number }>
+    isOwner: boolean
+    isLayoutDirty: boolean
+    isLayoutSaving: boolean
+    isLayoutResetting: boolean
   }>,
 }))
 
@@ -54,28 +69,55 @@ vi.mock('@/features/knowledge/components/KnowledgeGraphRenderer.vue', () => ({
       selectedConceptId: { type: Number, default: null },
       neighbourConceptIds: { type: Array, default: () => [] },
       neighbourEdgeIds: { type: Array, default: () => [] },
+      layoutPositions: { type: Object, default: () => ({}) },
+      isOwner: { type: Boolean, default: false },
+      isLayoutDirty: { type: Boolean, default: false },
+      isLayoutSaving: { type: Boolean, default: false },
+      isLayoutResetting: { type: Boolean, default: false },
     },
-    emits: ['node-selected'],
+    emits: ['node-selected', 'layout-changed', 'layout-save-requested', 'layout-reset-requested'],
     setup(props: {
       nodes: UserKnowledgeGraphResponse['nodes']
       edges: UserKnowledgeGraphResponse['edges']
       selectedConceptId: number | null
       neighbourConceptIds: number[]
       neighbourEdgeIds: string[]
-    }, { emit }: { emit: (event: 'node-selected', conceptId: number) => void }) {
+      layoutPositions: Record<string, { x: number; y: number }>
+      isOwner: boolean
+      isLayoutDirty: boolean
+      isLayoutSaving: boolean
+      isLayoutResetting: boolean
+    }, { emit }: { emit: (event: 'node-selected' | 'layout-changed' | 'layout-save-requested' | 'layout-reset-requested', payload?: unknown) => void }) {
       rendererHarness.props.push({
         nodes: props.nodes,
         edges: props.edges,
         selectedConceptId: props.selectedConceptId,
         neighbourConceptIds: props.neighbourConceptIds,
         neighbourEdgeIds: props.neighbourEdgeIds,
+        layoutPositions: props.layoutPositions,
+        isOwner: props.isOwner,
+        isLayoutDirty: props.isLayoutDirty,
+        isLayoutSaving: props.isLayoutSaving,
+        isLayoutResetting: props.isLayoutResetting,
       })
 
       function selectConcept(conceptId: number) {
         emit('node-selected', conceptId)
       }
 
-      return { props, selectConcept }
+      function changeLayout() {
+        emit('layout-changed', { 10: { x: 120, y: 80 }, 11: { x: 260, y: 120 } })
+      }
+
+      function saveLayout() {
+        emit('layout-save-requested')
+      }
+
+      function resetLayout() {
+        emit('layout-reset-requested')
+      }
+
+      return { props, selectConcept, changeLayout, saveLayout, resetLayout }
     },
     template: `
       <section data-testid="knowledge-graph-renderer-stub">
@@ -83,9 +125,15 @@ vi.mock('@/features/knowledge/components/KnowledgeGraphRenderer.vue', () => ({
         <span data-testid="renderer-selected-id">{{ props.selectedConceptId ?? 'none' }}</span>
         <span data-testid="renderer-neighbour-ids">{{ props.neighbourConceptIds.join(',') }}</span>
         <span data-testid="renderer-edge-ids">{{ props.neighbourEdgeIds.join(',') }}</span>
+        <span data-testid="renderer-is-owner">{{ props.isOwner ? 'owner' : 'readonly' }}</span>
+        <span data-testid="renderer-layout-dirty">{{ props.isLayoutDirty ? 'dirty' : 'clean' }}</span>
+        <span data-testid="renderer-layout-positions">{{ Object.keys(props.layoutPositions).join(',') }}</span>
         <button type="button" data-testid="select-concept-10" @click="selectConcept(10)">select 10</button>
         <button type="button" data-testid="select-concept-11" @click="selectConcept(11)">select 11</button>
         <button type="button" data-testid="select-concept-404" @click="selectConcept(404)">select missing</button>
+        <button type="button" data-testid="change-layout" @click="changeLayout">change layout</button>
+        <button type="button" data-testid="save-layout" @click="saveLayout">save layout</button>
+        <button type="button" data-testid="reset-layout" @click="resetLayout">reset layout</button>
       </section>
     `,
   },
@@ -98,6 +146,11 @@ vi.mock('@/features/knowledge/queries/useKnowledgeGraphQuery', () => ({
 
 vi.mock('@/features/knowledge/mutations/useRebuildKnowledgeGraphMutation', () => ({
   useRebuildKnowledgeGraphMutation: useRebuildKnowledgeGraphMutationMock,
+}))
+
+vi.mock('@/features/knowledge/mutations/useKnowledgeGraphLayoutMutation', () => ({
+  useSaveKnowledgeGraphLayoutMutation: useSaveKnowledgeGraphLayoutMutationMock,
+  useResetKnowledgeGraphLayoutMutation: useResetKnowledgeGraphLayoutMutationMock,
 }))
 
 const mountedWrappers: VueWrapper[] = []
@@ -194,6 +247,12 @@ function setMutationState() {
   mutationHarness.mutation.isPending.value = false
   mutationHarness.mutation.mutateAsync.mockReset()
   mutationHarness.mutation.mutateAsync.mockResolvedValue({})
+  mutationHarness.saveLayoutMutation.isPending.value = false
+  mutationHarness.saveLayoutMutation.mutateAsync.mockReset()
+  mutationHarness.saveLayoutMutation.mutateAsync.mockResolvedValue({})
+  mutationHarness.resetLayoutMutation.isPending.value = false
+  mutationHarness.resetLayoutMutation.mutateAsync.mockReset()
+  mutationHarness.resetLayoutMutation.mutateAsync.mockResolvedValue({})
 }
 
 async function mountTab(props: { userId?: string } = {}) {
@@ -418,6 +477,78 @@ describe('ProfileKnowledgeGraphTab', () => {
     expect(wrapper.get('[data-testid="knowledge-graph-selected-details"]').text()).toContain('Django')
     expect(wrapper.text()).not.toContain('provider stack token leaked')
     expect(wrapper.text()).not.toContain('Traceback')
+  })
+
+  it('keeps owner layout controls clean until drag, then saves and resets draft positions', async () => {
+    const graph = buildGraph({
+      layout: {
+        schema_version: 1,
+        positions: { 10: { x: 1, y: 2 } },
+        updated_at: '2026-05-11T12:00:00Z',
+      },
+    })
+    setQueryState({ data: graph })
+
+    const wrapper = await mountTab()
+
+    expect(wrapper.get('[data-testid="renderer-is-owner"]').text()).toBe('owner')
+    expect(wrapper.get('[data-testid="renderer-layout-dirty"]').text()).toBe('clean')
+    expect(wrapper.get('[data-testid="renderer-layout-positions"]').text()).toBe('10')
+
+    await wrapper.get('[data-testid="save-layout"]').trigger('click')
+    expect(mutationHarness.saveLayoutMutation.mutateAsync).not.toHaveBeenCalled()
+
+    await wrapper.get('[data-testid="change-layout"]').trigger('click')
+    await nextTick()
+
+    expect(wrapper.get('[data-testid="renderer-layout-dirty"]').text()).toBe('dirty')
+    expect(wrapper.get('[data-testid="renderer-layout-positions"]').text()).toBe('10,11')
+
+    await wrapper.get('[data-testid="save-layout"]').trigger('click')
+    await flushPromises()
+
+    expect(mutationHarness.saveLayoutMutation.mutateAsync).toHaveBeenCalledWith({
+      schema_version: 1,
+      positions: { 10: { x: 120, y: 80 }, 11: { x: 260, y: 120 } },
+    })
+    expect(wrapper.get('[data-testid="renderer-layout-dirty"]').text()).toBe('clean')
+
+    await wrapper.get('[data-testid="change-layout"]').trigger('click')
+    await nextTick()
+    await wrapper.get('[data-testid="reset-layout"]').trigger('click')
+    await flushPromises()
+
+    expect(mutationHarness.resetLayoutMutation.mutateAsync).toHaveBeenCalledOnce()
+    expect(wrapper.get('[data-testid="renderer-layout-dirty"]').text()).toBe('clean')
+  })
+
+  it('keeps public layout controls read-only and ignores layout-change events', async () => {
+    setQueryState({ data: buildGraph({ viewer: { is_owner: false } }) })
+
+    const wrapper = await mountTab({ userId: 'user-42' })
+
+    expect(wrapper.get('[data-testid="renderer-is-owner"]').text()).toBe('readonly')
+
+    await wrapper.get('[data-testid="change-layout"]').trigger('click')
+    await wrapper.get('[data-testid="save-layout"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="renderer-layout-dirty"]').text()).toBe('clean')
+    expect(mutationHarness.saveLayoutMutation.mutateAsync).not.toHaveBeenCalled()
+  })
+
+  it('shows safe copy when layout persistence fails', async () => {
+    setQueryState({ data: buildGraph() })
+    mutationHarness.saveLayoutMutation.mutateAsync.mockRejectedValueOnce(new Error('Traceback raw internals'))
+
+    const wrapper = await mountTab()
+
+    await wrapper.get('[data-testid="change-layout"]').trigger('click')
+    await wrapper.get('[data-testid="save-layout"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="knowledge-layout-error"]').text()).toContain('Не удалось сохранить расположение графа')
+    expect(wrapper.text()).not.toContain('Traceback raw internals')
   })
 
   it('ignores missing selected ids and returns to guidance without stale details', async () => {

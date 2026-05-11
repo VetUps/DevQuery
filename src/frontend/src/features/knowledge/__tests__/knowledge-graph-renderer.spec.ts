@@ -8,6 +8,7 @@ type CytoscapeElementInput = {
   group?: 'nodes' | 'edges'
   data?: Record<string, unknown>
   classes?: string
+  position?: { x: number; y: number }
 }
 
 type CytoscapeOptions = {
@@ -26,8 +27,10 @@ type MockElement = {
   group?: 'nodes' | 'edges'
   dataStore: Record<string, unknown>
   classes: Set<string>
+  positionStore: { x: number; y: number }
   id: ReturnType<typeof vi.fn<() => string>>
   data: ReturnType<typeof vi.fn<(key: string) => unknown>>
+  position: ReturnType<typeof vi.fn<() => { x: number; y: number }>>
   addClass: ReturnType<typeof vi.fn<(classes: string) => void>>
   removeClass: ReturnType<typeof vi.fn<(classes: string) => void>>
   nonempty: ReturnType<typeof vi.fn<() => boolean>>
@@ -44,9 +47,11 @@ function createMockElement(input: CytoscapeElementInput): MockElement {
   const element = {
     group: input.group,
     dataStore: input.data ?? {},
+    positionStore: input.position ?? { x: 0, y: 0 },
     classes: new Set((input.classes ?? '').split(' ').filter(Boolean)),
     id: vi.fn(() => String(input.data?.id ?? '')),
     data: vi.fn((key: string) => input.data?.[key]),
+    position: vi.fn(() => element.positionStore),
     addClass: vi.fn((classes: string) => {
       for (const className of classes.split(' ').filter(Boolean)) {
         element.classes.add(className)
@@ -101,6 +106,7 @@ const cytoscapeMock = vi.hoisted(() => {
     edges: ReturnType<typeof vi.fn>
     getElementById: ReturnType<typeof vi.fn>
     layout: ReturnType<typeof vi.fn>
+    autoungrabify: ReturnType<typeof vi.fn>
     on: ReturnType<typeof vi.fn>
     handlers: Record<string, TapHandler>
     elementsById: Map<string, MockElement>
@@ -136,6 +142,7 @@ const cytoscapeMock = vi.hoisted(() => {
       edges: vi.fn(() => createCollection(elementStore.filter((element) => element.group === 'edges'))),
       getElementById: vi.fn((id: string) => elementsById.get(id) ?? createEmptyElement(id)),
       layout: vi.fn(() => ({ run: vi.fn() })),
+      autoungrabify: vi.fn(),
       on: vi.fn((eventName: string, selector: string, handler: TapHandler) => {
         instance.handlers[`${eventName}:${selector}`] = handler
       }),
@@ -482,6 +489,88 @@ describe('KnowledgeGraphRenderer', () => {
 
     expect(classListFor('concept-11')).toContain('knowledge-node--selected')
     expect(wrapper.find('[data-testid="knowledge-graph-fullscreen-modal"]').exists()).toBe(true)
+  })
+
+  it('renders owner layout controls disabled until a node is dragged and mirrors them in fullscreen', async () => {
+    const wrapper = mount(KnowledgeGraphRenderer, {
+      props: {
+        nodes: buildNodes(),
+        edges: buildEdges(),
+        isOwner: true,
+        isLayoutDirty: false,
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="knowledge-graph-layout-save-control"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('[data-testid="knowledge-graph-layout-reset-control"]').attributes('disabled')).toBeDefined()
+    expect(cytoscapeMock.instances[0].autoungrabify).toHaveBeenCalledWith(false)
+
+    const vueNode = cytoscapeMock.instances[0].elementsById.get('concept-10')
+    if (!vueNode) {
+      throw new Error('Expected concept-10 mock node')
+    }
+    vueNode.positionStore = { x: 12, y: 34 }
+    cytoscapeMock.instances[0].handlers['dragfree:node']({
+      target: { data: (key: string) => (key === 'conceptId' ? 10 : undefined) },
+    })
+
+    expect(wrapper.emitted('layout-changed')).toEqual([[expect.objectContaining({ 10: { x: 12, y: 34 } })]])
+
+    await wrapper.setProps({ isLayoutDirty: true })
+    await wrapper.get('[data-testid="knowledge-graph-fullscreen-control"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="knowledge-graph-layout-save-control"]').attributes('disabled')).toBeUndefined()
+    expect(wrapper.get('[data-testid="knowledge-graph-layout-reset-control"]').attributes('disabled')).toBeUndefined()
+    expect(wrapper.get('[data-testid="knowledge-graph-modal-layout-save-control"]').attributes('disabled')).toBeUndefined()
+    expect(wrapper.get('[data-testid="knowledge-graph-modal-layout-reset-control"]').attributes('disabled')).toBeUndefined()
+
+    await wrapper.get('[data-testid="knowledge-graph-modal-layout-save-control"]').trigger('click')
+    await wrapper.get('[data-testid="knowledge-graph-layout-reset-control"]').trigger('click')
+
+    expect(wrapper.emitted('layout-save-requested')).toEqual([[]])
+    expect(wrapper.emitted('layout-reset-requested')).toEqual([[]])
+  })
+
+  it('hides layout persistence controls for public read-only graphs', async () => {
+    const wrapper = mount(KnowledgeGraphRenderer, {
+      props: {
+        nodes: buildNodes(),
+        edges: buildEdges(),
+        isOwner: false,
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="knowledge-graph-layout-save-control"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="knowledge-graph-layout-reset-control"]').exists()).toBe(false)
+    expect(cytoscapeMock.instances[0].autoungrabify).toHaveBeenCalledWith(true)
+
+    await wrapper.get('[data-testid="knowledge-graph-fullscreen-control"]').trigger('click')
+
+    expect(wrapper.find('[data-testid="knowledge-graph-modal-layout-save-control"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="knowledge-graph-modal-layout-reset-control"]').exists()).toBe(false)
+  })
+
+  it('uses preset layout when persisted positions are provided', async () => {
+    mount(KnowledgeGraphRenderer, {
+      props: {
+        nodes: buildNodes(),
+        edges: buildEdges(),
+        layoutPositions: {
+          10: { x: 120, y: 80 },
+          11: { x: 260, y: 100 },
+        },
+      },
+    })
+    await flushPromises()
+
+    const options = cytoscapeMock.constructor.mock.calls[0][0] as CytoscapeOptions
+    const vueNode = options.elements?.find((element) => element.data?.id === 'concept-10')
+
+    expect(options.layout).toEqual({ name: 'preset', fit: true, padding: 32 })
+    expect(vueNode?.position).toEqual({ x: 120, y: 80 })
   })
 
   it('emits the numeric concept id when a graph node is tapped', async () => {
