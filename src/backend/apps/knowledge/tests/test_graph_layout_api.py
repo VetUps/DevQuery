@@ -110,10 +110,22 @@ class KnowledgeGraphLayoutAPITests(APITestCase):
             {'schema_version': 1, 'positions': {str(self.django.pk): {'x': 1}}},
             format='json',
         )
+        extreme_coordinate_response = self.client.put(
+            '/knowledge-graph/me/layout/',
+            {'schema_version': 1, 'positions': {str(self.django.pk): {'x': 100001, 'y': 2}}},
+            format='json',
+        )
+        invalid_key_response = self.client.put(
+            '/knowledge-graph/me/layout/',
+            {'schema_version': 1, 'positions': {'9' * 64: {'x': 1, 'y': 2}}},
+            format='json',
+        )
 
         self.assertEqual(unknown_response.status_code, status.HTTP_400_BAD_REQUEST, unknown_response.data)
         self.assertEqual(string_coordinate_response.status_code, status.HTTP_400_BAD_REQUEST, string_coordinate_response.data)
         self.assertEqual(missing_coordinate_response.status_code, status.HTTP_400_BAD_REQUEST, missing_coordinate_response.data)
+        self.assertEqual(extreme_coordinate_response.status_code, status.HTTP_400_BAD_REQUEST, extreme_coordinate_response.data)
+        self.assertEqual(invalid_key_response.status_code, status.HTTP_400_BAD_REQUEST, invalid_key_response.data)
         self.assertFalse(UserKnowledgeGraphLayout.objects.filter(user=self.owner).exists())
 
     def test_anonymous_layout_requests_are_denied(self):
@@ -131,6 +143,7 @@ class KnowledgeGraphLayoutAPITests(APITestCase):
             positions={
                 str(self.django.pk): {'x': 10, 'y': 20},
                 str(self.unknown.pk): {'x': 99, 'y': 100},
+                str(self.vue.pk): {'x': 'broken', 'y': 30},
             },
         )
         self.client.force_authenticate(self.owner)
@@ -140,3 +153,4 @@ class KnowledgeGraphLayoutAPITests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
         self.assertIn(str(self.django.pk), response.data['layout']['positions'])
         self.assertNotIn(str(self.unknown.pk), response.data['layout']['positions'])
+        self.assertNotIn(str(self.vue.pk), response.data['layout']['positions'])
