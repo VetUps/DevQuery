@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from decimal import Decimal
+from itertools import combinations
 from typing import Any
 
 from django.db.models import Count, Sum
@@ -11,6 +12,7 @@ from apps.knowledge.services.graph_state_service import UserKnowledgeGraphRebuil
 from apps.qa.models import Question
 
 ZERO_WEIGHT = Decimal('0.0000')
+RELATED_QUESTION_PREVIEW_LIMIT = 5
 
 
 def _safe_decimal(value: Decimal | None) -> Decimal:
@@ -37,6 +39,60 @@ def _activity_breakdown_payload(rows: list[dict[str, Any]]) -> list[dict[str, An
         }
         for row in rows
     ]
+
+
+def _shared_question_edges_payload(
+    *,
+    node_concept_ids: set[int],
+    related_question_ids: set[Any],
+) -> list[dict[str, Any]]:
+    if len(node_concept_ids) < 2 or not related_question_ids:
+        return []
+
+    question_edges = (
+        QuestionConceptEdge.objects.filter(
+            question_id__in=related_question_ids,
+            concept_id__in=node_concept_ids,
+        )
+        .select_related('question', 'concept')
+        .order_by('question__question_title', 'question_id', 'concept_id')
+    )
+
+    concept_ids_by_question: dict[Any, set[int]] = defaultdict(set)
+    question_summaries: dict[Any, dict[str, Any]] = {}
+    for edge in question_edges:
+        concept_ids_by_question[edge.question_id].add(edge.concept_id)
+        question_summaries[edge.question_id] = {
+            'question_id': edge.question_id,
+            'title': edge.question.question_title,
+            'status': edge.question.question_status,
+        }
+
+    questions_by_pair: dict[tuple[int, int], dict[Any, dict[str, Any]]] = defaultdict(dict)
+    for question_id, concept_ids in concept_ids_by_question.items():
+        for source_concept_id, target_concept_id in combinations(sorted(concept_ids), 2):
+            questions_by_pair[(source_concept_id, target_concept_id)][question_id] = question_summaries[question_id]
+
+    edge_payloads = []
+    for (source_concept_id, target_concept_id), shared_questions_by_id in sorted(questions_by_pair.items()):
+        related_questions = sorted(
+            shared_questions_by_id.values(),
+            key=lambda summary: (summary['title'], str(summary['question_id'])),
+        )
+        shared_question_count = len(shared_questions_by_id)
+        edge_payloads.append(
+            {
+                'id': f'shared-question:{source_concept_id}:{target_concept_id}',
+                'source_concept_id': source_concept_id,
+                'target_concept_id': target_concept_id,
+                'weight': Decimal(shared_question_count),
+                'shared_question_count': shared_question_count,
+                'reason': 'shared_question',
+                'related_questions': related_questions[:RELATED_QUESTION_PREVIEW_LIMIT],
+            }
+        )
+
+    return edge_payloads
 
 
 def get_user_graph_payload(user, *, is_owner: bool) -> dict[str, Any]:
@@ -104,8 +160,10 @@ def get_user_graph_payload(user, *, is_owner: bool) -> dict[str, Any]:
         )
 
     concepts = []
+    node_concept_ids: set[int] = set()
     for row in concept_total_rows:
         concept_id = row['concept_id']
+        node_concept_ids.add(concept_id)
         concepts.append(
             {
                 'concept_id': concept_id,
@@ -122,6 +180,11 @@ def get_user_graph_payload(user, *, is_owner: bool) -> dict[str, Any]:
         )
 
     total_weight = sum((_safe_decimal(row['total_weight']) for row in concept_total_rows), ZERO_WEIGHT)
+    related_question_ids = {row['related_question_id'] for row in related_question_rows}
+    edges = _shared_question_edges_payload(
+        node_concept_ids=node_concept_ids,
+        related_question_ids=related_question_ids,
+    )
 
     return {
         'user_id': user.pk,
@@ -131,6 +194,7 @@ def get_user_graph_payload(user, *, is_owner: bool) -> dict[str, Any]:
         'activity_breakdown': _activity_breakdown_payload(overall_breakdown_rows),
         'concepts': concepts,
         'nodes': concepts,
+        'edges': edges,
     }
 
 
