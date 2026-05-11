@@ -229,6 +229,8 @@ describe('ProfileKnowledgeGraphTab', () => {
     expect(useOwnKnowledgeGraphQueryMock).toHaveBeenCalledOnce()
     expect(wrapper.get('[data-testid="knowledge-total-weight"]').text()).toBe('3,75')
     expect(wrapper.get('[data-testid="knowledge-state-banner"]').text()).toContain('Граф знаний синхронизирован')
+    await wrapper.get('[data-testid="knowledge-view-mode-list"]').trigger('click')
+    await nextTick()
     expect(wrapper.get('[data-testid="knowledge-activity-breakdown"]').text()).toContain('Ответы')
     expect(wrapper.get('[data-testid="knowledge-concepts"]').text()).toContain('Django')
     expect(wrapper.get('[data-testid="knowledge-concepts"]').text()).toContain('Уверенность 1')
@@ -241,7 +243,39 @@ describe('ProfileKnowledgeGraphTab', () => {
     expect(wrapper.text()).not.toContain('Traceback')
   })
 
-  it('passes parsed topology nodes and edges into the renderer before the concept fallback list', async () => {
+  it('defaults to graph mode and switches to the accessible list fallback', async () => {
+    const graph = buildGraph()
+    setQueryState({ data: graph })
+
+    const wrapper = await mountTab()
+
+    const modeSwitch = wrapper.get('[data-testid="knowledge-view-mode-switch"]')
+    expect(modeSwitch.attributes('aria-label')).toBe('Режим просмотра графа знаний')
+    expect(wrapper.get('[data-testid="knowledge-view-mode-graph"]').attributes('aria-pressed')).toBe('true')
+    expect(wrapper.get('[data-testid="knowledge-view-mode-list"]').attributes('aria-pressed')).toBe('false')
+    expect(wrapper.get('[data-testid="knowledge-graph-panel"]').text()).toContain('2 nodes / 1 edges')
+    expect(wrapper.find('[data-testid="knowledge-list-panel"]').exists()).toBe(false)
+
+    await wrapper.get('[data-testid="knowledge-view-mode-list"]').trigger('click')
+    await nextTick()
+
+    expect(wrapper.get('[data-testid="knowledge-view-mode-graph"]').attributes('aria-pressed')).toBe('false')
+    expect(wrapper.get('[data-testid="knowledge-view-mode-list"]').attributes('aria-pressed')).toBe('true')
+    expect(wrapper.find('[data-testid="knowledge-graph-panel"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="knowledge-list-panel"]').text()).toContain('Django')
+    expect(wrapper.get('[data-testid="knowledge-list-panel"]').text()).toContain('Ответы')
+
+    await wrapper.get('[data-testid="knowledge-view-mode-graph"]').trigger('click')
+    await nextTick()
+
+    expect(wrapper.get('[data-testid="knowledge-view-mode-graph"]').attributes('aria-pressed')).toBe('true')
+    expect(wrapper.find('[data-testid="knowledge-list-panel"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="knowledge-graph-panel"]').text()).toContain('2 nodes / 1 edges')
+    expect(rendererHarness.props[0].nodes).toBe(graph.nodes)
+    expect(rendererHarness.props[0].edges).toBe(graph.edges)
+  })
+
+  it('passes parsed topology nodes and edges into the renderer before exposing the list fallback', async () => {
     const graph = buildGraph()
     const isolatedNode: UserKnowledgeGraphResponse['nodes'][number] = {
       ...graph.nodes[1],
@@ -274,10 +308,12 @@ describe('ProfileKnowledgeGraphTab', () => {
     expect(rendererHarness.props[0].edges).toBe(topologyEdges)
     expect(rendererHarness.props[0].nodes.map((node) => node.concept_id)).toEqual([10, 11, 12])
     expect(rendererHarness.props[0].edges.map((edge) => edge.id)).toEqual(['10-11', '10-11-secondary'])
+    expect(wrapper.find('[data-testid="knowledge-list-panel"]').exists()).toBe(false)
 
-    const rendererElement = wrapper.get('[data-testid="knowledge-graph-mode"]').element
-    const listElement = wrapper.get('[data-testid="knowledge-concepts"]').element
-    expect(rendererElement.compareDocumentPosition(listElement) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    await wrapper.get('[data-testid="knowledge-view-mode-list"]').trigger('click')
+    await nextTick()
+
+    expect(wrapper.find('[data-testid="knowledge-graph-panel"]').exists()).toBe(false)
     expect(wrapper.get('[data-testid="knowledge-concepts"]').text()).toContain('Django')
     expect(wrapper.text()).not.toContain('provider stack token leaked')
     expect(wrapper.text()).not.toContain('Traceback')
@@ -297,6 +333,7 @@ describe('ProfileKnowledgeGraphTab', () => {
     const wrapper = await mountTab()
 
     expect(wrapper.get('[data-testid="knowledge-graph-empty"]').text()).toContain('Концепты пока не найдены')
+    expect(wrapper.get('[data-testid="knowledge-view-mode-graph"]').attributes('aria-pressed')).toBe('true')
     expect(wrapper.find('[data-testid="knowledge-graph-mode"]').exists()).toBe(false)
     expect(rendererHarness.props).toEqual([])
   })
@@ -364,6 +401,16 @@ describe('ProfileKnowledgeGraphTab', () => {
     expect(wrapper.get('[data-testid="knowledge-graph-selected-details"]').text()).toContain('Django')
     expect(wrapper.get('[data-testid="knowledge-graph-selected-neighbours"]').text()).toContain('Vue')
     expect(wrapper.get('[data-testid="knowledge-graph-selected-details"]').text()).toContain('Как построить безопасный граф знаний?')
+
+    await wrapper.get('[data-testid="knowledge-view-mode-list"]').trigger('click')
+    await nextTick()
+    expect(wrapper.find('[data-testid="knowledge-graph-selected-details"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="knowledge-list-panel"]').text()).toContain('Django')
+
+    await wrapper.get('[data-testid="knowledge-view-mode-graph"]').trigger('click')
+    await nextTick()
+    expect(wrapper.get('[data-testid="renderer-selected-id"]').text()).toBe('10')
+    expect(wrapper.get('[data-testid="knowledge-graph-selected-details"]').text()).toContain('Django')
     expect(wrapper.text()).not.toContain('provider stack token leaked')
     expect(wrapper.text()).not.toContain('Traceback')
   })
@@ -419,6 +466,9 @@ describe('ProfileKnowledgeGraphTab', () => {
     const wrapper = await mountTab()
 
     expect(wrapper.get('[data-testid="knowledge-state-banner"]').text()).toContain('Показываем последнюю сохранённую версию графа')
+    expect(wrapper.get('[data-testid="knowledge-graph-mode"]').text()).toContain('2 nodes / 1 edges')
+    await wrapper.get('[data-testid="knowledge-view-mode-list"]').trigger('click')
+    await nextTick()
     expect(wrapper.get('[data-testid="knowledge-concepts"]').text()).toContain('Django')
   })
 
@@ -480,6 +530,9 @@ describe('ProfileKnowledgeGraphTab', () => {
 
     expect(failureWrapper.get('[data-testid="knowledge-rebuild-error"]').text()).toContain('Не удалось запустить перестроение графа')
     expect(failureWrapper.text()).not.toContain('provider stack token leaked')
+    expect(failureWrapper.get('[data-testid="knowledge-graph-mode"]').text()).toContain('2 nodes / 1 edges')
+    await failureWrapper.get('[data-testid="knowledge-view-mode-list"]').trigger('click')
+    await nextTick()
     expect(failureWrapper.get('[data-testid="knowledge-concepts"]').text()).toContain('Django')
   })
 })
