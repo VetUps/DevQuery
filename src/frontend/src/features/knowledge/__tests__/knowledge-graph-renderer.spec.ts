@@ -450,7 +450,7 @@ describe('KnowledgeGraphRenderer', () => {
     expect(instance.fit).toHaveBeenCalledWith(undefined, 32)
   })
 
-  it('opens a fullscreen graph modal, shares node selection, and emits focus intent for selected concept', async () => {
+  it('opens a fullscreen graph modal and shares node selection without extra footer chrome', async () => {
     const wrapper = mount(KnowledgeGraphRenderer, {
       props: {
         nodes: buildNodes(),
@@ -463,7 +463,8 @@ describe('KnowledgeGraphRenderer', () => {
     await flushPromises()
 
     expect(wrapper.get('[data-testid="knowledge-graph-fullscreen-modal"]').text()).toContain('Топология концептов на весь экран')
-    expect(wrapper.get('[data-testid="knowledge-graph-fullscreen-selection"]').text()).toContain('Выберите узел')
+    expect(wrapper.find('[data-testid="knowledge-graph-fullscreen-selection"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('Перейти к концепту')
     expect(cytoscapeMock.instances).toHaveLength(2)
 
     cytoscapeMock.instances[1].handlers['tap:node']({
@@ -479,12 +480,8 @@ describe('KnowledgeGraphRenderer', () => {
     })
     await flushPromises()
 
-    expect(wrapper.get('[data-testid="knowledge-graph-fullscreen-selection"]').text()).toContain('Django')
-
-    await wrapper.get('[data-testid="knowledge-graph-focus-selected-control"]').trigger('click')
-
-    expect(wrapper.emitted('focus-selected-concept')).toEqual([[]])
-    expect(wrapper.find('[data-testid="knowledge-graph-fullscreen-modal"]').exists()).toBe(false)
+    expect(classListFor('concept-11')).toContain('knowledge-node--selected')
+    expect(wrapper.find('[data-testid="knowledge-graph-fullscreen-modal"]').exists()).toBe(true)
   })
 
   it('emits the numeric concept id when a graph node is tapped', async () => {
