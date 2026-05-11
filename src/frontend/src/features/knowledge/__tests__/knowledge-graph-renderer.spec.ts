@@ -423,7 +423,7 @@ describe('KnowledgeGraphRenderer', () => {
     expect(cytoscapeMock.instances[0].edges).toHaveBeenCalled()
   })
 
-  it('focuses and resets the graph through accessible controls', async () => {
+  it('resets and zooms the graph through compact controls above the canvas', async () => {
     const wrapper = mount(KnowledgeGraphRenderer, {
       props: {
         nodes: buildNodes(),
@@ -432,13 +432,22 @@ describe('KnowledgeGraphRenderer', () => {
     })
     await flushPromises()
 
-    await wrapper.get('[data-testid="knowledge-graph-fit-control"]').trigger('click')
+    const toolbar = wrapper.get('[data-testid="knowledge-graph-viewport-toolbar"]')
+
+    expect(toolbar.text()).toContain('Сбросить масштаб')
+    expect(toolbar.text()).toContain('+')
+    expect(toolbar.text()).toContain('−')
+    expect(toolbar.text()).not.toContain('Фокусировать граф')
+
     await wrapper.get('[data-testid="knowledge-graph-reset-control"]').trigger('click')
+    await wrapper.get('[data-testid="knowledge-graph-zoom-in-control"]').trigger('click')
+    await wrapper.get('[data-testid="knowledge-graph-zoom-out-control"]').trigger('click')
 
     const instance = cytoscapeMock.instances[0]
-    expect(instance.fit).toHaveBeenCalledWith(undefined, 32)
-    expect(instance.zoom).toHaveBeenCalledWith(1)
+    const zoomSetCalls = instance.zoom.mock.calls.filter((call) => call.length > 0)
+    expect(zoomSetCalls).toEqual([[1], [1.18], [0.85]])
     expect(instance.pan).toHaveBeenCalledWith({ x: 0, y: 0 })
+    expect(instance.fit).toHaveBeenCalledWith(undefined, 32)
   })
 
   it('emits the numeric concept id when a graph node is tapped', async () => {
@@ -472,7 +481,7 @@ describe('KnowledgeGraphRenderer', () => {
     expect(selector.attributes('aria-label')).toBe('Выбор концепта на графе знаний')
     expect(options).toHaveLength(3)
     expect(wrapper.get('[data-testid="knowledge-graph-concept-option-10"]').text()).toContain('Vue')
-    expect(wrapper.get('[data-testid="knowledge-graph-concept-option-10"]').text()).toContain('7 источников')
+    expect(wrapper.get('[data-testid="knowledge-graph-concept-option-10"]').text()).toContain('7 ·')
     expect(wrapper.get('[data-testid="knowledge-graph-concept-option-10"]').attributes('aria-pressed')).toBe('false')
   })
 
