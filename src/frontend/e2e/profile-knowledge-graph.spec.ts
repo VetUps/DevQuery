@@ -230,6 +230,14 @@ test.describe('profile knowledge graph smoke', () => {
     await expect(page.getByTestId('knowledge-graph-concept-option-7')).toHaveAttribute('aria-pressed', 'true')
     await expect(page.getByTestId('knowledge-graph-selected-details')).toContainText('Vue Query')
     await expect(page.getByTestId('knowledge-graph-selected-details')).toContainText('Принятые ответы')
+
+    await page.getByTestId('knowledge-graph-fullscreen-control').click()
+    await expect(page.getByTestId('knowledge-graph-fullscreen-modal')).toContainText('Топология концептов на весь экран')
+    await expect(page.getByTestId('knowledge-graph-fullscreen-selection')).toContainText('Vue Query')
+    await page.getByTestId('knowledge-graph-focus-selected-control').click()
+    await expect(page.getByTestId('knowledge-graph-fullscreen-modal')).toHaveCount(0)
+    await expect(page.getByTestId('knowledge-graph-selected-details')).toBeVisible()
+
     await expect(page.getByTestId('knowledge-graph-selected-neighbours')).toContainText('Pinia')
     await expect(page.getByText('Почему эти концепты рядом')).toBeVisible()
     await expect(page.getByTestId('knowledge-selected-edge-explanation')).toContainText('Нажмите соседний концепт')

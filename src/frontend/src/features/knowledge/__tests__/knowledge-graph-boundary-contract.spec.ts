@@ -75,8 +75,8 @@ vi.mock('@/features/knowledge/components/KnowledgeGraphRenderer.vue', () => ({
       neighbourConceptIds: { type: Array, default: () => [] },
       neighbourEdgeIds: { type: Array, default: () => [] },
     },
-    emits: ['node-selected'],
-    setup(_: unknown, { emit }: { emit: (event: 'node-selected', conceptId: number) => void }) {
+    emits: ['node-selected', 'focus-selected-concept'],
+    setup(_: unknown, { emit }: { emit: (event: 'node-selected' | 'focus-selected-concept', conceptId?: number) => void }) {
       function selectConcept(conceptId: number) {
         emit('node-selected', conceptId)
       }
