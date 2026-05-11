@@ -39,6 +39,10 @@ class UserGraphConceptEntrySerializer(serializers.Serializer):
     related_questions = RelatedQuestionSummarySerializer(many=True)
 
 
+class UserGraphNodeSerializer(UserGraphConceptEntrySerializer):
+    """Explicit graph topology node entry matching the aggregate concept shape."""
+
+
 class UserGraphResponseSerializer(serializers.Serializer):
     user_id = serializers.UUIDField()
     viewer = ViewerSerializer()
@@ -46,6 +50,7 @@ class UserGraphResponseSerializer(serializers.Serializer):
     total_weight = serializers.DecimalField(max_digits=12, decimal_places=4)
     activity_breakdown = ActivityBreakdownEntrySerializer(many=True)
     concepts = UserGraphConceptEntrySerializer(many=True)
+    nodes = UserGraphNodeSerializer(many=True)
 
 
 class RebuildSummarySerializer(serializers.Serializer):
