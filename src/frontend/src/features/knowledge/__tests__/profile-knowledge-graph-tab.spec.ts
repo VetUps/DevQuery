@@ -35,6 +35,34 @@ const mutationHarness = vi.hoisted(() => ({
 const useOwnKnowledgeGraphQueryMock = vi.hoisted(() => vi.fn(() => queryHarness.ownQuery))
 const usePublicUserKnowledgeGraphQueryMock = vi.hoisted(() => vi.fn(() => queryHarness.publicQuery))
 const useRebuildKnowledgeGraphMutationMock = vi.hoisted(() => vi.fn(() => mutationHarness.mutation))
+const rendererHarness = vi.hoisted(() => ({
+  props: [] as Array<{
+    nodes: UserKnowledgeGraphResponse['nodes']
+    edges: UserKnowledgeGraphResponse['edges']
+  }>,
+}))
+
+vi.mock('@/features/knowledge/components/KnowledgeGraphRenderer.vue', () => ({
+  default: {
+    name: 'KnowledgeGraphRendererStub',
+    props: {
+      nodes: { type: Array, required: true },
+      edges: { type: Array, required: true },
+    },
+    setup(props: {
+      nodes: UserKnowledgeGraphResponse['nodes']
+      edges: UserKnowledgeGraphResponse['edges']
+    }) {
+      rendererHarness.props.push({
+        nodes: props.nodes,
+        edges: props.edges,
+      })
+
+      return { props }
+    },
+    template: '<section data-testid="knowledge-graph-renderer-stub">{{ props.nodes.length }} nodes / {{ props.edges.length }} edges</section>',
+  },
+}))
 
 vi.mock('@/features/knowledge/queries/useKnowledgeGraphQuery', () => ({
   useOwnKnowledgeGraphQuery: useOwnKnowledgeGraphQueryMock,
@@ -157,6 +185,7 @@ describe('ProfileKnowledgeGraphTab', () => {
     useOwnKnowledgeGraphQueryMock.mockClear()
     usePublicUserKnowledgeGraphQueryMock.mockClear()
     useRebuildKnowledgeGraphMutationMock.mockClear()
+    rendererHarness.props.length = 0
   })
 
   afterEach(() => {
@@ -183,6 +212,66 @@ describe('ProfileKnowledgeGraphTab', () => {
     expect(wrapper.text()).not.toContain('event')
     expect(wrapper.text()).not.toContain('@')
     expect(wrapper.text()).not.toContain('Traceback')
+  })
+
+  it('passes parsed topology nodes and edges into the renderer before the concept fallback list', async () => {
+    const graph = buildGraph()
+    const isolatedNode: UserKnowledgeGraphResponse['nodes'][number] = {
+      ...graph.nodes[1],
+      concept_id: 12,
+      slug: 'isolated-concept',
+      name: 'Изолированный концепт',
+      total_weight: '0.5000',
+      related_questions: [],
+    }
+    const topologyNodes = [...graph.nodes, isolatedNode]
+    const topologyEdges: UserKnowledgeGraphResponse['edges'] = [
+      ...graph.edges,
+      {
+        id: '10-11-secondary',
+        source_concept_id: 10,
+        target_concept_id: 11,
+        weight: '0.7500',
+        shared_question_count: 2,
+        reason: 'shared_question',
+        related_questions: graph.nodes[0].related_questions,
+      },
+    ]
+    setQueryState({ data: buildGraph({ nodes: topologyNodes, edges: topologyEdges }) })
+
+    const wrapper = await mountTab()
+
+    expect(wrapper.get('[data-testid="knowledge-graph-mode"]').text()).toContain('3 nodes / 2 edges')
+    expect(rendererHarness.props).toHaveLength(1)
+    expect(rendererHarness.props[0].nodes).toBe(topologyNodes)
+    expect(rendererHarness.props[0].edges).toBe(topologyEdges)
+    expect(rendererHarness.props[0].nodes.map((node) => node.concept_id)).toEqual([10, 11, 12])
+    expect(rendererHarness.props[0].edges.map((edge) => edge.id)).toEqual(['10-11', '10-11-secondary'])
+
+    const rendererElement = wrapper.get('[data-testid="knowledge-graph-mode"]').element
+    const listElement = wrapper.get('[data-testid="knowledge-concepts"]').element
+    expect(rendererElement.compareDocumentPosition(listElement) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(wrapper.get('[data-testid="knowledge-concepts"]').text()).toContain('Django')
+    expect(wrapper.text()).not.toContain('provider stack token leaked')
+    expect(wrapper.text()).not.toContain('Traceback')
+  })
+
+  it('keeps empty graph copy and skips renderer composition when parsed topology has no nodes', async () => {
+    setQueryState({
+      data: buildGraph({
+        total_weight: '0.0000',
+        activity_breakdown: [],
+        concepts: [],
+        nodes: [],
+        edges: [],
+      }),
+    })
+
+    const wrapper = await mountTab()
+
+    expect(wrapper.get('[data-testid="knowledge-graph-empty"]').text()).toContain('Концепты пока не найдены')
+    expect(wrapper.find('[data-testid="knowledge-graph-mode"]').exists()).toBe(false)
+    expect(rendererHarness.props).toEqual([])
   })
 
   it.each([
