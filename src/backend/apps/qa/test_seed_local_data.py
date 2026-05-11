@@ -3,6 +3,7 @@ from io import StringIO
 from django.core.management import CommandError, call_command
 from django.test import TestCase, override_settings
 
+from apps.knowledge.models import KnowledgeConcept, QuestionConceptEdge, UserConceptActivity, UserKnowledgeGraphState
 from apps.notifications.models import Notification
 from apps.qa.models import Comment, Question, QuestionEditProposal, QuestionRevision, Solution, SolutionEdits, Tag, Vote
 from apps.user.models import CustomUser, ReputationPolicyConfig, ReputationTransaction
@@ -28,8 +29,16 @@ class SeedLocalDataCommandTests(TestCase):
             CustomUser.objects.get(user_email='moderated.local@example.com').manual_reputation_level,
             CustomUser.ReputationLevel.EXPERT,
         )
-        self.assertEqual(Question.objects.filter(question_title__startswith='[seed]').count(), 7)
-        self.assertEqual(Solution.objects.count(), 3)
+        self.assertEqual(Question.objects.filter(question_title__startswith='[seed]').count(), 43)
+        self.assertEqual(Question.objects.filter(question_title__startswith='[seed][graph-large]').count(), 36)
+        self.assertEqual(Solution.objects.count(), 39)
+        self.assertGreaterEqual(Tag.objects.count(), 36)
+        self.assertGreaterEqual(KnowledgeConcept.objects.count(), 30)
+        self.assertGreaterEqual(QuestionConceptEdge.objects.count(), 160)
+        self.assertGreaterEqual(UserConceptActivity.objects.count(), 250)
+        self.assertEqual(UserKnowledgeGraphState.objects.filter(status=UserKnowledgeGraphState.Status.FRESH).count(), 7)
+        self.assertIn('Большой граф знаний: войдите как expert.local@example.com', output)
+        self.assertIn('Knowledge graph seed: questions=43', output)
         self.assertEqual(Notification.objects.filter(notification_type=Notification.NotificationType.EXPERT_INVITATION).count(), 4)
         self.assertTrue(
             Notification.objects.filter(
@@ -76,9 +85,13 @@ class SeedLocalDataCommandTests(TestCase):
         self.call_seed('--reset')
 
         self.assertEqual(CustomUser.objects.filter(user_email__endswith='.local@example.com').count(), 7)
-        self.assertEqual(Question.objects.filter(question_title__startswith='[seed]').count(), 7)
-        self.assertEqual(Solution.objects.count(), 3)
+        self.assertEqual(Question.objects.filter(question_title__startswith='[seed]').count(), 43)
+        self.assertEqual(Question.objects.filter(question_title__startswith='[seed][graph-large]').count(), 36)
+        self.assertEqual(Solution.objects.count(), 39)
         self.assertEqual(Notification.objects.filter(notification_type=Notification.NotificationType.EXPERT_INVITATION).count(), 4)
+        self.assertGreaterEqual(KnowledgeConcept.objects.count(), 30)
+        self.assertGreaterEqual(QuestionConceptEdge.objects.count(), 160)
+        self.assertGreaterEqual(UserConceptActivity.objects.count(), 250)
 
     @override_settings(
         DEBUG=False,
@@ -107,4 +120,8 @@ class SeedLocalDataCommandTests(TestCase):
             'solution_edits': SolutionEdits.objects.count(),
             'reputation_transactions': ReputationTransaction.objects.count(),
             'notifications': Notification.objects.count(),
+            'knowledge_concepts': KnowledgeConcept.objects.count(),
+            'question_concept_edges': QuestionConceptEdge.objects.count(),
+            'user_concept_activities': UserConceptActivity.objects.count(),
+            'user_graph_states': UserKnowledgeGraphState.objects.count(),
         }

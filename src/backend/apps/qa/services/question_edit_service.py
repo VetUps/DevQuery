@@ -7,6 +7,7 @@ from django.db import transaction
 from django.db.models import F, QuerySet
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 
+from apps.knowledge.services import recover_sync_reputation_transaction_activity, sync_question_graph
 from ...user.models import CustomUser, ReputationTransaction
 from ...user.services.reputation_service import ReputationService
 from ..models import Question, QuestionEditEvent, QuestionEditProposal, QuestionRevision, Tag
@@ -139,7 +140,7 @@ class QuestionEditService:
                 after_tags=list(proposal.question_edit_tags_after),
                 proposal=proposal,
             )
-            ReputationService.record_transaction(
+            transaction_row = ReputationService.record_transaction(
                 user=proposal.author,
                 amount=QuestionEditService.APPROVED_EDIT_REPUTATION_AWARD,
                 reason=ReputationTransaction.TransactionReason.APPROVED_EDIT,
@@ -147,6 +148,7 @@ class QuestionEditService:
                 source=proposal,
                 note='Награда за одобренную правку вопроса.',
             )
+            recover_sync_reputation_transaction_activity(transaction_row, phase='approved_question_edit')
 
         proposal.question_edit_is_approved = approved
         proposal.reviewed_by = actor
@@ -214,6 +216,7 @@ class QuestionEditService:
         question.save(update_fields=['question_title', 'question_body', 'question_updated_at'])
         QuestionEditService._replace_question_tags(question, payload.tags)
         question.refresh_from_db()
+        sync_question_graph(question)
 
     @staticmethod
     def _replace_question_tags(question: Question, normalized_tag_names: list[str]) -> None:

@@ -6,6 +6,7 @@ from django.db.models import TextChoices
 from rest_framework import serializers
 from rest_framework.exceptions import PermissionDenied
 
+from apps.knowledge.services import recover_sync_authored_question_activity, sync_question_graph
 from apps.user.models import CustomUser
 from .models import (
     Question,
@@ -354,6 +355,8 @@ class QuestionUpdateCreateSerializer(serializers.ModelSerializer):
         with transaction.atomic():
             question = super().create(validated_data)
             QuestionTagService.attach_tags_to_question(question, tag_names)
+            sync_question_graph(question)
+            recover_sync_authored_question_activity(question)
 
         return question
 
@@ -804,7 +807,7 @@ class CommentCreateSerializer(serializers.ModelSerializer):
         SOLUTION = 'solution', 'Solution'
 
     COMMENT_BODY_LIMIT = 800
-    
+
     target_type = serializers.ChoiceField(choices=TargetType.choices)
     target_id = serializers.UUIDField(write_only=True)
     parent_id = serializers.UUIDField(required=False, allow_null=True)

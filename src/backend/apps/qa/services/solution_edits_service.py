@@ -3,6 +3,7 @@ from django.db.models import QuerySet
 from django.db.models import Q
 from rest_framework.exceptions import PermissionDenied, NotFound, ValidationError
 
+from apps.knowledge.services import recover_sync_reputation_transaction_activity
 from ...user.models import CustomUser, ReputationTransaction
 from ...user.services.reputation_service import ReputationService
 from ..models import Solution, SolutionEdits
@@ -64,7 +65,7 @@ class SolutionEditService:
 
             # Изменяем содержимое оригинального решения
             SolutionService.change_solution_body(solution_edit.solution, solution_edit.solution_edit_body_after)
-            ReputationService.record_transaction(
+            transaction_row = ReputationService.record_transaction(
                 user=solution_edit.user,
                 amount=SolutionEditService.APPROVED_EDIT_REPUTATION_AWARD,
                 reason=ReputationTransaction.TransactionReason.APPROVED_EDIT,
@@ -72,6 +73,7 @@ class SolutionEditService:
                 source=solution_edit,
                 note='Награда за одобренную правку решения.',
             )
+            recover_sync_reputation_transaction_activity(transaction_row, phase='approved_solution_edit')
 
         # Сохранение
         solution_edit.solution_edit_is_approved = is_approved
