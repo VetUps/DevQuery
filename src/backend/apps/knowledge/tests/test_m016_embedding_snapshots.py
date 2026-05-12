@@ -330,6 +330,41 @@ class EmbeddingSnapshotContractTests(TestCase):
         self.assertFalse(self.Candidate.objects.filter(user=self.owner).exists())
         self.assert_redacted_semantic_payload(state)
 
+    def test_unchanged_sources_are_budgeted_as_zero_before_provider_factory(self):
+        question = self._question()
+        self._activity(question)
+        first_provider = RecordingEmbeddingProvider(vectors=[[1.0, 0.0, 0.0]])
+        first_state = run_owner_semantic_boundary(self.owner, source_provider_factory=Mock(return_value=first_provider))
+        provider_factory = Mock(side_effect=AssertionError('unchanged budget pass must not call provider factory'))
+
+        with self.settings(KNOWLEDGE_GRAPH_REBUILD_BUDGET_CAP=0.000001, KNOWLEDGE_GRAPH_EMBEDDING_PRICE_PER_1K_TOKENS=100.0):
+            second_state = run_owner_semantic_boundary(self.owner, source_provider_factory=provider_factory)
+
+        self.assertEqual(first_state['provider_called_source_count'], 1)
+        self.assertEqual(second_state['status'], UserKnowledgeGraphSemanticState.Status.SUCCEEDED)
+        self.assertEqual(second_state['changed_source_count'], 0)
+        self.assertEqual(second_state['provider_called_source_count'], 0)
+        self.assertEqual(second_state['estimated_token_count'], 0)
+        provider_factory.assert_not_called()
+        self.assertEqual(self.Snapshot.objects.filter(user=self.owner).count(), 1)
+        self.assert_redacted_semantic_payload(second_state)
+
+    def test_zero_norm_vectors_are_snapshotted_but_excluded_from_neighbour_candidates(self):
+        q1 = self._question(title='Zero norm source', tags=('django',))
+        q2 = self._question(title='Nonzero API source', tags=('api',))
+        q3 = self._question(title='Nonzero Python source', tags=('python',))
+        for question, slug in [(q1, 'zero'), (q2, 'api'), (q3, 'python')]:
+            self._activity(question, slug)
+        provider = RecordingEmbeddingProvider(vectors=[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
+
+        state = run_owner_semantic_boundary(self.owner, source_provider_factory=Mock(return_value=provider))
+
+        zero_snapshot = self.Snapshot.objects.get(user=self.owner, source_id=str(q1.pk))
+        self.assertEqual(state['persisted_snapshot_count'], 3)
+        self.assertFalse(self.Candidate.objects.filter(source_snapshot=zero_snapshot).exists())
+        self.assertFalse(self.Candidate.objects.filter(target_snapshot=zero_snapshot).exists())
+        self.assert_redacted_semantic_payload(state)
+
     def test_malformed_vectors_are_redacted_and_do_not_leave_partial_active_storage(self):
         cases = [
             ('empty vectors', []),
