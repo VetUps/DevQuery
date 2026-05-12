@@ -22,6 +22,51 @@ def get_float_env(name, default):
     return value if value > 0 else default
 
 
+def get_int_env(name, default):
+    raw_value = os.getenv(name)
+    if raw_value is None or raw_value.strip() == '':
+        return default
+    try:
+        value = int(raw_value)
+    except ValueError:
+        return default
+    return value if value > 0 else default
+
+
+def get_bool_env(name, default):
+    raw_value = os.getenv(name)
+    if raw_value is None or raw_value.strip() == '':
+        return default
+    normalized = raw_value.strip().lower()
+    if normalized in {'1', 'true', 'yes', 'on'}:
+        return True
+    if normalized in {'0', 'false', 'no', 'off'}:
+        return False
+    return default
+
+
+KNOWLEDGE_GRAPH_AI_ENABLED = get_bool_env('KNOWLEDGE_GRAPH_AI_ENABLED', False)
+KNOWLEDGE_GRAPH_AI_DRY_RUN = get_bool_env('KNOWLEDGE_GRAPH_AI_DRY_RUN', True)
+KNOWLEDGE_GRAPH_EMBEDDING_API_KEY = os.getenv('KNOWLEDGE_GRAPH_EMBEDDING_API_KEY')
+KNOWLEDGE_GRAPH_EMBEDDING_BASE_URL = os.getenv('KNOWLEDGE_GRAPH_EMBEDDING_BASE_URL')
+KNOWLEDGE_GRAPH_EMBEDDING_MODEL = os.getenv('KNOWLEDGE_GRAPH_EMBEDDING_MODEL')
+KNOWLEDGE_GRAPH_EMBEDDING_DIMENSIONS = get_int_env('KNOWLEDGE_GRAPH_EMBEDDING_DIMENSIONS', 1536)
+KNOWLEDGE_GRAPH_EMBEDDING_TIMEOUT_SECONDS = get_float_env('KNOWLEDGE_GRAPH_EMBEDDING_TIMEOUT_SECONDS', 10.0)
+KNOWLEDGE_GRAPH_EMBEDDING_PRICE_PER_1K_TOKENS = get_float_env(
+    'KNOWLEDGE_GRAPH_EMBEDDING_PRICE_PER_1K_TOKENS',
+    0.0,
+)
+KNOWLEDGE_GRAPH_CHAT_API_KEY = os.getenv('KNOWLEDGE_GRAPH_CHAT_API_KEY')
+KNOWLEDGE_GRAPH_CHAT_BASE_URL = os.getenv('KNOWLEDGE_GRAPH_CHAT_BASE_URL')
+KNOWLEDGE_GRAPH_CHAT_MODEL = os.getenv('KNOWLEDGE_GRAPH_CHAT_MODEL')
+KNOWLEDGE_GRAPH_CHAT_TIMEOUT_SECONDS = get_float_env('KNOWLEDGE_GRAPH_CHAT_TIMEOUT_SECONDS', 20.0)
+KNOWLEDGE_GRAPH_CHAT_PRICE_PER_1K_TOKENS = get_float_env(
+    'KNOWLEDGE_GRAPH_CHAT_PRICE_PER_1K_TOKENS',
+    0.0,
+)
+KNOWLEDGE_GRAPH_REBUILD_BUDGET_CAP = get_float_env('KNOWLEDGE_GRAPH_REBUILD_BUDGET_CAP', 0.0)
+
+
 QUESTION_DRAFT_ASSISTANT_OPENAI_API_KEY = os.getenv('QUESTION_DRAFT_ASSISTANT_OPENAI_API_KEY')
 QUESTION_DRAFT_ASSISTANT_OPENAI_BASE_URL = os.getenv(
     'QUESTION_DRAFT_ASSISTANT_OPENAI_BASE_URL',
