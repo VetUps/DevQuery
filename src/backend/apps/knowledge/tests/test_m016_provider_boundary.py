@@ -193,10 +193,28 @@ class KnowledgeGraphProviderBoundaryTests(SimpleTestCase):
             self.assertIn('model', error.diagnostics)
 
     def test_source_code_is_isolated_from_question_draft_assistant_namespace(self):
-        source_path = Path(__file__).resolve().parents[1] / 'semantic_providers.py'
-        with source_path.open(encoding='utf-8') as module_file:
-            source = module_file.read()
+        knowledge_root = Path(__file__).resolve().parents[1]
+        source_paths = [
+            knowledge_root / 'semantic_providers.py',
+            knowledge_root / 'services' / 'semantic_rebuild_service.py',
+        ]
+        forbidden_terms = {
+            'QUESTION_DRAFT_ASSISTANT',
+            'question_draft_assistant_service',
+            'question_draft_assistant_provider',
+            'DraftAssistant',
+        }
 
-        self.assertNotIn('QUESTION_DRAFT_ASSISTANT', source)
-        self.assertNotIn('question_draft_assistant_provider', source)
-        self.assertNotIn('DraftAssistant', source)
+        leaks_by_path = {}
+        for source_path in source_paths:
+            with source_path.open(encoding='utf-8') as module_file:
+                source = module_file.read()
+            leaked_terms = sorted(term for term in forbidden_terms if term in source)
+            if leaked_terms:
+                leaks_by_path[str(source_path.relative_to(knowledge_root))] = leaked_terms
+
+        self.assertEqual(
+            leaks_by_path,
+            {},
+            f'M016 knowledge graph providers must not import or reuse draft-assistant services/settings: {leaks_by_path}',
+        )

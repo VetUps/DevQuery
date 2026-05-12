@@ -1,11 +1,18 @@
 from decimal import Decimal
+from unittest.mock import patch
 from uuid import uuid4
 
 from django.contrib.contenttypes.models import ContentType
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from apps.knowledge.models import KnowledgeConcept, QuestionConceptEdge, UserConceptActivity, UserKnowledgeGraphState
+from apps.knowledge.models import (
+    KnowledgeConcept,
+    QuestionConceptEdge,
+    UserConceptActivity,
+    UserKnowledgeGraphSemanticState,
+    UserKnowledgeGraphState,
+)
 from apps.qa.models import Question, Tag
 from apps.user.models import CustomUser
 
@@ -115,6 +122,70 @@ class KnowledgeGraphAPIContractTests(APITestCase):
         self.assertNotIn('raw_events', rendered)
         self.assertNotIn('token', rendered)
         self.assertNotIn('activity_service.py', rendered)
+
+    def assert_semantic_payload_is_absent_from_graph_read(self, payload):
+        rendered = repr(payload)
+        forbidden_terms = {
+            'semantic',
+            'embedding',
+            'grouping',
+            'group_key',
+            'group_label',
+            'budget_cap',
+            'estimated_cost',
+            'estimated_token_count',
+            'source_item_count',
+            'sk_live_semantic_secret',
+            'semantic-provider-raw-output',
+            'Traceback',
+            'provider-stack.py',
+        }
+        leaked_terms = sorted(term for term in forbidden_terms if term in rendered)
+        self.assertEqual(leaked_terms, [], f'Graph read leaked semantic/provider internals: {leaked_terms}')
+
+    def test_graph_read_endpoints_do_not_touch_semantic_provider_factories_or_leak_semantic_state(self):
+        UserKnowledgeGraphSemanticState.objects.create(
+            user=self.owner,
+            status=UserKnowledgeGraphSemanticState.Status.PROVIDER_ERROR,
+            reason_code='provider_error',
+            phase='semantic_provider',
+            enabled=True,
+            dry_run=False,
+            source_provider='semantic-provider-raw-output',
+            source_model='embedding-model',
+            grouping_provider='grouping-provider',
+            grouping_model='grouping-model',
+            source_item_count=3,
+            estimated_token_count=999,
+            estimated_cost=Decimal('12.345678'),
+            budget_cap=Decimal('1.000000'),
+            last_error_message='sk_live_semantic_secret Traceback provider-stack.py graph-owner@example.com Private question body',
+        )
+
+        def fail_provider_factory(*args, **kwargs):
+            raise AssertionError('Semantic provider factory must not be touched by graph GET reads.')
+
+        with patch(
+            'apps.knowledge.services.semantic_rebuild_service.create_source_provider',
+            side_effect=fail_provider_factory,
+        ) as source_factory, patch(
+            'apps.knowledge.services.semantic_rebuild_service.create_grouping_provider',
+            side_effect=fail_provider_factory,
+        ) as grouping_factory:
+            self.client.force_authenticate(self.owner)
+            own_response = self.client.get('/knowledge-graph/me/')
+            self.client.force_authenticate(self.viewer)
+            public_response = self.client.get(f'/knowledge-graph/users/{self.owner.pk}/')
+            question_response = self.client.get(f'/knowledge-graph/questions/{self.question.pk}/')
+
+        self.assertEqual(own_response.status_code, status.HTTP_200_OK, own_response.data)
+        self.assertEqual(public_response.status_code, status.HTTP_200_OK, public_response.data)
+        self.assertEqual(question_response.status_code, status.HTTP_200_OK, question_response.data)
+        source_factory.assert_not_called()
+        grouping_factory.assert_not_called()
+        for payload in [own_response.data, public_response.data, question_response.data]:
+            self.assert_private_activity_fields_are_redacted(payload)
+            self.assert_semantic_payload_is_absent_from_graph_read(payload)
 
     def test_own_graph_returns_aggregate_owner_contract(self):
         self.client.force_authenticate(self.owner)
