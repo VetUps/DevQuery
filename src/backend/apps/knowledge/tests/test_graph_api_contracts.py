@@ -2,6 +2,7 @@ from decimal import Decimal
 from unittest.mock import patch
 from uuid import uuid4
 
+from django.apps import apps
 from django.contrib.contenttypes.models import ContentType
 from rest_framework import status
 from rest_framework.test import APITestCase
@@ -149,6 +150,14 @@ class KnowledgeGraphAPIContractTests(APITestCase):
             'estimated_cost',
             'estimated_token_count',
             'source_item_count',
+            'snapshot',
+            'candidate',
+            'content_hash',
+            'vector_payload',
+            'source_id',
+            'changed_source_count',
+            'provider_called_source_count',
+            'neighbour_candidate_count',
             'sk_live_semantic_secret',
             'semantic-provider-raw-output',
             'Traceback',
