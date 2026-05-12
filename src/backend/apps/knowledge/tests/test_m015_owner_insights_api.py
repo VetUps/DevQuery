@@ -312,21 +312,35 @@ class OwnerKnowledgeGraphInsightsAPIContractTests(APITestCase):
         self.assertEqual(concepts_by_slug['isolated-topic']['semantic_state'], 'isolated')
         self.assertEqual(concepts_by_slug['isolated-topic']['tone_token'], 'connect')
 
+        required_m015_fields = {
+            'concept_id',
+            'slug',
+            'name',
+            'total_weight',
+            'source_count',
+            'related_question_count',
+            'semantic_state',
+            'tone_token',
+            'recommendations',
+        }
+        forbidden_private_fields = {
+            'source_object_id',
+            'source_content_type',
+            'idempotency_key',
+            'last_error_message',
+            'raw_events',
+        }
         for concept in concepts_by_slug.values():
-            self.assertEqual(
-                set(concept),
-                {
-                    'concept_id',
-                    'slug',
-                    'name',
-                    'total_weight',
-                    'source_count',
-                    'related_question_count',
-                    'semantic_state',
-                    'tone_token',
-                    'recommendations',
-                },
+            self.assertTrue(
+                required_m015_fields.issubset(concept),
+                f'M015 fields must remain present while allowing additive S02 insight fields: {concept}',
             )
+            self.assertTrue(
+                forbidden_private_fields.isdisjoint(concept),
+                f'Owner insights may add S02 aggregate scores/evidence, but not raw private activity fields: {concept}',
+            )
+            if 'evidence' in concept:
+                self.assertLessEqual(len(concept['evidence']), 5)
             self.assertLessEqual(len(concept['recommendations']), 3)
             self.assertGreaterEqual(len(concept['recommendations']), 1)
             for recommendation in concept['recommendations']:
