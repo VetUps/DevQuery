@@ -178,6 +178,54 @@ class UserKnowledgeGraphLayout(models.Model):
         return f'{self.user_id} graph layout v{self.schema_version}'
 
 
+class UserKnowledgeGraphSemanticState(models.Model):
+    class Status(models.TextChoices):
+        PENDING = 'pending', 'Pending'
+        DISABLED = 'disabled', 'Disabled'
+        DRY_RUN = 'dry_run', 'Dry run'
+        SUCCEEDED = 'succeeded', 'Succeeded'
+        EMPTY = 'empty', 'Empty'
+        BUDGET_EXCEEDED = 'budget_exceeded', 'Budget exceeded'
+        CONFIGURATION_ERROR = 'configuration_error', 'Configuration error'
+        PROVIDER_ERROR = 'provider_error', 'Provider error'
+        TIMEOUT = 'timeout', 'Timeout'
+        MALFORMED_RESPONSE = 'malformed_response', 'Malformed response'
+
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='knowledge_graph_semantic_state',
+    )
+    status = models.CharField(max_length=40, choices=Status.choices, default=Status.PENDING)
+    reason_code = models.CharField(max_length=80, blank=True, default='')
+    phase = models.CharField(max_length=80, blank=True, default='')
+    enabled = models.BooleanField(default=False)
+    dry_run = models.BooleanField(default=True)
+    source_provider = models.CharField(max_length=128, blank=True, default='')
+    source_model = models.CharField(max_length=128, blank=True, default='')
+    grouping_provider = models.CharField(max_length=128, blank=True, default='')
+    grouping_model = models.CharField(max_length=128, blank=True, default='')
+    source_item_count = models.PositiveIntegerField(default=0)
+    estimated_token_count = models.PositiveIntegerField(default=0)
+    estimated_cost = models.DecimalField(max_digits=12, decimal_places=6, default=Decimal('0.000000'))
+    budget_cap = models.DecimalField(max_digits=12, decimal_places=6, default=Decimal('0.000000'))
+    last_error_message = models.CharField(max_length=255, blank=True, default='')
+    started_at = models.DateTimeField(blank=True, null=True)
+    finished_at = models.DateTimeField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'user_knowledge_graph_semantic_states'
+        indexes = [
+            models.Index(fields=['user'], name='ukgsemantic_user_idx'),
+            models.Index(fields=['status'], name='ukgsemantic_status_idx'),
+        ]
+
+    def __str__(self):
+        return f'{self.user_id} semantic graph {self.status}'
+
+
 class UserConceptActivity(models.Model):
     class ActivityType(models.TextChoices):
         AUTHORED_QUESTION = 'authored_question', 'Authored question'

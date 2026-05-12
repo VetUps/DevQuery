@@ -69,6 +69,25 @@ class KnowledgeGraphLayoutSaveSerializer(serializers.Serializer):
     positions = serializers.DictField(child=KnowledgeGraphLayoutPositionSerializer())
 
 
+class UserGraphSemanticStateSerializer(serializers.Serializer):
+    status = serializers.CharField()
+    reason_code = serializers.CharField(allow_blank=True)
+    phase = serializers.CharField(allow_blank=True)
+    enabled = serializers.BooleanField()
+    dry_run = serializers.BooleanField()
+    source_provider = serializers.CharField(allow_blank=True)
+    source_model = serializers.CharField(allow_blank=True)
+    grouping_provider = serializers.CharField(allow_blank=True)
+    grouping_model = serializers.CharField(allow_blank=True)
+    source_item_count = serializers.IntegerField(min_value=0)
+    estimated_token_count = serializers.IntegerField(min_value=0)
+    estimated_cost = serializers.DecimalField(max_digits=12, decimal_places=6)
+    budget_cap = serializers.DecimalField(max_digits=12, decimal_places=6)
+    last_error_message = serializers.CharField(allow_blank=True)
+    started_at = serializers.DateTimeField(allow_null=True)
+    finished_at = serializers.DateTimeField(allow_null=True)
+
+
 class UserGraphResponseSerializer(serializers.Serializer):
     user_id = serializers.UUIDField()
     viewer = ViewerSerializer()

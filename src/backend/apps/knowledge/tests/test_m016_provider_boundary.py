@@ -1,4 +1,5 @@
 import socket
+from pathlib import Path
 
 from django.test import SimpleTestCase, override_settings
 
@@ -192,7 +193,8 @@ class KnowledgeGraphProviderBoundaryTests(SimpleTestCase):
             self.assertIn('model', error.diagnostics)
 
     def test_source_code_is_isolated_from_question_draft_assistant_namespace(self):
-        with open('apps/knowledge/semantic_providers.py', encoding='utf-8') as module_file:
+        source_path = Path(__file__).resolve().parents[1] / 'semantic_providers.py'
+        with source_path.open(encoding='utf-8') as module_file:
             source = module_file.read()
 
         self.assertNotIn('QUESTION_DRAFT_ASSISTANT', source)

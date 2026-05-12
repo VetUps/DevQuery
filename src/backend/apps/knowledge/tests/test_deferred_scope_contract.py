@@ -65,6 +65,7 @@ class DeferredKnowledgeGraphScopeContractTests(SimpleTestCase):
             'QuestionConceptEdge',
             'UserConceptActivity',
             'UserKnowledgeGraphLayout',
+            'UserKnowledgeGraphSemanticState',
             'UserKnowledgeGraphState',
         }
         knowledge_models = apps.get_app_config('knowledge').get_models()
@@ -86,7 +87,7 @@ class DeferredKnowledgeGraphScopeContractTests(SimpleTestCase):
         self.assertEqual(
             actual_model_names,
             expected_model_names,
-            'R162-R168: knowledge app models must remain foundation graph models only.',
+            'R162-R168: knowledge app models must remain foundation graph models plus M016 aggregate semantic diagnostics only.',
         )
 
         leaked_model_names = {
