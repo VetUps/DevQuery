@@ -74,6 +74,7 @@ class M014KnowledgeGraphBoundaryContractTests(SimpleTestCase):
             'QuestionConceptEdge',
             'UserConceptActivity',
             'UserKnowledgeGraphLayout',
+            'UserKnowledgeGraphSemanticState',
             'UserKnowledgeGraphState',
         }
         knowledge_models = list(apps.get_app_config('knowledge').get_models())

@@ -93,6 +93,7 @@ class M015RuleBasedInsightsBoundaryTests(SimpleTestCase):
             'QuestionConceptEdge',
             'UserConceptActivity',
             'UserKnowledgeGraphLayout',
+            'UserKnowledgeGraphSemanticState',
             'UserKnowledgeGraphState',
         }
         knowledge_models = list(apps.get_app_config('knowledge').get_models())
@@ -101,7 +102,7 @@ class M015RuleBasedInsightsBoundaryTests(SimpleTestCase):
         self.assertEqual(
             actual_model_names,
             expected_model_names,
-            'M015 insights must be computed on demand and R211 permits only the existing single owner layout model.',
+            'M015 insights must be computed on demand; M016 additionally permits one aggregate owner semantic diagnostics row.',
         )
 
         forbidden_storage_terms = {
