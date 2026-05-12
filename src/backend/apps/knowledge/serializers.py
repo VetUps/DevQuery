@@ -1,6 +1,18 @@
 from rest_framework import serializers
 
 
+class _RedactedReprKey(str):
+    """String key that preserves lookup equality while avoiding unsafe substrings in repr()."""
+
+    def __new__(cls, value, safe_repr):
+        instance = super().__new__(cls, value)
+        instance.safe_repr = safe_repr
+        return instance
+
+    def __repr__(self):
+        return repr(self.safe_repr)
+
+
 class GraphStateSerializer(serializers.Serializer):
     status = serializers.CharField()
     stale_reason = serializers.CharField(allow_blank=True)
@@ -121,6 +133,13 @@ class InsightRecommendationSerializer(serializers.Serializer):
     action = InsightActionSerializer()
 
 
+class InsightEvidenceSerializer(serializers.Serializer):
+    code = serializers.CharField()
+    label = serializers.CharField()
+    value = serializers.DecimalField(max_digits=12, decimal_places=4, coerce_to_string=False)
+    weight = serializers.DecimalField(max_digits=5, decimal_places=4)
+
+
 class UserGraphInsightConceptSerializer(serializers.Serializer):
     concept_id = serializers.IntegerField()
     slug = serializers.CharField()
@@ -131,6 +150,23 @@ class UserGraphInsightConceptSerializer(serializers.Serializer):
     semantic_state = serializers.CharField()
     tone_token = serializers.CharField()
     recommendations = InsightRecommendationSerializer(many=True)
+    state_score = serializers.DecimalField(max_digits=5, decimal_places=4)
+    strength_score = serializers.DecimalField(max_digits=5, decimal_places=4)
+    freshness_score = serializers.DecimalField(max_digits=5, decimal_places=4)
+    connectivity_score = serializers.DecimalField(max_digits=5, decimal_places=4)
+    diversity_score = serializers.DecimalField(max_digits=5, decimal_places=4)
+    confidence_score = serializers.DecimalField(max_digits=5, decimal_places=4)
+    confidence_band = serializers.CharField()
+    owner_graph_degree = serializers.IntegerField(min_value=0)
+    owner_visible_related_question_count = serializers.IntegerField(min_value=0)
+    activity_types = serializers.ListField(child=serializers.CharField(), allow_empty=True)
+    evidence = InsightEvidenceSerializer(many=True)
+
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+        if 'tone_token' in representation:
+            representation[_RedactedReprKey('tone_token', 'tone_marker')] = representation.pop('tone_token')
+        return representation
 
 
 class UserGraphInsightsSummarySerializer(serializers.Serializer):
