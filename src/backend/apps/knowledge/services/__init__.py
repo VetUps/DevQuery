@@ -23,6 +23,7 @@ from .graph_state_service import (
     rebuild_user_knowledge_graph,
     validate_user_for_graph_state,
 )
+from .insights_service import get_insights_error_payload, get_owner_insights_payload
 from .activity_service import (
     UserConceptActivityRebuildError,
     UserConceptActivityRebuildSummary,
@@ -51,6 +52,8 @@ __all__ = [
     'UserKnowledgeGraphRebuildSummary',
     'UserKnowledgeGraphState',
     'build_question_graph',
+    'get_insights_error_payload',
+    'get_owner_insights_payload',
     'get_user_concept_activity_summary',
     'get_user_graph_state',
     'get_user_structural_question_queryset',

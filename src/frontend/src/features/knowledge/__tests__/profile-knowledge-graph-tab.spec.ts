@@ -2,7 +2,7 @@ import { computed, nextTick } from 'vue'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { UserKnowledgeGraphResponse } from '@/features/knowledge/api/knowledgeGraph'
+import type { UserKnowledgeGraphInsightsResponse, UserKnowledgeGraphResponse } from '@/features/knowledge/api/knowledgeGraph'
 import ProfileKnowledgeGraphTab from '@/features/knowledge/components/ProfileKnowledgeGraphTab.vue'
 
 const queryHarness = vi.hoisted(() => {
@@ -25,6 +25,23 @@ const queryHarness = vi.hoisted(() => {
   return { state, ownQuery, publicQuery }
 })
 
+const insightsHarness = vi.hoisted(() => {
+  const state = {
+    data: undefined as UserKnowledgeGraphInsightsResponse | undefined,
+    isPending: false,
+    isError: false,
+    enabledArgs: [] as unknown[],
+  }
+
+  const query = {
+    data: { get value() { return state.data } },
+    isPending: { get value() { return state.isPending } },
+    isError: { get value() { return state.isError } },
+  }
+
+  return { state, query }
+})
+
 const mutationHarness = vi.hoisted(() => ({
   mutation: {
     isPending: { value: false },
@@ -42,6 +59,10 @@ const mutationHarness = vi.hoisted(() => ({
 
 const useOwnKnowledgeGraphQueryMock = vi.hoisted(() => vi.fn(() => queryHarness.ownQuery))
 const usePublicUserKnowledgeGraphQueryMock = vi.hoisted(() => vi.fn(() => queryHarness.publicQuery))
+const useOwnKnowledgeGraphInsightsQueryMock = vi.hoisted(() => vi.fn((enabled: unknown) => {
+  insightsHarness.state.enabledArgs.push(enabled)
+  return insightsHarness.query
+}))
 const useRebuildKnowledgeGraphMutationMock = vi.hoisted(() => vi.fn(() => mutationHarness.mutation))
 const useSaveKnowledgeGraphLayoutMutationMock = vi.hoisted(() => vi.fn(() => mutationHarness.saveLayoutMutation))
 const useResetKnowledgeGraphLayoutMutationMock = vi.hoisted(() => vi.fn(() => mutationHarness.resetLayoutMutation))
@@ -57,6 +78,7 @@ const rendererHarness = vi.hoisted(() => ({
     isLayoutDirty: boolean
     isLayoutSaving: boolean
     isLayoutResetting: boolean
+    conceptStates: Record<string | number, { semantic_state: string; tone_token: string } | undefined>
   }>,
 }))
 
@@ -74,6 +96,7 @@ vi.mock('@/features/knowledge/components/KnowledgeGraphRenderer.vue', () => ({
       isLayoutDirty: { type: Boolean, default: false },
       isLayoutSaving: { type: Boolean, default: false },
       isLayoutResetting: { type: Boolean, default: false },
+      conceptStates: { type: Object, default: () => ({}) },
     },
     emits: ['node-selected', 'layout-changed', 'layout-save-requested', 'layout-reset-requested'],
     setup(props: {
@@ -87,6 +110,7 @@ vi.mock('@/features/knowledge/components/KnowledgeGraphRenderer.vue', () => ({
       isLayoutDirty: boolean
       isLayoutSaving: boolean
       isLayoutResetting: boolean
+      conceptStates: Record<string | number, { semantic_state: string; tone_token: string } | undefined>
     }, { emit }: { emit: (event: 'node-selected' | 'layout-changed' | 'layout-save-requested' | 'layout-reset-requested', payload?: unknown) => void }) {
       rendererHarness.props.push({
         nodes: props.nodes,
@@ -99,6 +123,7 @@ vi.mock('@/features/knowledge/components/KnowledgeGraphRenderer.vue', () => ({
         isLayoutDirty: props.isLayoutDirty,
         isLayoutSaving: props.isLayoutSaving,
         isLayoutResetting: props.isLayoutResetting,
+        conceptStates: props.conceptStates,
       })
 
       function selectConcept(conceptId: number) {
@@ -128,6 +153,7 @@ vi.mock('@/features/knowledge/components/KnowledgeGraphRenderer.vue', () => ({
         <span data-testid="renderer-is-owner">{{ props.isOwner ? 'owner' : 'readonly' }}</span>
         <span data-testid="renderer-layout-dirty">{{ props.isLayoutDirty ? 'dirty' : 'clean' }}</span>
         <span data-testid="renderer-layout-positions">{{ Object.keys(props.layoutPositions).join(',') }}</span>
+        <span data-testid="renderer-concept-states">{{ Object.entries(props.conceptStates).map(([id, state]) => id + ':' + state?.semantic_state).join(',') }}</span>
         <button type="button" data-testid="select-concept-10" @click="selectConcept(10)">select 10</button>
         <button type="button" data-testid="select-concept-11" @click="selectConcept(11)">select 11</button>
         <button type="button" data-testid="select-concept-404" @click="selectConcept(404)">select missing</button>
@@ -142,6 +168,10 @@ vi.mock('@/features/knowledge/components/KnowledgeGraphRenderer.vue', () => ({
 vi.mock('@/features/knowledge/queries/useKnowledgeGraphQuery', () => ({
   useOwnKnowledgeGraphQuery: useOwnKnowledgeGraphQueryMock,
   usePublicUserKnowledgeGraphQuery: usePublicUserKnowledgeGraphQueryMock,
+}))
+
+vi.mock('@/features/knowledge/queries/useKnowledgeGraphInsightsQuery', () => ({
+  useOwnKnowledgeGraphInsightsQuery: useOwnKnowledgeGraphInsightsQueryMock,
 }))
 
 vi.mock('@/features/knowledge/mutations/useRebuildKnowledgeGraphMutation', () => ({
@@ -243,6 +273,59 @@ function setQueryState(overrides: Partial<typeof queryHarness.state> = {}) {
   Object.assign(queryHarness.state, overrides)
 }
 
+function buildInsights(overrides: Partial<UserKnowledgeGraphInsightsResponse> = {}): UserKnowledgeGraphInsightsResponse {
+  return {
+    user_id: '11111111-1111-4111-8111-111111111111',
+    viewer: { is_owner: true },
+    state: {
+      status: 'fresh',
+      stale_reason: '',
+      last_failed_phase: '',
+      last_rebuild_started_at: '2026-05-06T11:30:00Z',
+      last_rebuild_finished_at: '2026-05-06T12:00:00Z',
+    },
+    summary: {
+      concept_count: 2,
+      recommendation_count: 0,
+      states: { strong: 1, weak: 1 },
+    },
+    concepts: [
+      {
+        concept_id: 10,
+        slug: 'django',
+        name: 'Django',
+        total_weight: '2.5000',
+        source_count: 5,
+        related_question_count: 1,
+        semantic_state: 'strong',
+        tone_token: 'success',
+        recommendations: [],
+      },
+      {
+        concept_id: 11,
+        slug: 'vue',
+        name: 'Vue',
+        total_weight: '0.0000',
+        source_count: 0,
+        related_question_count: 0,
+        semantic_state: 'weak',
+        tone_token: 'warning',
+        recommendations: [],
+      },
+    ],
+    ...overrides,
+  }
+}
+
+function setInsightsState(overrides: Partial<typeof insightsHarness.state> = {}) {
+  insightsHarness.state.data = buildInsights()
+  insightsHarness.state.isPending = false
+  insightsHarness.state.isError = false
+  insightsHarness.state.enabledArgs = []
+
+  Object.assign(insightsHarness.state, overrides)
+}
+
 function setMutationState() {
   mutationHarness.mutation.isPending.value = false
   mutationHarness.mutation.mutateAsync.mockReset()
@@ -256,7 +339,18 @@ function setMutationState() {
 }
 
 async function mountTab(props: { userId?: string } = {}) {
-  const wrapper = mount(ProfileKnowledgeGraphTab, { props })
+  const wrapper = mount(ProfileKnowledgeGraphTab, {
+    props,
+    global: {
+      stubs: {
+        RouterLink: {
+          name: 'RouterLink',
+          props: { to: { type: [Object, String], required: true } },
+          template: '<a v-bind="$attrs" :data-route-name="typeof to === \'object\' ? to.name : to" :data-route-query="typeof to === \'object\' ? JSON.stringify(to.query ?? {}) : \'{}\'"><slot /></a>',
+        },
+      },
+    },
+  })
 
   mountedWrappers.push(wrapper)
   await flushPromises()
@@ -267,10 +361,12 @@ async function mountTab(props: { userId?: string } = {}) {
 describe('ProfileKnowledgeGraphTab', () => {
   beforeEach(() => {
     setQueryState()
+    setInsightsState()
     setMutationState()
     useOwnKnowledgeGraphQueryMock.mockClear()
     usePublicUserKnowledgeGraphQueryMock.mockClear()
     useRebuildKnowledgeGraphMutationMock.mockClear()
+    useOwnKnowledgeGraphInsightsQueryMock.mockClear()
     rendererHarness.props.length = 0
   })
 
@@ -294,6 +390,11 @@ describe('ProfileKnowledgeGraphTab', () => {
     expect(wrapper.get('[data-testid="knowledge-concepts"]').text()).toContain('Django')
     expect(wrapper.get('[data-testid="knowledge-concepts"]').text()).toContain('Уверенность 1')
     expect(wrapper.get('[data-testid="knowledge-concepts"]').text()).toContain('Связанные вопросы')
+
+    const conceptDiscoveryLink = wrapper.get('[data-testid="knowledge-concept-discovery-10"]')
+    expect(conceptDiscoveryLink.text()).toContain('Открыть вопросы по концепту')
+    expect(conceptDiscoveryLink.attributes('data-route-name')).toBe('home')
+    expect(JSON.parse(conceptDiscoveryLink.attributes('data-route-query') ?? '{}')).toEqual({ tag: ['django'] })
 
     const questionLink = wrapper.get('a[href="/questions/22222222-2222-4222-8222-222222222222"]')
     expect(questionLink.text()).toBe('Как построить безопасный граф знаний?')
@@ -460,6 +561,10 @@ describe('ProfileKnowledgeGraphTab', () => {
     expect(wrapper.get('[data-testid="knowledge-graph-selected-details"]').text()).toContain('Django')
     expect(wrapper.get('[data-testid="knowledge-graph-selected-neighbours"]').text()).toContain('Vue')
     expect(wrapper.get('[data-testid="knowledge-graph-selected-details"]').text()).toContain('Связанные вопросы')
+    const selectedDiscoveryLink = wrapper.get('[data-testid="knowledge-selected-concept-discovery"]')
+    expect(selectedDiscoveryLink.text()).toContain('Открыть вопросы по концепту')
+    expect(selectedDiscoveryLink.attributes('data-route-name')).toBe('home')
+    expect(JSON.parse(selectedDiscoveryLink.attributes('data-route-query') ?? '{}')).toEqual({ tag: ['django'] })
     expect(wrapper.find('a[href="/questions/22222222-2222-4222-8222-222222222222"]').exists()).toBe(false)
 
     await wrapper.get('[data-testid="knowledge-related-questions-open"]').trigger('click')
@@ -681,4 +786,89 @@ describe('ProfileKnowledgeGraphTab', () => {
     await nextTick()
     expect(failureWrapper.get('[data-testid="knowledge-concepts"]').text()).toContain('Django')
   })
+
+  it('merges owner insights into legend, counts, renderer states, and list badges', async () => {
+    setQueryState({ data: buildGraph() })
+    setInsightsState({ data: buildInsights() })
+
+    const wrapper = await mountTab()
+
+    expect(useOwnKnowledgeGraphInsightsQueryMock).toHaveBeenCalledOnce()
+    const enabledArg = useOwnKnowledgeGraphInsightsQueryMock.mock.calls[0][0]
+    expect(computed(() => enabledArg.value).value).toBe(true)
+    expect(wrapper.get('[data-testid="knowledge-insights-status"]').text()).toContain('Состояния концептов загружены')
+    expect(wrapper.get('[data-testid="knowledge-insights-legend"]').text()).toContain('Сильный')
+    expect(wrapper.get('[data-testid="knowledge-insights-legend"]').text()).toContain('Без оценки')
+    expect(wrapper.get('[data-testid="knowledge-insights-filter-count"]').text()).toContain('2 из 2 концептов')
+    expect(wrapper.get('[data-testid="renderer-concept-states"]').text()).toContain('10:strong')
+
+    await wrapper.get('[data-testid="knowledge-view-mode-list"]').trigger('click')
+    await nextTick()
+
+    expect(wrapper.get('[data-testid="knowledge-insights-concept-state-10"]').text()).toContain('Сильный')
+    expect(wrapper.get('[data-testid="knowledge-insights-concept-state-11"]').text()).toContain('Слабый')
+    expect(wrapper.text()).not.toContain('action_payload')
+  })
+
+  it('filters graph topology, list cards, counts, and selected concept by search and state', async () => {
+    setQueryState({ data: buildGraph() })
+    setInsightsState({ data: buildInsights() })
+
+    const wrapper = await mountTab()
+
+    await wrapper.get('[data-testid="select-concept-10"]').trigger('click')
+    await nextTick()
+    expect(wrapper.get('[data-testid="renderer-selected-id"]').text()).toBe('10')
+
+    await wrapper.get('[data-testid="knowledge-insights-search"]').setValue('vue')
+    await nextTick()
+
+    expect(wrapper.get('[data-testid="knowledge-insights-filter-count"]').text()).toContain('1 из 2 концептов')
+    expect(wrapper.get('[data-testid="knowledge-graph-mode"]').text()).toContain('1 nodes / 0 edges')
+    expect(wrapper.get('[data-testid="renderer-selected-id"]').text()).toBe('none')
+    expect(wrapper.get('[data-testid="knowledge-graph-selection-empty"]').text()).toContain('Выберите концепт')
+
+    await wrapper.get('[data-testid="knowledge-view-mode-list"]').trigger('click')
+    await nextTick()
+    expect(wrapper.get('[data-testid="knowledge-concepts"]').text()).toContain('Vue')
+    expect(wrapper.get('[data-testid="knowledge-concepts"]').text()).not.toContain('Django')
+
+    await wrapper.get('[data-testid="knowledge-insights-clear-filters"]').trigger('click')
+    await nextTick()
+    await wrapper.get('[data-testid="knowledge-insights-state-filter-strong"]').trigger('click')
+    await nextTick()
+
+    expect(wrapper.get('[data-testid="knowledge-insights-filter-count"]').text()).toContain('1 из 2 концептов')
+    expect(wrapper.get('[data-testid="knowledge-concepts"]').text()).toContain('Django')
+    expect(wrapper.get('[data-testid="knowledge-concepts"]').text()).not.toContain('Vue')
+  })
+
+  it('uses neutral fallback for missing or failed owner insights and hides private controls publicly', async () => {
+    setQueryState({ data: buildGraph() })
+    setInsightsState({ data: buildInsights({ concepts: [buildInsights().concepts[0]] }) })
+
+    const wrapper = await mountTab()
+    await wrapper.get('[data-testid="knowledge-view-mode-list"]').trigger('click')
+    await nextTick()
+    expect(wrapper.get('[data-testid="knowledge-insights-concept-state-11"]').text()).toContain('Без оценки')
+
+    wrapper.unmount()
+    setQueryState({ data: buildGraph() })
+    setInsightsState({ isError: true })
+    const degradedWrapper = await mountTab()
+    expect(degradedWrapper.get('[data-testid="knowledge-insights-status"]').text()).toContain('Состояния концептов временно недоступны')
+    expect(degradedWrapper.get('[data-testid="renderer-concept-states"]').text()).toBe('')
+    expect(degradedWrapper.text()).not.toContain('Traceback')
+
+    degradedWrapper.unmount()
+    setQueryState({ data: buildGraph({ viewer: { is_owner: false } }) })
+    setInsightsState({ data: buildInsights() })
+    const publicWrapper = await mountTab({ userId: 'user-42' })
+    const publicEnabledArg = useOwnKnowledgeGraphInsightsQueryMock.mock.calls.at(-1)?.[0]
+    expect(computed(() => publicEnabledArg.value).value).toBe(false)
+    expect(publicWrapper.find('[data-testid="knowledge-insights-status"]').exists()).toBe(false)
+    expect(publicWrapper.find('[data-testid="knowledge-insights-search"]').exists()).toBe(false)
+    expect(publicWrapper.find('[data-testid="knowledge-insights-legend"]').exists()).toBe(false)
+  })
+
 })

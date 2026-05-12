@@ -3,28 +3,34 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { queryClient } from '@/app/query-client'
 import { http } from '@/shared/api/http'
 import {
+  KNOWLEDGE_GRAPH_RECOMMENDATION_ACTION_TYPES,
   MalformedKnowledgeGraphResponseError,
   fetchOwnKnowledgeGraph,
+  fetchOwnKnowledgeGraphInsights,
   fetchPublicUserKnowledgeGraph,
   parseKnowledgeGraphRebuildErrorResponse,
   parseKnowledgeGraphRebuildResponse,
   parseKnowledgeGraphLayout,
+  parseUserKnowledgeGraphInsightsResponse,
   parseUserKnowledgeGraphResponse,
   rebuildOwnKnowledgeGraph,
   resetOwnKnowledgeGraphLayout,
   saveOwnKnowledgeGraphLayout,
   type KnowledgeGraphRebuildResponse,
+  type UserKnowledgeGraphInsightsResponse,
   type UserKnowledgeGraphResponse,
 } from '@/features/knowledge/api/knowledgeGraph'
 import {
   buildKnowledgeGraphQueryKey,
   knowledgeGraphQueryKeys,
 } from '@/features/knowledge/queries/useKnowledgeGraphQuery'
+import { knowledgeGraphInsightsQueryKeys } from '@/features/knowledge/queries/useKnowledgeGraphInsightsQuery'
 import { buildRebuildKnowledgeGraphMutationOptions } from '@/features/knowledge/mutations/useRebuildKnowledgeGraphMutation'
 import {
   buildResetKnowledgeGraphLayoutMutationOptions,
   buildSaveKnowledgeGraphLayoutMutationOptions,
 } from '@/features/knowledge/mutations/useKnowledgeGraphLayoutMutation'
+import { resolveKnowledgeGraphRecommendationPresentation } from '@/features/knowledge/components/knowledgeGraphRecommendationPresentation'
 
 vi.mock('@/shared/api/http', () => ({
   http: {
@@ -159,6 +165,72 @@ const rebuildPayload = (overrides: Partial<KnowledgeGraphRebuildResponse> = {}) 
     authored_question: 3,
   },
   state: graphPayload().state,
+  ...overrides,
+})
+
+const insightConcept = (overrides: Record<string, unknown> = {}) => ({
+  concept_id: 10,
+  slug: 'django',
+  name: 'Django',
+  total_weight: '3.2500',
+  source_count: 3,
+  related_question_count: 4,
+  semantic_state: 'strong',
+  tone_token: 'confident',
+  recommendations: [
+    {
+      id: 'strong:10:practice_foundation',
+      priority: 'low',
+      label: 'Maintain strong Django coverage',
+      reason_code: 'strong_concept_maintenance',
+      action: {
+        type: 'practice_foundation',
+        payload: {
+          query: 'Django',
+          tag: 'django',
+          search: 'Django',
+          order: 'relevance',
+          page: 1,
+        },
+      },
+      color: '#00ff00',
+      private_reason_trace: 'backend-owned diagnostic',
+    },
+  ],
+  color: '#00ff00',
+  provider_diagnostics: { raw: 'private' },
+  ...overrides,
+})
+
+const insightsPayload = (overrides: Record<string, unknown> = {}) => ({
+  user_id: '11111111-1111-4111-8111-111111111111',
+  viewer: { is_owner: true },
+  state: {
+    status: 'ready',
+    stale_reason: '',
+    last_failed_phase: '',
+    last_rebuild_started_at: null,
+    last_rebuild_finished_at: '2026-05-06T12:00:00Z',
+  },
+  summary: {
+    concept_count: 5,
+    recommendation_count: 5,
+    states: {
+      strong: 1,
+      growing: 1,
+      weak: 1,
+      stale: 1,
+      isolated: 1,
+    },
+  },
+  concepts: [
+    insightConcept({ semantic_state: 'strong', tone_token: 'confident' }),
+    insightConcept({ concept_id: 20, slug: 'vue', name: 'Vue', semantic_state: 'growing', tone_token: 'momentum' }),
+    insightConcept({ concept_id: 30, slug: 'sql', name: 'SQL', semantic_state: 'weak', tone_token: 'needs_practice' }),
+    insightConcept({ concept_id: 40, slug: 'redis', name: 'Redis', semantic_state: 'stale', tone_token: 'refresh' }),
+    insightConcept({ concept_id: 50, slug: 'docker', name: 'Docker', semantic_state: 'isolated', tone_token: 'connect' }),
+  ],
+  raw_exception: 'Traceback provider token leaked',
   ...overrides,
 })
 
@@ -358,6 +430,8 @@ describe('knowledge graph API contract', () => {
   })
 
   it('parses optional owner layout positions and rejects malformed layout DTOs', () => {
+    const parsedLayout = parseKnowledgeGraphLayout(layoutPayload())
+
     expect(parseUserKnowledgeGraphResponse(graphPayload({ layout: layoutPayload() })).layout).toEqual({
       schema_version: 1,
       positions: {
@@ -366,13 +440,225 @@ describe('knowledge graph API contract', () => {
       },
       updated_at: '2026-05-11T12:00:00Z',
     })
-    expect(parseKnowledgeGraphLayout(layoutPayload()).positions['10']).toEqual({ x: 120.5, y: -40.25 })
-    expect(JSON.stringify(parseKnowledgeGraphLayout(layoutPayload()))).not.toContain('raw_exception')
+    expect(parsedLayout.positions['10']).toEqual({ x: 120.5, y: -40.25 })
+    expect(Object.keys(parsedLayout)).toEqual(['schema_version', 'positions', 'updated_at'])
+    expect(JSON.stringify(parsedLayout)).not.toContain('raw_exception')
 
     expect(() => parseKnowledgeGraphLayout(layoutPayload({ schema_version: 2 }))).toThrow(/layout\.schema_version/)
     expect(() => parseKnowledgeGraphLayout(layoutPayload({ positions: { abc: { x: 1, y: 2 } } }))).toThrow(/layout\.positions\.abc/)
     expect(() => parseKnowledgeGraphLayout(layoutPayload({ positions: { 10: { x: Number.NaN, y: 2 } } }))).toThrow(/layout\.positions\.10\.x/)
     expect(() => parseKnowledgeGraphLayout(layoutPayload({ positions: { 10: { x: 1 } } }))).toThrow(/layout\.positions\.10\.y/)
+  })
+
+  it('rejects collection, list, and named saved-layout DTO shapes', () => {
+    expect(() => parseKnowledgeGraphLayout([layoutPayload()])).toThrow(/layout/)
+    expect(() => parseKnowledgeGraphLayout({ results: [layoutPayload()] })).toThrow(/layout\.positions/)
+    expect(() => parseKnowledgeGraphLayout({ layouts: [layoutPayload()] })).toThrow(/layout\.layouts/)
+    expect(() => parseKnowledgeGraphLayout(layoutPayload({ name: 'Work layout' }))).toThrow(/layout\.name/)
+    expect(() => parseKnowledgeGraphLayout(layoutPayload({ layoutName: 'Work layout' }))).toThrow(/layout\.layoutName/)
+    expect(() => parseKnowledgeGraphLayout(layoutPayload({ saved_layouts: [layoutPayload()] }))).toThrow(/layout\.saved_layouts/)
+    expect(() => parseKnowledgeGraphLayout(layoutPayload({ selectedLayout: 'default' }))).toThrow(/layout\.selectedLayout/)
+  })
+
+  it('parses owner insights DTOs with semantic states and drops presentation extras', () => {
+    const parsed = parseUserKnowledgeGraphInsightsResponse(insightsPayload())
+
+    expect(parsed).toEqual<UserKnowledgeGraphInsightsResponse>({
+      user_id: '11111111-1111-4111-8111-111111111111',
+      viewer: { is_owner: true },
+      state: {
+        status: 'ready',
+        stale_reason: '',
+        last_failed_phase: '',
+        last_rebuild_started_at: null,
+        last_rebuild_finished_at: '2026-05-06T12:00:00Z',
+      },
+      summary: {
+        concept_count: 5,
+        recommendation_count: 5,
+        states: {
+          strong: 1,
+          growing: 1,
+          weak: 1,
+          stale: 1,
+          isolated: 1,
+        },
+      },
+      concepts: [
+        expect.objectContaining({ semantic_state: 'strong', tone_token: 'confident' }),
+        expect.objectContaining({ semantic_state: 'growing', tone_token: 'momentum' }),
+        expect.objectContaining({ semantic_state: 'weak', tone_token: 'needs_practice' }),
+        expect.objectContaining({ semantic_state: 'stale', tone_token: 'refresh' }),
+        expect.objectContaining({ semantic_state: 'isolated', tone_token: 'connect' }),
+      ] as UserKnowledgeGraphInsightsResponse['concepts'],
+    })
+    expect(parsed.concepts[0]?.recommendations[0]?.action.type).toBe('practice_foundation')
+    expect(parsed.concepts[0]?.recommendations[0]?.action.payload).toEqual({
+      query: 'Django',
+      tag: 'django',
+      search: 'Django',
+      order: 'relevance',
+      page: 1,
+    })
+    expect(JSON.stringify(parsed)).not.toContain('color')
+    expect(JSON.stringify(parsed)).not.toContain('raw_exception')
+    expect(JSON.stringify(parsed)).not.toContain('provider')
+    expect(JSON.stringify(parsed)).not.toContain('private_reason_trace')
+  })
+
+  it('preserves the explicit backend recommendation action vocabulary and presents it safely', () => {
+    const reasonCodes = [
+      'weak_concept_needs_practice',
+      'growing_concept_has_momentum',
+      'strong_concept_maintenance',
+      'stale_concept_needs_refresh',
+      'isolated_concept_needs_connections',
+    ]
+    const concepts = KNOWLEDGE_GRAPH_RECOMMENDATION_ACTION_TYPES.map((actionType, index) =>
+      insightConcept({
+        concept_id: index + 1,
+        slug: `concept-${index + 1}`,
+        name: `Concept ${index + 1}`,
+        recommendations: [
+          {
+            ...insightConcept().recommendations[0],
+            id: `${index + 1}:${actionType}`,
+            priority: index === 0 ? 'high' : index === 1 ? 'medium' : 'low',
+            reason_code: reasonCodes[index],
+            action: {
+              type: actionType,
+              payload: {
+                query: `Concept ${index + 1}`,
+                source_object_id: `private-${index + 1}`,
+              },
+            },
+            color: '#00ff00',
+            provider_diagnostics: { raw: 'private' },
+            private_reason_trace: 'backend-owned diagnostic',
+          },
+        ],
+      }),
+    )
+
+    const parsed = parseUserKnowledgeGraphInsightsResponse(
+      insightsPayload({
+        summary: {
+          concept_count: concepts.length,
+          recommendation_count: concepts.length,
+          states: insightsPayload().summary.states,
+        },
+        concepts,
+      }),
+    )
+    const parsedRecommendations = parsed.concepts.map((concept) => concept.recommendations[0])
+
+    expect(parsedRecommendations.map((recommendation) => recommendation?.action.type)).toEqual(
+      KNOWLEDGE_GRAPH_RECOMMENDATION_ACTION_TYPES,
+    )
+
+    const presentations = parsedRecommendations.map((recommendation) => {
+      expect(recommendation).toBeDefined()
+      return resolveKnowledgeGraphRecommendationPresentation(recommendation!)
+    })
+
+    expect(presentations.map((presentation) => presentation.actionLabel)).toEqual([
+      'Разобрать связанные вопросы',
+      'Ответить на вопрос',
+      'Поддержать базу знаний',
+      'Освежить знания',
+      'Связать тему с графом',
+    ])
+    expect(presentations[0]).toMatchObject({
+      priorityLabel: 'Высокий приоритет',
+      reasonDescription: 'Тема выглядит слабой и требует дополнительной практики.',
+    })
+    expect(JSON.stringify(presentations)).not.toContain('source_object_id')
+    expect(JSON.stringify(presentations)).not.toContain('private-')
+    expect(JSON.stringify(presentations)).not.toContain('query')
+  })
+
+  it('accepts insight concepts with empty recommendation lists', () => {
+    expect(
+      parseUserKnowledgeGraphInsightsResponse(
+        insightsPayload({
+          summary: {
+            ...insightsPayload().summary,
+            recommendation_count: 0,
+          },
+          concepts: [insightConcept({ recommendations: [] })],
+        }),
+      ).concepts[0]?.recommendations,
+    ).toEqual([])
+  })
+
+  it('accepts empty owner insights concepts with required summary state counts', () => {
+    expect(
+      parseUserKnowledgeGraphInsightsResponse(
+        insightsPayload({
+          summary: {
+            concept_count: 0,
+            recommendation_count: 0,
+            states: {
+              strong: 0,
+              growing: 0,
+              weak: 0,
+              stale: 0,
+              isolated: 0,
+            },
+          },
+          concepts: [],
+        }),
+      ),
+    ).toMatchObject({
+      summary: { concept_count: 0, recommendation_count: 0 },
+      concepts: [],
+    })
+  })
+
+  it('rejects malformed owner insights DTOs with typed errors that name invalid paths', () => {
+    expect(() => parseUserKnowledgeGraphInsightsResponse(insightsPayload({ summary: { concept_count: 1, recommendation_count: 1 } }))).toThrow(
+      /summary\.states/,
+    )
+    expect(() => parseUserKnowledgeGraphInsightsResponse(insightsPayload({ summary: { ...insightsPayload().summary, states: { strong: -1 } } }))).toThrow(
+      /summary\.states\.strong/,
+    )
+    expect(() => parseUserKnowledgeGraphInsightsResponse(insightsPayload({ concepts: [insightConcept({ semantic_state: 7 })] }))).toThrow(
+      /concepts\[0\]\.semantic_state/,
+    )
+    expect(() => parseUserKnowledgeGraphInsightsResponse(insightsPayload({ concepts: [insightConcept({ tone_token: null })] }))).toThrow(
+      /concepts\[0\]\.tone_token/,
+    )
+    expect(() => parseUserKnowledgeGraphInsightsResponse(insightsPayload({ concepts: [insightConcept({ recommendations: [{ id: 'x', priority: 'high', label: 'Bad', reason_code: 'bad' }] })] }))).toThrow(
+      /concepts\[0\]\.recommendations\[0\]\.action/,
+    )
+    expect(() => parseUserKnowledgeGraphInsightsResponse(insightsPayload({ concepts: [insightConcept({ recommendations: [{ id: 'x', priority: 'high', label: 'Bad', reason_code: 'bad', action: { type: 'x', payload: [] } }] })] }))).toThrow(
+      /concepts\[0\]\.recommendations\[0\]\.action\.type/,
+    )
+    expect(() => parseUserKnowledgeGraphInsightsResponse(insightsPayload({ concepts: [insightConcept({ recommendations: [{ id: 'x', priority: 'high', label: 'Bad', reason_code: 'bad', action: { type: '', payload: {} } }] })] }))).toThrow(
+      /concepts\[0\]\.recommendations\[0\]\.action\.type/,
+    )
+    expect(() => parseUserKnowledgeGraphInsightsResponse(insightsPayload({ concepts: [insightConcept({ recommendations: [{ id: 'x', priority: 'high', label: 'Bad', reason_code: 'bad', action: { type: 'expert_match', payload: {} } }] })] }))).toThrow(
+      /concepts\[0\]\.recommendations\[0\]\.action\.type/,
+    )
+    expect(() => parseUserKnowledgeGraphInsightsResponse(insightsPayload({ concepts: [insightConcept({ recommendations: [{ id: 'x', priority: 'high', label: 'Bad', reason_code: 'bad', action: { type: 'review_related_questions', payload: [] } }] })] }))).toThrow(
+      /concepts\[0\]\.recommendations\[0\]\.action\.payload/,
+    )
+  })
+
+  it('fetches owner insights through the owner-only endpoint and strict parser', async () => {
+    mockedHttp.get.mockResolvedValueOnce({ data: insightsPayload() })
+
+    await expect(fetchOwnKnowledgeGraphInsights()).resolves.toMatchObject({
+      viewer: { is_owner: true },
+      concepts: expect.arrayContaining([expect.objectContaining({ semantic_state: 'strong' })]),
+    })
+
+    expect(mockedHttp.get).toHaveBeenCalledWith('/knowledge-graph/me/insights/')
+  })
+
+  it('builds a distinct owner insights query key without adding a public insights key', () => {
+    expect(knowledgeGraphInsightsQueryKeys.own()).toEqual(['knowledge-graph', 'me', 'insights'])
+    expect(Object.keys(knowledgeGraphInsightsQueryKeys)).not.toContain('publicUser')
   })
 
   it('fetches own and public graph endpoints through strict parsers', async () => {

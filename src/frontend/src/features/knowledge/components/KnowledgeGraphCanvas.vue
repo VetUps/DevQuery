@@ -8,6 +8,8 @@ import type {
   KnowledgeGraphLayoutPosition,
   KnowledgeGraphNode,
 } from '@/features/knowledge/api/knowledgeGraph'
+import type { KnowledgeGraphConceptStateById } from './knowledgeGraphStatePresentation'
+import { getKnowledgeGraphConceptState } from './knowledgeGraphStatePresentation'
 
 interface Emits {
   'node-selected': [conceptId: number]
@@ -23,6 +25,7 @@ const props = withDefaults(defineProps<{
   surfaceClass?: string
   layoutPositions?: Record<string, KnowledgeGraphLayoutPosition>
   isLayoutEditable?: boolean
+  conceptStates?: KnowledgeGraphConceptStateById
 }>(), {
   selectedConceptId: null,
   neighbourConceptIds: () => [],
@@ -30,6 +33,7 @@ const props = withDefaults(defineProps<{
   surfaceClass: '',
   layoutPositions: () => ({}),
   isLayoutEditable: false,
+  conceptStates: () => ({}),
 })
 
 const emit = defineEmits<Emits>()
@@ -85,6 +89,66 @@ const cytoscapeStyles: Stylesheet[] = [
     style: {
       'background-color': '#0f766e',
       'border-width': 3,
+    },
+  },
+  {
+    selector: '.knowledge-node--state-strong',
+    style: {
+      'background-color': '#0f766e',
+      'border-color': '#134e4a',
+      'border-style': 'double',
+      'border-width': 5,
+      shape: 'round-rectangle',
+    },
+  },
+  {
+    selector: '.knowledge-node--state-growing',
+    style: {
+      'background-color': '#0284c7',
+      'border-color': '#075985',
+      'border-style': 'solid',
+      'border-width': 4,
+      shape: 'ellipse',
+    },
+  },
+  {
+    selector: '.knowledge-node--state-weak',
+    style: {
+      'background-color': '#d97706',
+      'border-color': '#78350f',
+      'border-style': 'dashed',
+      'border-width': 4,
+      shape: 'diamond',
+    },
+  },
+  {
+    selector: '.knowledge-node--state-stale',
+    style: {
+      'background-color': '#7e22ce',
+      'border-color': '#581c87',
+      'border-style': 'dotted',
+      'border-width': 4,
+      shape: 'hexagon',
+    },
+  },
+  {
+    selector: '.knowledge-node--state-isolated',
+    style: {
+      'background-color': '#64748b',
+      'border-color': '#334155',
+      'border-style': 'dashed',
+      'border-width': 3,
+      shape: 'tag',
+    },
+  },
+  {
+    selector: '.knowledge-node--state-unknown',
+    style: {
+      'background-color': '#94a3b8',
+      'border-color': '#475569',
+      'border-style': 'dashed',
+      'border-width': 2,
+      shape: 'ellipse',
     },
   },
   {
@@ -195,6 +259,8 @@ function fallbackPosition(index: number): KnowledgeGraphLayoutPosition {
 function mapNodeToElement(node: KnowledgeGraphNode, index: number): ElementDefinition {
   const weight = toNumber(node.total_weight)
   const activitySourceCount = node.activity_breakdown.reduce((sum, entry) => sum + entry.source_count, 0)
+  const statePresentation = getKnowledgeGraphConceptState(props.conceptStates, node.concept_id)
+  const visibleLabel = `${statePresentation.symbol} ${conceptLabel(node)}`
 
   const position = props.layoutPositions[String(node.concept_id)]
   const element: ElementDefinition = {
@@ -202,14 +268,19 @@ function mapNodeToElement(node: KnowledgeGraphNode, index: number): ElementDefin
     data: {
       id: conceptElementId(node.concept_id),
       conceptId: node.concept_id,
-      label: conceptLabel(node),
+      label: visibleLabel,
+      accessibleLabel: `${conceptLabel(node)}. Состояние: ${statePresentation.label}. ${statePresentation.description}`,
+      semanticState: statePresentation.state,
+      stateLabel: statePresentation.label,
+      stateSymbol: statePresentation.symbol,
+      stateDescription: statePresentation.description,
       weight,
       confidence: toNumber(node.confidence),
       sourceCount: node.source_count,
       activitySourceCount,
       relatedQuestionCount: node.related_questions.length,
     },
-    classes: `knowledge-node ${weightClass(weight)}`,
+    classes: `knowledge-node ${weightClass(weight)} knowledge-node--state-${statePresentation.classSuffix}`,
   }
 
   if (hasLayoutPositions.value) {

@@ -7,10 +7,10 @@
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
-    "typecheck": "vue-tsc --noEmit",
-    "test": "vitest",
-    "test:run": "vitest run",
-    "smoke:profile-knowledge-graph": "playwright test --config=playwright.config.ts e2e/profile-knowledge-graph.spec.ts"
+    "typecheck": "node ./node_modules/vue-tsc/bin/vue-tsc.js --noEmit",
+    "test": "node ./node_modules/vitest/vitest.mjs",
+    "test:run": "node ./node_modules/vitest/vitest.mjs run",
+    "smoke:profile-knowledge-graph": "npm run build && playwright test --config=playwright.config.ts e2e/profile-knowledge-graph.spec.ts"
   },
   "dependencies": {
     "@fontsource/ibm-plex-sans": "^5.2.8",

@@ -32,14 +32,14 @@ def _safe_decimal(value: Decimal | None) -> Decimal:
     return value if value is not None else ZERO_WEIGHT
 
 
-def _state_payload(state: UserKnowledgeGraphState) -> dict[str, Any]:
+def _state_payload(state: UserKnowledgeGraphState, *, include_private_diagnostics: bool = True) -> dict[str, Any]:
     return {
         'status': state.status,
         'stale_reason': state.stale_reason,
-        'last_error_message': state.last_error_message,
-        'last_failed_phase': state.last_failed_phase,
-        'last_rebuild_started_at': state.last_rebuild_started_at,
-        'last_rebuild_finished_at': state.last_rebuild_finished_at,
+        'last_error_message': state.last_error_message if include_private_diagnostics else '',
+        'last_failed_phase': state.last_failed_phase if include_private_diagnostics else '',
+        'last_rebuild_started_at': state.last_rebuild_started_at if include_private_diagnostics else None,
+        'last_rebuild_finished_at': state.last_rebuild_finished_at if include_private_diagnostics else None,
     }
 
 
@@ -314,7 +314,7 @@ def get_user_graph_payload(user, *, is_owner: bool) -> dict[str, Any]:
     payload = {
         'user_id': user.pk,
         'viewer': {'is_owner': is_owner},
-        'state': _state_payload(state),
+        'state': _state_payload(state, include_private_diagnostics=is_owner),
         'total_weight': total_weight,
         'activity_breakdown': _activity_breakdown_payload(overall_breakdown_rows),
         'concepts': concepts,
