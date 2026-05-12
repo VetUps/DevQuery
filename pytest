@@ -21,6 +21,9 @@ if [[ $# -gt 0 ]]; then
   translated_args=()
   for arg in "$@"; do
     case "$arg" in
+      -q|--quiet|-s|--disable-warnings|--tb=*|--maxfail=*|--cov=*|--cov-report=*)
+        # Pytest-only reporting options are irrelevant for Django's test runner.
+        ;;
       src/backend/*.py)
         module_path="${arg#src/backend/}"
         module_path="${module_path%.py}"

@@ -331,7 +331,7 @@ def get_user_graph_payload(user, *, is_owner: bool) -> dict[str, Any]:
 def get_rebuild_summary_payload(summary: UserKnowledgeGraphRebuildSummary) -> dict[str, Any]:
     """Build a redacted aggregate owner rebuild response DTO."""
 
-    return {
+    payload = {
         'user_id': summary.user_id,
         'processed_questions': summary.processed_questions,
         'processed_activity_sources': summary.processed_activity_sources,
@@ -339,6 +339,9 @@ def get_rebuild_summary_payload(summary: UserKnowledgeGraphRebuildSummary) -> di
         'activity_summary': summary.activity_summary.as_stdout_fields(),
         'state': _state_payload(summary.state),
     }
+    if summary.semantic is not None:
+        payload['semantic'] = summary.semantic
+    return payload
 
 
 def get_rebuild_error_payload(user, *, code: str = 'knowledge_graph_rebuild_failed') -> dict[str, Any]:

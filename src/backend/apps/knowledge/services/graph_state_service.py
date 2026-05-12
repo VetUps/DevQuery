@@ -9,7 +9,7 @@ from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from django.db import DatabaseError
 from django.utils import timezone
 
-from apps.knowledge.models import UserKnowledgeGraphState
+from apps.knowledge.models import UserKnowledgeGraphSemanticState, UserKnowledgeGraphState
 from apps.qa.models import Question, QuestionEditProposal, Solution, SolutionEdits
 from apps.user.models import ReputationTransaction
 
@@ -43,6 +43,7 @@ class UserKnowledgeGraphRebuildSummary:
     structural_summary: Any
     activity_summary: Any
     state: UserKnowledgeGraphState
+    semantic: dict[str, Any] | None = None
 
     @property
     def processed_questions(self) -> int:
@@ -202,6 +203,40 @@ def _safe_rebuild_failure(*, phase: str, exc: BaseException) -> UserKnowledgeGra
     return UserKnowledgeGraphRebuildError(f'User knowledge graph rebuild failed during {_safe_phase(phase)}')
 
 
+def _semantic_state_payload(state: UserKnowledgeGraphSemanticState) -> dict[str, Any]:
+    return {
+        'status': state.status,
+        'reason_code': state.reason_code,
+        'phase': state.phase,
+        'enabled': state.enabled,
+        'dry_run': state.dry_run,
+        'source_provider': state.source_provider,
+        'source_model': state.source_model,
+        'grouping_provider': state.grouping_provider,
+        'grouping_model': state.grouping_model,
+        'source_item_count': state.source_item_count,
+        'estimated_token_count': state.estimated_token_count,
+        'estimated_cost': state.estimated_cost,
+        'budget_cap': state.budget_cap,
+        'last_error_message': state.last_error_message,
+        'started_at': state.started_at,
+        'finished_at': state.finished_at,
+    }
+
+
+def _mark_semantic_boundary_unavailable(user) -> dict[str, Any]:
+    now = timezone.now()
+    state, _ = UserKnowledgeGraphSemanticState.objects.get_or_create(user=user)
+    state.status = UserKnowledgeGraphSemanticState.Status.PROVIDER_ERROR
+    state.reason_code = 'provider_error'
+    state.phase = 'semantic_boundary'
+    state.last_error_message = 'Knowledge graph semantic boundary failed after base rebuild.'
+    state.started_at = state.started_at or now
+    state.finished_at = now
+    state.save(update_fields=['status', 'reason_code', 'phase', 'last_error_message', 'started_at', 'finished_at', 'updated_at'])
+    return _semantic_state_payload(state)
+
+
 def _question_id_from_ledger_source(source_object: object | None):
     if source_object is None:
         return None
@@ -294,9 +329,24 @@ def rebuild_user_knowledge_graph(user_or_id) -> UserKnowledgeGraphRebuildSummary
         raise _safe_rebuild_failure(phase='activity_rebuild', exc=exc) from exc
 
     state = mark_user_graph_fresh(user, phase='owner_rebuild')
+
+    semantic = None
+    try:
+        from apps.knowledge.services.semantic_rebuild_service import run_owner_semantic_boundary
+
+        semantic = run_owner_semantic_boundary(user)
+    except Exception:
+        # Semantic enrichment is an additive M016 boundary check.  It must never
+        # roll back or degrade the already-fresh structural/activity graph; the
+        # semantic service is responsible for normal provider/config/budget
+        # diagnostics, and this catch preserves base rebuild success if an
+        # unexpected semantic seam regression escapes that service.
+        semantic = _mark_semantic_boundary_unavailable(user)
+
     return UserKnowledgeGraphRebuildSummary(
         user_id=user.pk,
         structural_summary=structural_summary,
         activity_summary=activity_summary,
         state=state,
+        semantic=semantic,
     )
