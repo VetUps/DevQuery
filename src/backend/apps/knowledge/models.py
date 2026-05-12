@@ -206,6 +206,10 @@ class UserKnowledgeGraphSemanticState(models.Model):
     grouping_provider = models.CharField(max_length=128, blank=True, default='')
     grouping_model = models.CharField(max_length=128, blank=True, default='')
     source_item_count = models.PositiveIntegerField(default=0)
+    changed_source_item_count = models.PositiveIntegerField(default=0)
+    reused_snapshot_count = models.PositiveIntegerField(default=0)
+    snapshot_item_count = models.PositiveIntegerField(default=0)
+    neighbor_candidate_count = models.PositiveIntegerField(default=0)
     estimated_token_count = models.PositiveIntegerField(default=0)
     estimated_cost = models.DecimalField(max_digits=12, decimal_places=6, default=Decimal('0.000000'))
     budget_cap = models.DecimalField(max_digits=12, decimal_places=6, default=Decimal('0.000000'))
@@ -224,6 +228,83 @@ class UserKnowledgeGraphSemanticState(models.Model):
 
     def __str__(self):
         return f'{self.user_id} semantic graph {self.status}'
+
+
+class UserKnowledgeGraphEmbeddingSnapshot(models.Model):
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='knowledge_graph_embedding_snapshots',
+    )
+    source_type = models.CharField(max_length=40)
+    source_id = models.CharField(max_length=64)
+    provider = models.CharField(max_length=128)
+    model = models.CharField(max_length=128)
+    dimensions = models.PositiveIntegerField()
+    content_hash = models.CharField(max_length=64)
+    vector_payload = models.JSONField(default=list)
+    generated_at = models.DateTimeField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'user_knowledge_graph_embedding_snapshots'
+        constraints = [
+            models.UniqueConstraint(
+                fields=['user', 'source_type', 'source_id', 'provider', 'model', 'dimensions', 'content_hash'],
+                name='unique_ukg_embedding_snapshot',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['user', 'provider', 'model', 'content_hash'], name='ukges_user_provider_hash_idx'),
+            models.Index(fields=['user', 'source_type', 'source_id'], name='ukges_user_source_idx'),
+        ]
+
+    def __str__(self):
+        return f'{self.user_id} {self.source_type}:{self.source_id} embedding {self.model}'
+
+
+class UserKnowledgeGraphSemanticCandidate(models.Model):
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='knowledge_graph_semantic_candidates',
+    )
+    source_snapshot = models.ForeignKey(
+        UserKnowledgeGraphEmbeddingSnapshot,
+        on_delete=models.CASCADE,
+        related_name='outgoing_semantic_candidates',
+    )
+    target_snapshot = models.ForeignKey(
+        UserKnowledgeGraphEmbeddingSnapshot,
+        on_delete=models.CASCADE,
+        related_name='incoming_semantic_candidates',
+    )
+    provider = models.CharField(max_length=128)
+    model = models.CharField(max_length=128)
+    dimensions = models.PositiveIntegerField()
+    similarity_score = models.DecimalField(
+        max_digits=6,
+        decimal_places=5,
+        validators=[MinValueValidator(Decimal('0.00000')), MaxValueValidator(Decimal('1.00000'))],
+    )
+    rank = models.PositiveIntegerField()
+    generated_at = models.DateTimeField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'user_knowledge_graph_semantic_candidates'
+        constraints = [
+            models.UniqueConstraint(fields=['user', 'provider', 'model', 'dimensions', 'rank'], name='unique_ukg_semantic_rank'),
+        ]
+        indexes = [
+            models.Index(fields=['user', 'rank'], name='ukgsc_user_rank_idx'),
+            models.Index(fields=['user', 'provider', 'model', 'dimensions'], name='ukgsc_user_provider_idx'),
+        ]
+
+    def __str__(self):
+        return f'{self.user_id} semantic candidate {self.rank}'
 
 
 class UserConceptActivity(models.Model):
