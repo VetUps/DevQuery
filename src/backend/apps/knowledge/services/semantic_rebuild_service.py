@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import hashlib
 import math
 import re
@@ -271,6 +271,31 @@ def _find_reusable_snapshots(user, estimate: OwnerSemanticRebuildEstimate, embed
     return reusable, missing_indexes
 
 
+def _estimate_changed_rebuild_cost(
+    estimate: OwnerSemanticRebuildEstimate,
+    *,
+    missing_indexes: list[int],
+    semantic_config: KnowledgeGraphSemanticConfig,
+    embedding_config: KnowledgeGraphEmbeddingConfig,
+    grouping_config: KnowledgeGraphGroupingConfig,
+) -> OwnerSemanticRebuildEstimate:
+    """Return diagnostics with provider-budget cost scoped to sources that need fresh embeddings."""
+
+    changed_texts = [estimate.source_texts[index] for index in missing_indexes]
+    embedding_tokens = estimate_text_tokens(changed_texts) if changed_texts else 0
+    grouping_tokens = estimate_text_tokens([summary['title'] for summary in estimate.source_summaries]) if changed_texts else 0
+    estimated_cost = _decimal_cost(
+        (Decimal(embedding_tokens) * Decimal(str(embedding_config.price_per_1k_tokens)) / Decimal('1000'))
+        + (Decimal(grouping_tokens) * Decimal(str(grouping_config.price_per_1k_tokens)) / Decimal('1000'))
+    )
+    return replace(
+        estimate,
+        estimated_token_count=embedding_tokens + grouping_tokens,
+        estimated_cost=estimated_cost,
+        budget_cap=_decimal_cost(semantic_config.rebuild_budget_cap),
+    )
+
+
 def _validate_embedding_vectors(vectors: list[list[float]], expected_count: int, dimensions: int) -> list[list[float]]:
     if len(vectors) != expected_count:
         raise KnowledgeGraphProviderMalformedResponse('Knowledge graph embedding vector count did not match source count.', phase='embedding')
@@ -312,21 +337,34 @@ def _persist_snapshots(user, estimate: OwnerSemanticRebuildEstimate, provider_me
 
 def _cosine_similarity(left: list[float], right: list[float]) -> Decimal:
     dot = sum(a * b for a, b in zip(left, right))
-    left_norm = math.sqrt(sum(a * a for a in left))
-    right_norm = math.sqrt(sum(b * b for b in right))
+    left_norm = _vector_norm(left)
+    right_norm = _vector_norm(right)
     if left_norm == 0 or right_norm == 0:
         return Decimal('0.00000')
     value = max(0.0, min(1.0, dot / (left_norm * right_norm)))
     return Decimal(str(value)).quantize(Decimal('0.00001'), rounding=ROUND_HALF_UP)
 
 
+def _vector_norm(vector: list[float]) -> float:
+    return math.sqrt(sum(value * value for value in vector))
+
+
 def _replace_semantic_candidates(user, snapshots_by_index: dict[int, UserKnowledgeGraphEmbeddingSnapshot], generated_at, limit: int = 10) -> int:
     snapshots = [snapshots_by_index[index] for index in sorted(snapshots_by_index)]
-    UserKnowledgeGraphSemanticCandidate.objects.filter(user=user).delete()
+    if snapshots:
+        first = snapshots[0]
+        UserKnowledgeGraphSemanticCandidate.objects.filter(
+            user=user,
+            provider=first.provider,
+            model=first.model,
+            dimensions=first.dimensions,
+        ).delete()
     pairs = []
     for source in snapshots:
+        if _vector_norm(source.vector_payload) == 0:
+            continue
         for target in snapshots:
-            if source.pk == target.pk:
+            if source.pk == target.pk or _vector_norm(target.vector_payload) == 0:
                 continue
             similarity = _cosine_similarity(source.vector_payload, target.vector_payload)
             pairs.append((similarity, source.pk, target.pk, source, target))
@@ -367,11 +405,12 @@ def run_owner_semantic_boundary(
         embedding_config=embedding_config,
         grouping_config=grouping_config,
     )
+    diagnostic_estimate = estimate
+    provider_attempted_count = 0
 
     try:
         embedding_config.validate(enabled=semantic_config.enabled)
         grouping_config.validate(enabled=semantic_config.enabled)
-        semantic_config.validate_budget(float(estimate.estimated_cost))
 
         if not semantic_config.enabled:
             state = _persist_state(
@@ -397,23 +436,36 @@ def run_owner_semantic_boundary(
             )
             return _state_payload(state)
 
+        reusable_snapshots, missing_indexes = _find_reusable_snapshots(user, estimate, embedding_config)
+        changed_estimate = _estimate_changed_rebuild_cost(
+            estimate,
+            missing_indexes=missing_indexes,
+            semantic_config=semantic_config,
+            embedding_config=embedding_config,
+            grouping_config=grouping_config,
+        )
+        diagnostic_estimate = changed_estimate
+        semantic_config.validate_budget(float(changed_estimate.estimated_cost))
+
         if semantic_config.dry_run:
             state = _persist_state(
                 user,
-                estimate=estimate,
+                estimate=changed_estimate,
                 semantic_config=semantic_config,
                 status=UserKnowledgeGraphSemanticState.Status.DRY_RUN,
                 reason_code='dry_run_only',
                 phase='estimation',
                 started_at=started_at,
+                changed_source_item_count=len(missing_indexes),
+                reused_snapshot_count=len(reusable_snapshots),
             )
             return _state_payload(state)
 
-        reusable_snapshots, missing_indexes = _find_reusable_snapshots(user, estimate, embedding_config)
         persisted_snapshots = {}
         provider_metadata = None
         generated_at = timezone.now()
         if missing_indexes:
+            provider_attempted_count = len(missing_indexes)
             source_provider = source_provider_factory(embedding_config)
             result = source_provider.embed(
                 KnowledgeGraphEmbeddingRequest(texts=[estimate.source_texts[index] for index in missing_indexes])
@@ -438,7 +490,7 @@ def run_owner_semantic_boundary(
 
         state = _persist_state(
             user,
-            estimate=estimate,
+            estimate=changed_estimate,
             semantic_config=semantic_config,
             status=UserKnowledgeGraphSemanticState.Status.SUCCEEDED,
             reason_code='semantic_snapshots_persisted',
@@ -454,21 +506,21 @@ def run_owner_semantic_boundary(
         status, code, phase, provider, model, message = _safe_error_payload(exc)
         state = _persist_state(
             user,
-            estimate=estimate,
+            estimate=diagnostic_estimate,
             semantic_config=semantic_config,
             status=status,
             reason_code=code,
             phase=phase,
             last_error_message=message,
             started_at=started_at,
-            changed_source_item_count=estimate.source_item_count if code in {'timeout', 'provider_error', 'malformed_response'} else 0,
+            changed_source_item_count=provider_attempted_count if code in {'timeout', 'provider_error', 'malformed_response'} else 0,
         )
         return _state_payload(state)
     except Exception as exc:
         status, code, phase, provider, model, message = _safe_error_payload(exc)
         state = _persist_state(
             user,
-            estimate=estimate,
+            estimate=diagnostic_estimate,
             semantic_config=semantic_config,
             status=status,
             reason_code=code,
