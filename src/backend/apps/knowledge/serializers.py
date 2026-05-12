@@ -185,6 +185,7 @@ class UserGraphRebuildResponseSerializer(serializers.Serializer):
     structural_summary = RebuildSummarySerializer()
     activity_summary = RebuildSummarySerializer()
     state = GraphStateSerializer()
+    semantic = UserGraphSemanticStateSerializer(required=False)
 
 
 class RebuildErrorDetailSerializer(serializers.Serializer):
