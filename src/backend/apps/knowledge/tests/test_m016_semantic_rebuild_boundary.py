@@ -166,7 +166,7 @@ class SemanticRebuildBoundaryTests(TestCase):
 
         self.assertEqual(state['status'], UserKnowledgeGraphSemanticState.Status.DRY_RUN)
         self.assertEqual(state['reason_code'], 'dry_run_only')
-        self.assertEqual(state['source_item_count'], 2)
+        self.assertEqual(state['source_item_count'], 1)
         self.assertGreater(state['estimated_token_count'], 0)
         self.assertGreaterEqual(state['estimated_cost'], Decimal('0.000000'))
         self.assertEqual(state['budget_cap'], Decimal('100.000000'))

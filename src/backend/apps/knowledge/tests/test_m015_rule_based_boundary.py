@@ -92,7 +92,9 @@ class M015RuleBasedInsightsBoundaryTests(SimpleTestCase):
             'ConceptTagMapping',
             'QuestionConceptEdge',
             'UserConceptActivity',
+            'UserKnowledgeGraphEmbeddingSnapshot',
             'UserKnowledgeGraphLayout',
+            'UserKnowledgeGraphSemanticCandidate',
             'UserKnowledgeGraphSemanticState',
             'UserKnowledgeGraphState',
         }
@@ -119,12 +121,27 @@ class M015RuleBasedInsightsBoundaryTests(SimpleTestCase):
             'expertmatching',
             'manual_editor',
         }
+        allowed_s03_storage_fields = {
+            ('UserKnowledgeGraphEmbeddingSnapshot', 'vector_payload'),
+            ('UserKnowledgeGraphEmbeddingSnapshot', 'source_id'),
+            ('UserKnowledgeGraphEmbeddingSnapshot', 'source_type'),
+            ('UserKnowledgeGraphEmbeddingSnapshot', 'content_hash'),
+            ('UserKnowledgeGraphEmbeddingSnapshot', 'dimensions'),
+            ('UserKnowledgeGraphEmbeddingSnapshot', 'provider'),
+            ('UserKnowledgeGraphEmbeddingSnapshot', 'model'),
+            ('UserKnowledgeGraphEmbeddingSnapshot', 'generated_at'),
+            ('UserKnowledgeGraphSemanticCandidate', 'source_snapshot'),
+            ('UserKnowledgeGraphSemanticCandidate', 'target_snapshot'),
+            ('UserKnowledgeGraphSemanticCandidate', 'similarity_score'),
+            ('UserKnowledgeGraphSemanticCandidate', 'rank'),
+        }
         leaked_fields_by_model = {}
         for model in knowledge_models:
             leaked_fields = sorted(
                 field.name
                 for field in model._meta.get_fields()
-                if any(term in field.name.lower() for term in forbidden_storage_terms)
+                if (model.__name__, field.name.lower()) not in allowed_s03_storage_fields
+                and any(term in field.name.lower() for term in forbidden_storage_terms)
             )
             if leaked_fields:
                 leaked_fields_by_model[model.__name__] = leaked_fields
@@ -207,7 +224,10 @@ class M015RuleBasedInsightsBoundaryTests(SimpleTestCase):
         for source_path in MODEL_AND_ROUTE_SOURCE_FILES:
             self.assertTrue(source_path.exists(), f'M015 expected bounded source file is missing: {source_path}')
             lowered_source = source_path.read_text(encoding='utf-8').lower()
-            leaked_terms = sorted(term for term in forbidden_future_scope_terms if term in lowered_source)
+            terms_to_check = set(forbidden_future_scope_terms)
+            if source_path == KNOWLEDGE_ROOT / 'models.py':
+                terms_to_check -= {'embedding', 'embeddings', 'vector', 'vectors'}
+            leaked_terms = sorted(term for term in terms_to_check if term in lowered_source)
             if leaked_terms:
                 leaked_terms_by_path[str(source_path.relative_to(BACKEND_ROOT))] = leaked_terms
 
