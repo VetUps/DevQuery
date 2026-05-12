@@ -116,7 +116,7 @@ class Command(BaseCommand):
             self._seed_comments(users, questions, solutions)
             self._seed_votes(users, questions, solutions)
             self._seed_edit_history(users, questions, solutions, tags)
-            self._seed_reputation_events(users, solutions)
+            self._seed_reputation_events(users, questions, solutions)
             self._seed_m008_invitations(users, questions)
             self._refresh_tag_counters(tags)
             graph_summary, activity_summary = self._rebuild_seed_knowledge_graph(users)
@@ -333,12 +333,47 @@ class Command(BaseCommand):
         return questions
 
     def _large_graph_question_specs(self, users: dict[str, CustomUser], now) -> dict[str, dict]:
-        tag_windows = [
-            ['python', 'django', 'drf', 'postgresql', 'api-design'],
-            ['django', 'drf', 'jwt', 'reputation', 'api-design'],
+        profile_windows = [
+            (
+                'expert-strong',
+                users['expert_local'],
+                ['python', 'django', 'drf', 'postgresql', 'api-design'],
+                3,
+            ),
+            (
+                'expert-growing',
+                users['expert_local'],
+                ['jwt', 'celery', 'redis', 'pytest', 'websocket'],
+                2,
+            ),
+            (
+                'expert-weak',
+                users['expert_local'],
+                ['concept-extraction', 'graph-privacy', 'graph-visualization', 'cytoscape', 'activity-ledger'],
+                1,
+            ),
+            (
+                'master-strong',
+                users['master_local'],
+                ['vue', 'typescript', 'vite', 'pinia', 'vue-router'],
+                3,
+            ),
+            (
+                'master-growing',
+                users['master_local'],
+                ['vitest', 'playwright', 'accessibility', 'frontend-performance', 'knowledge-graph'],
+                2,
+            ),
+            (
+                'master-weak',
+                users['master_local'],
+                ['notifications', 'expert-invitations', 'admin-panel', 'audit-trail', 'full-text-search'],
+                1,
+            ),
+        ]
+        filler_windows = [
             ['python', 'celery', 'redis', 'notifications', 'activity-ledger'],
             ['postgres-indexes', 'query-optimization', 'transactions', 'migrations', 'django'],
-            ['vue', 'typescript', 'vite', 'pinia', 'vue-router'],
             ['vue', 'vitest', 'playwright', 'accessibility', 'frontend-performance'],
             ['knowledge-graph', 'concept-extraction', 'graph-privacy', 'activity-ledger', 'postgresql'],
             ['knowledge-graph', 'graph-visualization', 'cytoscape', 'typescript', 'accessibility'],
@@ -346,30 +381,43 @@ class Command(BaseCommand):
             ['docker', 'migrations', 'postgresql', 'redis', 'celery'],
             ['full-text-search', 'postgres-indexes', 'query-optimization', 'django', 'api-design'],
             ['graph-privacy', 'audit-trail', 'admin-panel', 'jwt', 'transactions'],
+            ['django', 'drf', 'jwt', 'reputation', 'api-design'],
+            ['vue', 'typescript', 'vite', 'pinia', 'vue-router'],
+            ['knowledge-graph', 'concept-extraction', 'graph-visualization', 'cytoscape', 'activity-ledger'],
         ]
-        users_cycle = [
-            users['expert_local'],
-            users['master_local'],
-            users['expert_local'],
+        filler_owners = [
             users['participant_local'],
+            users['admin_local'],
+            users['blocked_local'],
+            users['moderated_local'],
         ]
+
+        question_windows = []
+        for label, owner, tags, repeat_count in profile_windows:
+            question_windows.extend((label, owner, tags) for _ in range(repeat_count))
+        for filler_index in range(24):
+            question_windows.append(
+                (
+                    'supporting-graph',
+                    filler_owners[filler_index % len(filler_owners)],
+                    filler_windows[filler_index % len(filler_windows)],
+                )
+            )
+
         specs = {}
-        for index in range(36):
-            window = tag_windows[index % len(tag_windows)]
-            bridge = tag_windows[(index + 3) % len(tag_windows)][index % 3]
-            tag_names = list(dict.fromkeys([*window, bridge]))[:5]
-            owner = users_cycle[index % len(users_cycle)]
-            specs[f'large_graph_{index + 1:02d}'] = {
+        for index, (label, owner, tag_names) in enumerate(question_windows, start=1):
+            specs[f'large_graph_{index:02d}'] = {
                 'user': owner,
-                'title': f'[seed][graph-large] Сценарий {index + 1:02d}: связка {tag_names[0]} / {tag_names[1]} / {tag_names[2]}',
+                'title': f'[seed][graph-large] Сценарий {index:02d}: {label} — {tag_names[0]} / {tag_names[1]} / {tag_names[2]}',
                 'body': (
                     'Большой seed-граф для ручной проверки профиля. '
                     f'Вопрос связывает концепты: {", ".join(tag_names)}. '
-                    'Нужен для проверки плотности узлов, соседей, весов и деталей выбранного концепта.'
+                    'Кластеры expert/master намеренно дают сильные, растущие и слабые концепты, '
+                    'чтобы профиль не выглядел как сплошной strong.'
                 ),
                 'status': Question.Status.OPEN_STATUS if index % 5 else Question.Status.SOLVED_STATUS,
                 'tags': tag_names,
-                'created_at': now - timedelta(days=3, hours=index),
+                'created_at': now - timedelta(days=3, hours=index - 1),
             }
         return specs
 
@@ -415,10 +463,10 @@ class Command(BaseCommand):
         questions: dict[str, Question],
     ) -> dict[str, dict]:
         answerers = [
-            users['master_local'],
-            users['expert_local'],
             users['participant_local'],
             users['admin_local'],
+            users['blocked_local'],
+            users['moderated_local'],
         ]
         specs = {}
         for index in range(36):
@@ -432,7 +480,7 @@ class Command(BaseCommand):
                 'question': question,
                 'body': (
                     f'Seed-ответ для большого графа #{index + 1:02d}: добавляет posted-solution activity '
-                    'и делает связи концептов заметнее в профиле отвечающего.'
+                    'без искусственного усиления expert/master по каждому кластеру.'
                 ),
                 'is_best': index % 6 == 0,
             }
@@ -540,7 +588,8 @@ class Command(BaseCommand):
             },
         )
 
-    def _seed_reputation_events(self, users: dict[str, CustomUser], solutions: dict[str, Solution]) -> None:
+    def _seed_reputation_events(self, users: dict[str, CustomUser], questions: dict[str, Question], solutions: dict[str, Solution]) -> None:
+        question_type = ContentType.objects.get_for_model(Question)
         solution_type = ContentType.objects.get_for_model(Solution)
         ReputationTransaction.objects.update_or_create(
             user=users['expert_local'],
@@ -562,6 +611,28 @@ class Command(BaseCommand):
             defaults={
                 'reputation_transaction_amount': 15,
                 'note': SEED_NOTE + ' Ручная корректировка для проверки admin формы.',
+            },
+        )
+        ReputationTransaction.objects.update_or_create(
+            user=users['expert_local'],
+            actor=users['admin_local'],
+            reputation_transaction_reason=ReputationTransaction.TransactionReason.QUESTION_UPVOTED,
+            content_type=question_type,
+            object_id=questions['large_graph_04'].pk,
+            defaults={
+                'reputation_transaction_amount': 5,
+                'note': SEED_NOTE + ' Вопрос из growing-кластера expert для проверки scoring-v2 diversity.',
+            },
+        )
+        ReputationTransaction.objects.update_or_create(
+            user=users['master_local'],
+            actor=users['admin_local'],
+            reputation_transaction_reason=ReputationTransaction.TransactionReason.QUESTION_UPVOTED,
+            content_type=question_type,
+            object_id=questions['large_graph_13'].pk,
+            defaults={
+                'reputation_transaction_amount': 5,
+                'note': SEED_NOTE + ' Вопрос из growing-кластера master для проверки scoring-v2 diversity.',
             },
         )
 

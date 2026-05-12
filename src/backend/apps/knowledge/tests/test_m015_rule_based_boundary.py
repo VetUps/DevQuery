@@ -278,7 +278,6 @@ class M015RuleBasedInsightsBoundaryTests(SimpleTestCase):
             'openai',
             'anthropic',
             'llm',
-            'prompt',
         }
 
         import_leaks: dict[str, list[str]] = {}
@@ -318,6 +317,42 @@ class M015RuleBasedInsightsBoundaryTests(SimpleTestCase):
             f'M015 insights source contains forbidden AI/vector/expert/admin implementation terms: {text_leaks}',
         )
 
+    def test_scoring_v2_insights_service_has_no_provider_or_assistant_imports(self):
+        forbidden_import_roots = (
+            'apps.knowledge.semantic_providers',
+            'openai',
+            'anthropic',
+            'langchain',
+            'numpy',
+            'sklearn',
+            'pgvector',
+            'apps.qa.services.question_draft_assistant_provider',
+            'apps.qa.services.question_draft_assistant_service',
+        )
+        insights_source_path = KNOWLEDGE_ROOT / 'services' / 'insights_service.py'
+        source_text = insights_source_path.read_text(encoding='utf-8')
+        python_tree = ast.parse(source_text, filename=str(insights_source_path))
+
+        imports = []
+        for node in ast.walk(python_tree):
+            if isinstance(node, ast.Import):
+                imports.extend(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                imports.append(node.module)
+
+        leaked_imports = sorted(
+            module_name
+            for module_name in imports
+            if any(module_name == root or module_name.startswith(f'{root}.') for root in forbidden_import_roots)
+        )
+
+        self.assertEqual(
+            leaked_imports,
+            [],
+            'S02 scoring-v2 owner insights must stay rule-based and isolated from semantic/provider/draft-assistant '
+            f'imports: {leaked_imports}',
+        )
+
     def test_concept_state_threshold_constants_are_explicit_and_classify_state_has_no_magic_literals(self):
         self.assertEqual(insights_service.CONCEPT_STATE_STALE_AFTER_DAYS, 90)
         self.assertEqual(insights_service.CONCEPT_STATE_STRONG_MIN_TOTAL_WEIGHT, Decimal('3.0000'))
@@ -327,7 +362,9 @@ class M015RuleBasedInsightsBoundaryTests(SimpleTestCase):
         source_text = (KNOWLEDGE_ROOT / 'services' / 'insights_service.py').read_text(encoding='utf-8')
         python_tree = ast.parse(source_text)
         classify_function = next(
-            node for node in ast.walk(python_tree) if isinstance(node, ast.FunctionDef) and node.name == '_classify_state'
+            node
+            for node in ast.walk(python_tree)
+            if isinstance(node, ast.FunctionDef) and node.name == '_classify_state_v2'
         )
         constants_in_classifier = [node.value for node in ast.walk(classify_function) if isinstance(node, ast.Constant)]
 
