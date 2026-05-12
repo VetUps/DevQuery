@@ -1,3 +1,5 @@
+import logging
+
 from django.contrib.auth import get_user_model
 from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import extend_schema
@@ -10,6 +12,8 @@ from apps.knowledge.serializers import (
     KnowledgeGraphLayoutSaveSerializer,
     KnowledgeGraphLayoutSerializer,
     QuestionGraphResponseSerializer,
+    UserGraphInsightsErrorResponseSerializer,
+    UserGraphInsightsResponseSerializer,
     UserGraphRebuildErrorResponseSerializer,
     UserGraphRebuildResponseSerializer,
     UserGraphResponseSerializer,
@@ -24,7 +28,10 @@ from apps.knowledge.services.api_service import (
     save_user_graph_layout,
 )
 from apps.knowledge.services.graph_state_service import UserKnowledgeGraphRebuildError, rebuild_user_knowledge_graph
+from apps.knowledge.services.insights_service import get_insights_error_payload, get_owner_insights_payload
 from apps.qa.models import Question
+
+logger = logging.getLogger(__name__)
 
 
 class OwnUserGraphView(APIView):
@@ -37,6 +44,37 @@ class OwnUserGraphView(APIView):
     def get(self, request):
         payload = get_user_graph_payload(request.user, is_owner=True)
         return Response(UserGraphResponseSerializer(payload).data)
+
+
+class OwnUserGraphInsightsView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        responses={
+            200: UserGraphInsightsResponseSerializer,
+            503: UserGraphInsightsErrorResponseSerializer,
+        },
+        description=(
+            'Return owner-only rule-based knowledge graph insights with semantic states, '
+            'tone tokens, recommendation action payloads, and redacted graph-state diagnostics.'
+        ),
+    )
+    def get(self, request):
+        try:
+            payload = get_owner_insights_payload(request.user)
+        except Exception:
+            logger.error(
+                'knowledge graph insights calculation failed',
+                extra={
+                    'phase': 'knowledge_graph_insights',
+                    'code': 'knowledge_graph_insights_unavailable',
+                    'user_id': str(request.user.pk),
+                },
+            )
+            payload = get_insights_error_payload(request.user)
+            return Response(UserGraphInsightsErrorResponseSerializer(payload).data, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+        return Response(UserGraphInsightsResponseSerializer(payload).data, status=status.HTTP_200_OK)
 
 
 class OwnUserGraphLayoutView(APIView):

@@ -78,6 +78,64 @@ export interface UserKnowledgeGraphResponse {
   layout?: KnowledgeGraphLayout
 }
 
+export interface KnowledgeGraphInsightsState {
+  status: string
+  stale_reason: string
+  last_failed_phase: string
+  last_rebuild_started_at: string | null
+  last_rebuild_finished_at: string | null
+}
+
+export const KNOWLEDGE_GRAPH_RECOMMENDATION_ACTION_TYPES = [
+  'review_related_questions',
+  'answer_question',
+  'practice_foundation',
+  'refresh_stale',
+  'connect_concept',
+] as const
+
+export type KnowledgeGraphRecommendationActionType =
+  (typeof KNOWLEDGE_GRAPH_RECOMMENDATION_ACTION_TYPES)[number]
+
+export interface KnowledgeGraphInsightAction {
+  type: KnowledgeGraphRecommendationActionType
+  payload: Record<string, unknown>
+}
+
+export interface KnowledgeGraphInsightRecommendation {
+  id: string
+  priority: string
+  label: string
+  reason_code: string
+  action: KnowledgeGraphInsightAction
+}
+
+export interface KnowledgeGraphInsightConceptEntry {
+  concept_id: number
+  slug: string
+  name: string
+  total_weight: string
+  source_count: number
+  related_question_count: number
+  semantic_state: string
+  tone_token: string
+  recommendations: KnowledgeGraphInsightRecommendation[]
+}
+
+export interface KnowledgeGraphInsightsSummary {
+  concept_count: number
+  recommendation_count: number
+  states: Record<string, number>
+}
+
+export interface UserKnowledgeGraphInsightsResponse {
+  user_id: string
+  viewer: KnowledgeGraphViewer
+  state: KnowledgeGraphInsightsState
+  summary: KnowledgeGraphInsightsSummary
+  concepts: KnowledgeGraphInsightConceptEntry[]
+}
+
 export interface KnowledgeGraphRebuildSummary {
   [key: string]: number
 }
@@ -214,6 +272,18 @@ function parseGraphState(value: unknown, path: string): KnowledgeGraphState {
   }
 }
 
+function parseInsightsGraphState(value: unknown, path: string): KnowledgeGraphInsightsState {
+  const record = assertRecord(value, path)
+
+  return {
+    status: assertString(record.status, `${path}.status`),
+    stale_reason: assertString(record.stale_reason, `${path}.stale_reason`),
+    last_failed_phase: assertString(record.last_failed_phase, `${path}.last_failed_phase`),
+    last_rebuild_started_at: assertNullableString(record.last_rebuild_started_at, `${path}.last_rebuild_started_at`),
+    last_rebuild_finished_at: assertNullableString(record.last_rebuild_finished_at, `${path}.last_rebuild_finished_at`),
+  }
+}
+
 function parseViewer(value: unknown, path: string): KnowledgeGraphViewer {
   const record = assertRecord(value, path)
 
@@ -322,8 +392,26 @@ function parseLayoutPosition(value: unknown, path: string): KnowledgeGraphLayout
   }
 }
 
+const FORBIDDEN_NAMED_LAYOUT_CONTRACT_KEYS = [
+  'name',
+  'layout_name',
+  'layoutName',
+  'saved_layouts',
+  'savedLayouts',
+  'layouts',
+  'selected_layout',
+  'selectedLayout',
+] as const
+
 export function parseKnowledgeGraphLayout(value: unknown): KnowledgeGraphLayout {
   const record = assertRecord(value, 'layout')
+
+  FORBIDDEN_NAMED_LAYOUT_CONTRACT_KEYS.forEach((key) => {
+    if (key in record) {
+      throw new MalformedKnowledgeGraphResponseError(`layout.${key}`, 'absent from the single saved layout contract')
+    }
+  })
+
   const rawPositions = assertRecord(record.positions, 'layout.positions')
   const positions: Record<string, KnowledgeGraphLayoutPosition> = {}
 
@@ -373,6 +461,85 @@ function parseRebuildSummary(value: unknown, path: string): KnowledgeGraphRebuil
   return summary
 }
 
+function parseInsightsSummaryStates(value: unknown, path: string): Record<string, number> {
+  const record = assertRecord(value, path)
+  const states: Record<string, number> = {}
+
+  Object.entries(record).forEach(([key, entryValue]) => {
+    states[key] = assertNonNegativeInteger(entryValue, `${path}.${key}`)
+  })
+
+  return states
+}
+
+function parseInsightsSummary(value: unknown, path: string): KnowledgeGraphInsightsSummary {
+  const record = assertRecord(value, path)
+
+  return {
+    concept_count: assertNonNegativeInteger(record.concept_count, `${path}.concept_count`),
+    recommendation_count: assertNonNegativeInteger(record.recommendation_count, `${path}.recommendation_count`),
+    states: parseInsightsSummaryStates(record.states, `${path}.states`),
+  }
+}
+
+function assertRecommendationActionType(value: unknown, path: string): KnowledgeGraphRecommendationActionType {
+  const parsed = assertNonEmptyString(value, path)
+
+  if (!KNOWLEDGE_GRAPH_RECOMMENDATION_ACTION_TYPES.includes(parsed as KnowledgeGraphRecommendationActionType)) {
+    throw new MalformedKnowledgeGraphResponseError(
+      path,
+      `one of ${KNOWLEDGE_GRAPH_RECOMMENDATION_ACTION_TYPES.join(', ')}`,
+    )
+  }
+
+  return parsed as KnowledgeGraphRecommendationActionType
+}
+
+function parseInsightAction(value: unknown, path: string): KnowledgeGraphInsightAction {
+  const record = assertRecord(value, path)
+
+  return {
+    type: assertRecommendationActionType(record.type, `${path}.type`),
+    payload: assertRecord(record.payload, `${path}.payload`),
+  }
+}
+
+function parseInsightRecommendation(value: unknown, path: string): KnowledgeGraphInsightRecommendation {
+  const record = assertRecord(value, path)
+
+  return {
+    id: assertNonEmptyString(record.id, `${path}.id`),
+    priority: assertString(record.priority, `${path}.priority`),
+    label: assertString(record.label, `${path}.label`),
+    reason_code: assertString(record.reason_code, `${path}.reason_code`),
+    action: parseInsightAction(record.action, `${path}.action`),
+  }
+}
+
+function parseInsightRecommendations(value: unknown, path: string): KnowledgeGraphInsightRecommendation[] {
+  return assertArray(value, path).map((entry, index) => parseInsightRecommendation(entry, `${path}[${index}]`))
+}
+
+function parseInsightConceptEntry(value: unknown, path: string): KnowledgeGraphInsightConceptEntry {
+  const record = assertRecord(value, path)
+
+  return {
+    concept_id: assertNonNegativeInteger(record.concept_id, `${path}.concept_id`),
+    slug: assertNonEmptyString(record.slug, `${path}.slug`),
+    name: assertString(record.name, `${path}.name`),
+    total_weight: assertDecimalString(record.total_weight, `${path}.total_weight`),
+    source_count: assertNonNegativeInteger(record.source_count, `${path}.source_count`),
+    related_question_count: assertNonNegativeInteger(record.related_question_count, `${path}.related_question_count`),
+    semantic_state: assertString(record.semantic_state, `${path}.semantic_state`),
+    tone_token: assertString(record.tone_token, `${path}.tone_token`),
+    recommendations: parseInsightRecommendations(record.recommendations, `${path}.recommendations`),
+  }
+}
+
+function parseInsightConcepts(value: unknown, path: string): KnowledgeGraphInsightConceptEntry[] {
+  return assertArray(value, path).map((entry, index) => parseInsightConceptEntry(entry, `${path}[${index}]`))
+}
+
 export function parseUserKnowledgeGraphResponse(value: unknown): UserKnowledgeGraphResponse {
   const record = assertRecord(value, 'root')
   const nodes = parseNodes(record.nodes, 'nodes')
@@ -396,6 +563,18 @@ export function parseUserKnowledgeGraphResponse(value: unknown): UserKnowledgeGr
   }
 
   return parsed
+}
+
+export function parseUserKnowledgeGraphInsightsResponse(value: unknown): UserKnowledgeGraphInsightsResponse {
+  const record = assertRecord(value, 'root')
+
+  return {
+    user_id: assertUuidString(record.user_id, 'user_id'),
+    viewer: parseViewer(record.viewer, 'viewer'),
+    state: parseInsightsGraphState(record.state, 'state'),
+    summary: parseInsightsSummary(record.summary, 'summary'),
+    concepts: parseInsightConcepts(record.concepts, 'concepts'),
+  }
 }
 
 export function parseKnowledgeGraphRebuildResponse(value: unknown): KnowledgeGraphRebuildResponse {
@@ -434,6 +613,12 @@ export async function fetchPublicUserKnowledgeGraph(userId: string): Promise<Use
   const response = await http.get<unknown>(`/knowledge-graph/users/${userId}/`)
 
   return parseUserKnowledgeGraphResponse(response.data)
+}
+
+export async function fetchOwnKnowledgeGraphInsights(): Promise<UserKnowledgeGraphInsightsResponse> {
+  const response = await http.get<unknown>('/knowledge-graph/me/insights/')
+
+  return parseUserKnowledgeGraphInsightsResponse(response.data)
 }
 
 export async function rebuildOwnKnowledgeGraph(): Promise<KnowledgeGraphRebuildResponse> {

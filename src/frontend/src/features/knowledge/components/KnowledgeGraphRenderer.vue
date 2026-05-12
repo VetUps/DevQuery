@@ -7,6 +7,8 @@ import type {
   KnowledgeGraphNode,
 } from '@/features/knowledge/api/knowledgeGraph'
 import KnowledgeGraphCanvas from './KnowledgeGraphCanvas.vue'
+import type { KnowledgeGraphConceptStateById } from './knowledgeGraphStatePresentation'
+import { getKnowledgeGraphConceptState } from './knowledgeGraphStatePresentation'
 
 interface Emits {
   'node-selected': [conceptId: number]
@@ -26,6 +28,7 @@ const props = withDefaults(defineProps<{
   isLayoutDirty?: boolean
   isLayoutSaving?: boolean
   isLayoutResetting?: boolean
+  conceptStates?: KnowledgeGraphConceptStateById
 }>(), {
   selectedConceptId: null,
   neighbourConceptIds: () => [],
@@ -35,6 +38,7 @@ const props = withDefaults(defineProps<{
   isLayoutDirty: false,
   isLayoutSaving: false,
   isLayoutResetting: false,
+  conceptStates: () => ({}),
 })
 
 const emit = defineEmits<Emits>()
@@ -48,6 +52,16 @@ const isLayoutActionDisabled = computed(() => !props.isLayoutDirty || props.isLa
 
 function conceptLabel(node: KnowledgeGraphNode): string {
   return node.name || node.slug || `Концепт ${node.concept_id}`
+}
+
+function conceptState(node: KnowledgeGraphNode) {
+  return getKnowledgeGraphConceptState(props.conceptStates, node.concept_id)
+}
+
+function conceptStateAriaLabel(node: KnowledgeGraphNode): string {
+  const state = conceptState(node)
+
+  return `Выбрать концепт ${conceptLabel(node)}. Состояние: ${state.label}. ${state.description}`
 }
 
 function emitNodeSelected(conceptId: number): void {
@@ -126,11 +140,21 @@ function requestLayoutReset(): void {
           :data-testid="`knowledge-graph-concept-option-${node.concept_id}`"
           :data-concept-id="node.concept_id"
           :aria-pressed="isConceptSelected(node.concept_id)"
-          :aria-label="`Выбрать концепт ${conceptLabel(node)}`"
+          :aria-label="conceptStateAriaLabel(node)"
           @click="emitNodeSelected(node.concept_id)"
         >
           <span class="knowledge-graph-renderer__concept-name">
             {{ conceptLabel(node) }}
+          </span>
+          <span
+            class="knowledge-graph-renderer__concept-state"
+            :class="`knowledge-graph-renderer__concept-state--${conceptState(node).classSuffix}`"
+            :data-testid="`knowledge-graph-concept-state-${node.concept_id}`"
+            :data-state="conceptState(node).state"
+            :title="conceptState(node).description"
+          >
+            <span aria-hidden="true">{{ conceptState(node).symbol }}</span>
+            <span>{{ conceptState(node).label }}</span>
           </span>
           <span class="knowledge-graph-renderer__concept-meta">
             {{ node.source_count }} · вес {{ node.total_weight }} · {{ node.related_questions.length }} вопр.
@@ -208,6 +232,7 @@ function requestLayoutReset(): void {
       :neighbour-edge-ids="props.neighbourEdgeIds"
       :layout-positions="props.layoutPositions"
       :is-layout-editable="props.isOwner"
+      :concept-states="props.conceptStates"
       @node-selected="emitNodeSelected"
       @layout-changed="emitLayoutChanged"
     />
@@ -272,6 +297,7 @@ function requestLayoutReset(): void {
           :neighbour-edge-ids="props.neighbourEdgeIds"
           :layout-positions="props.layoutPositions"
           :is-layout-editable="props.isOwner"
+          :concept-states="props.conceptStates"
           surface-class="knowledge-graph-renderer__modal-canvas"
           @node-selected="emitNodeSelected"
           @layout-changed="emitLayoutChanged"
@@ -445,7 +471,7 @@ function requestLayoutReset(): void {
 .knowledge-graph-renderer__concept-option {
   display: inline-flex;
   min-height: 40px;
-  max-width: 210px;
+  max-width: 280px;
   align-items: center;
   gap: var(--space-xs);
   padding: var(--space-xs) var(--space-sm);
@@ -490,6 +516,55 @@ function requestLayoutReset(): void {
   font-size: 12px;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+
+.knowledge-graph-renderer__concept-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 7px;
+  border: 1px solid rgb(100 116 139 / 0.28);
+  border-radius: 999px;
+  background: rgb(248 250 252 / 0.9);
+  color: #334155;
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.knowledge-graph-renderer__concept-state--strong {
+  border-style: double;
+  border-color: rgb(15 118 110 / 0.44);
+  background: rgb(204 251 241 / 0.78);
+}
+
+.knowledge-graph-renderer__concept-state--growing {
+  border-color: rgb(14 165 233 / 0.42);
+  background: rgb(224 242 254 / 0.82);
+}
+
+.knowledge-graph-renderer__concept-state--weak {
+  border-style: dashed;
+  border-color: rgb(217 119 6 / 0.46);
+  background: rgb(254 243 199 / 0.84);
+}
+
+.knowledge-graph-renderer__concept-state--stale {
+  border-style: dotted;
+  border-color: rgb(126 34 206 / 0.38);
+  background: rgb(243 232 255 / 0.76);
+}
+
+.knowledge-graph-renderer__concept-state--isolated {
+  border-radius: 8px;
+  border-color: rgb(71 85 105 / 0.38);
+  background: rgb(241 245 249 / 0.9);
+}
+
+.knowledge-graph-renderer__concept-state--unknown {
+  border-style: dashed;
+  color: var(--color-muted);
 }
 
 .knowledge-graph-renderer__modal-backdrop {

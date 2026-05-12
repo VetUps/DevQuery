@@ -81,6 +81,63 @@ class UserGraphResponseSerializer(serializers.Serializer):
     layout = KnowledgeGraphLayoutSerializer(required=False)
 
 
+class InsightsGraphStateSerializer(serializers.Serializer):
+    status = serializers.CharField()
+    stale_reason = serializers.CharField(allow_blank=True)
+    last_failed_phase = serializers.CharField(allow_blank=True)
+    last_rebuild_started_at = serializers.DateTimeField(allow_null=True)
+    last_rebuild_finished_at = serializers.DateTimeField(allow_null=True)
+
+
+class InsightActionSerializer(serializers.Serializer):
+    type = serializers.CharField()
+    payload = serializers.DictField()
+
+
+class InsightRecommendationSerializer(serializers.Serializer):
+    id = serializers.CharField()
+    priority = serializers.CharField()
+    label = serializers.CharField()
+    reason_code = serializers.CharField()
+    action = InsightActionSerializer()
+
+
+class UserGraphInsightConceptSerializer(serializers.Serializer):
+    concept_id = serializers.IntegerField()
+    slug = serializers.CharField()
+    name = serializers.CharField()
+    total_weight = serializers.DecimalField(max_digits=12, decimal_places=4)
+    source_count = serializers.IntegerField(min_value=0)
+    related_question_count = serializers.IntegerField(min_value=0)
+    semantic_state = serializers.CharField()
+    tone_token = serializers.CharField()
+    recommendations = InsightRecommendationSerializer(many=True)
+
+
+class UserGraphInsightsSummarySerializer(serializers.Serializer):
+    concept_count = serializers.IntegerField(min_value=0)
+    recommendation_count = serializers.IntegerField(min_value=0)
+    states = serializers.DictField(child=serializers.IntegerField(min_value=0))
+
+
+class UserGraphInsightsResponseSerializer(serializers.Serializer):
+    user_id = serializers.UUIDField()
+    viewer = ViewerSerializer()
+    state = InsightsGraphStateSerializer()
+    summary = UserGraphInsightsSummarySerializer()
+    concepts = UserGraphInsightConceptSerializer(many=True)
+
+
+class UserGraphInsightsErrorDetailSerializer(serializers.Serializer):
+    code = serializers.CharField()
+    message = serializers.CharField()
+
+
+class UserGraphInsightsErrorResponseSerializer(serializers.Serializer):
+    error = UserGraphInsightsErrorDetailSerializer()
+    state = InsightsGraphStateSerializer()
+
+
 class RebuildSummarySerializer(serializers.Serializer):
     processed = serializers.IntegerField(min_value=0, required=False)
     processed_sources = serializers.IntegerField(min_value=0, required=False)

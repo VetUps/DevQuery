@@ -5,10 +5,14 @@
 # instead of the Compose-only MySQL host from .env (DATABASE_HOST=db).
 set -euo pipefail
 
-export DJANGO_TEST_SQLITE=1
-export PYTHONPATH="src/backend${PYTHONPATH:+:$PYTHONPATH}"
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repo_root="$script_dir"
+cd "$repo_root"
 
-python_exe="src/backend/venv/bin/python"
+export DJANGO_TEST_SQLITE=1
+export PYTHONPATH="$repo_root/src/backend${PYTHONPATH:+:$PYTHONPATH}"
+
+python_exe="$repo_root/src/backend/venv/bin/python"
 if [[ ! -x "$python_exe" ]]; then
   python_exe="python3"
 fi
@@ -22,12 +26,16 @@ if [[ $# -gt 0 ]]; then
         module_path="${module_path%.py}"
         translated_args+=("${module_path//\//.}")
         ;;
+      apps/*.py)
+        module_path="${arg%.py}"
+        translated_args+=("${module_path//\//.}")
+        ;;
       *)
         translated_args+=("$arg")
         ;;
     esac
   done
-  exec "$python_exe" src/backend/manage.py test "${translated_args[@]}"
+  exec "$python_exe" "$repo_root/src/backend/manage.py" test "${translated_args[@]}"
 fi
 
-exec "$python_exe" src/backend/manage.py test apps.qa apps.user
+exec "$python_exe" "$repo_root/src/backend/manage.py" test apps.qa apps.user

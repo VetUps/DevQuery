@@ -20,6 +20,7 @@ class DeferredKnowledgeGraphScopeContractTests(SimpleTestCase):
     def test_r162_r164_knowledge_urls_expose_only_aggregate_graph_endpoints(self):
         expected_route_names = {
             'own-user-graph',
+            'own-user-graph-insights',
             'own-user-graph-layout',
             'own-user-graph-rebuild',
             'public-user-graph',
@@ -43,7 +44,7 @@ class DeferredKnowledgeGraphScopeContractTests(SimpleTestCase):
         self.assertEqual(
             actual_route_names,
             expected_route_names,
-            'R162-R164: apps.knowledge must expose only aggregate graph endpoints until deferred graph layers are scoped.',
+            'R162-R164/M015: apps.knowledge must expose only aggregate graph endpoints plus owner-only rule-based insights.',
         )
         leaked_route_names = {
             route_name

@@ -2,6 +2,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { KnowledgeGraphEdge, KnowledgeGraphNode } from '@/features/knowledge/api/knowledgeGraph'
+import type { KnowledgeGraphConceptStateById } from '@/features/knowledge/components/knowledgeGraphStatePresentation'
 import KnowledgeGraphRenderer from '@/features/knowledge/components/KnowledgeGraphRenderer.vue'
 
 type CytoscapeElementInput = {
@@ -211,6 +212,14 @@ function buildNodes(): KnowledgeGraphNode[] {
   ]
 }
 
+function buildConceptStates(): KnowledgeGraphConceptStateById {
+  return {
+    10: { semantic_state: 'strong', tone_token: 'emerald' },
+    11: { semantic_state: 'weak', tone_token: 'amber' },
+    12: { semantic_state: 'stale', tone_token: 'violet' },
+  }
+}
+
 function buildEdges(): KnowledgeGraphEdge[] {
   return [
     {
@@ -275,26 +284,34 @@ describe('KnowledgeGraphRenderer', () => {
         data: expect.objectContaining({
           id: 'concept-10',
           conceptId: 10,
-          label: 'Vue',
+          label: '• Vue',
+          accessibleLabel: 'Vue. Состояние: Без оценки. Состояние пока недоступно',
+          semanticState: 'unknown',
+          stateLabel: 'Без оценки',
+          stateSymbol: '•',
           weight: 3.5,
           sourceCount: 7,
           activitySourceCount: 4,
           relatedQuestionCount: 1,
         }),
-        classes: 'knowledge-node knowledge-node--strong',
+        classes: 'knowledge-node knowledge-node--strong knowledge-node--state-unknown',
       }),
       expect.objectContaining({
         group: 'nodes',
         data: expect.objectContaining({
           id: 'concept-11',
           conceptId: 11,
-          label: 'Django',
+          label: '• Django',
+          accessibleLabel: 'Django. Состояние: Без оценки. Состояние пока недоступно',
+          semanticState: 'unknown',
+          stateLabel: 'Без оценки',
+          stateSymbol: '•',
           weight: 1.25,
           sourceCount: 3,
           activitySourceCount: 0,
           relatedQuestionCount: 0,
         }),
-        classes: 'knowledge-node knowledge-node--medium',
+        classes: 'knowledge-node knowledge-node--medium knowledge-node--state-unknown',
       }),
       expect.objectContaining({
         group: 'edges',
@@ -313,12 +330,77 @@ describe('KnowledgeGraphRenderer', () => {
       expect.objectContaining({ selector: 'node' }),
       expect.objectContaining({ selector: 'edge' }),
       expect.objectContaining({ selector: '.knowledge-node--strong' }),
+      expect.objectContaining({ selector: '.knowledge-node--state-strong' }),
+      expect.objectContaining({ selector: '.knowledge-node--state-weak' }),
+      expect.objectContaining({ selector: '.knowledge-node--state-unknown' }),
       expect.objectContaining({ selector: 'node:selected, .knowledge-node--selected' }),
       expect.objectContaining({ selector: '.knowledge-node--neighbour' }),
       expect.objectContaining({ selector: '.knowledge-node--dimmed' }),
       expect.objectContaining({ selector: '.knowledge-edge--neighbour' }),
       expect.objectContaining({ selector: '.knowledge-edge--dimmed' }),
     ]))
+  })
+
+  it('maps semantic insight states into Cytoscape classes, data, and accessible labels', async () => {
+    mount(KnowledgeGraphRenderer, {
+      props: {
+        nodes: buildNodes(),
+        edges: buildEdges(),
+        conceptStates: buildConceptStates(),
+      },
+    })
+    await flushPromises()
+
+    const options = cytoscapeMock.constructor.mock.calls[0][0] as CytoscapeOptions
+    const vueNode = options.elements?.find((element) => element.data?.id === 'concept-10')
+    const djangoNode = options.elements?.find((element) => element.data?.id === 'concept-11')
+
+    expect(vueNode).toEqual(expect.objectContaining({
+      data: expect.objectContaining({
+        label: '✓ Vue',
+        accessibleLabel: 'Vue. Состояние: Сильный. Уверенная зона знаний',
+        semanticState: 'strong',
+        stateLabel: 'Сильный',
+        stateSymbol: '✓',
+      }),
+      classes: 'knowledge-node knowledge-node--strong knowledge-node--state-strong',
+    }))
+    expect(djangoNode).toEqual(expect.objectContaining({
+      data: expect.objectContaining({
+        label: '! Django',
+        semanticState: 'weak',
+        stateLabel: 'Слабый',
+      }),
+      classes: 'knowledge-node knowledge-node--medium knowledge-node--state-weak',
+    }))
+    expect(classListFor('concept-12')).toContain('knowledge-node--state-stale')
+  })
+
+  it('renders selector state badges with text labels and neutral fallback', async () => {
+    const wrapper = mount(KnowledgeGraphRenderer, {
+      props: {
+        nodes: buildNodes(),
+        edges: buildEdges(),
+        conceptStates: {
+          10: { semantic_state: 'growing', tone_token: 'sky' },
+          11: { semantic_state: 'not-a-state', tone_token: 'private-provider-token' },
+        },
+      },
+    })
+    await flushPromises()
+
+    const growingBadge = wrapper.get('[data-testid="knowledge-graph-concept-state-10"]')
+    const unknownBadge = wrapper.get('[data-testid="knowledge-graph-concept-state-11"]')
+    const missingBadge = wrapper.get('[data-testid="knowledge-graph-concept-state-12"]')
+
+    expect(growingBadge.attributes('data-state')).toBe('growing')
+    expect(growingBadge.text()).toContain('↗')
+    expect(growingBadge.text()).toContain('Растёт')
+    expect(unknownBadge.attributes('data-state')).toBe('unknown')
+    expect(unknownBadge.text()).toContain('Без оценки')
+    expect(missingBadge.attributes('data-state')).toBe('unknown')
+    expect(wrapper.get('[data-testid="knowledge-graph-concept-option-10"]').attributes('aria-label')).toContain('Состояние: Растёт')
+    expect(wrapper.text()).not.toContain('private-provider-token')
   })
 
   it('applies selected, neighbouring, and dimmed classes from props', async () => {

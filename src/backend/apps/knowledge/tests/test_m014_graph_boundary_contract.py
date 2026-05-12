@@ -21,6 +21,7 @@ class M014KnowledgeGraphBoundaryContractTests(SimpleTestCase):
     def test_r187_r188_knowledge_urls_expose_only_existing_aggregate_graph_routes(self):
         expected_route_names = {
             'own-user-graph',
+            'own-user-graph-insights',
             'own-user-graph-layout',
             'own-user-graph-rebuild',
             'public-user-graph',
@@ -31,7 +32,7 @@ class M014KnowledgeGraphBoundaryContractTests(SimpleTestCase):
         self.assertEqual(
             actual_route_names,
             expected_route_names,
-            'R187/R188: apps.knowledge URL surface must stay limited to existing aggregate graph endpoints.',
+            'R187/R188: apps.knowledge URL surface must stay limited to aggregate graph endpoints plus the M015 owner-only insights endpoint.',
         )
 
         route_terms_by_route = {}
