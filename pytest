@@ -41,4 +41,10 @@ if [[ $# -gt 0 ]]; then
   exec "$python_exe" "$repo_root/src/backend/manage.py" test "${translated_args[@]}"
 fi
 
-exec "$python_exe" "$repo_root/src/backend/manage.py" test apps.qa apps.user
+exec "$python_exe" "$repo_root/src/backend/manage.py" test \
+  apps.knowledge.tests.test_m016_provider_boundary \
+  apps.knowledge.tests.test_m016_semantic_rebuild_boundary \
+  apps.knowledge.tests.test_graph_api_contracts \
+  apps.knowledge.tests.test_graph_api_rebuild \
+  apps.qa.test_draft_assistant \
+  apps.knowledge.tests.test_fake_ai_provider_contract
