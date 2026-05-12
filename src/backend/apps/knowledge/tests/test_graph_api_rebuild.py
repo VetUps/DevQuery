@@ -1,10 +1,12 @@
 from unittest.mock import Mock, patch
 
+from django.apps import apps
 from django.test import override_settings
 from rest_framework import status
 from rest_framework.test import APITestCase
 
 from apps.knowledge.models import UserConceptActivity, UserKnowledgeGraphSemanticState, UserKnowledgeGraphState
+from apps.knowledge.semantic_providers import KnowledgeGraphEmbeddingResult, KnowledgeGraphProviderMetadata
 from apps.knowledge.services import mark_user_graph_failed, sync_question_graph
 from apps.qa.models import Question, Solution, Tag
 from apps.user.models import CustomUser
@@ -15,6 +17,21 @@ UNSAFE_ERROR = (
     'body=private answer body token=sk_live_123 raw_events=[secret] '
     'Traceback apps/knowledge/services/activity_service.py'
 )
+
+
+class APISemanticEmbeddingProvider:
+    metadata = KnowledgeGraphProviderMetadata(provider='api-recording-embedding', model='api-snapshot-model', dimensions=3)
+
+    def __init__(self):
+        self.requests = []
+
+    def embed(self, request):
+        self.requests.append(request)
+        return KnowledgeGraphEmbeddingResult(
+            vectors=[[1.0, 0.0, 0.0] for _ in request.texts],
+            metadata=self.metadata,
+            estimated_tokens=5 * len(request.texts),
+        )
 
 
 class KnowledgeGraphRebuildAPITests(APITestCase):
@@ -52,6 +69,9 @@ class KnowledgeGraphRebuildAPITests(APITestCase):
         self.assertNotIn('idempotency_key', rendered)
         self.assertNotIn('raw_events', rendered)
         self.assertNotIn('sk_live_123', rendered)
+        self.assertNotIn('vector_payload', rendered)
+        self.assertNotIn('content_hash', rendered)
+        self.assertNotIn('source_id', rendered)
         self.assertNotIn('Traceback', rendered)
         self.assertNotIn('activity_service.py', rendered)
 
@@ -176,6 +196,52 @@ class KnowledgeGraphRebuildAPITests(APITestCase):
         self.assertTrue(response.data['semantic']['dry_run'])
         self.assertGreater(response.data['semantic']['source_item_count'], 0)
         embedding_factory.assert_not_called()
+        self.assert_safe_payload(response.data)
+
+    @override_settings(
+        KNOWLEDGE_GRAPH_AI_ENABLED=True,
+        KNOWLEDGE_GRAPH_AI_DRY_RUN=False,
+        KNOWLEDGE_GRAPH_REBUILD_BUDGET_CAP=100.0,
+        KNOWLEDGE_GRAPH_EMBEDDING_API_KEY='key',
+        KNOWLEDGE_GRAPH_EMBEDDING_BASE_URL='https://example.test/embeddings',
+        KNOWLEDGE_GRAPH_EMBEDDING_MODEL='embedding-model',
+        KNOWLEDGE_GRAPH_EMBEDDING_DIMENSIONS=3,
+        KNOWLEDGE_GRAPH_EMBEDDING_PRICE_PER_1K_TOKENS=0.0,
+        KNOWLEDGE_GRAPH_CHAT_API_KEY='key',
+        KNOWLEDGE_GRAPH_CHAT_BASE_URL='https://example.test/chat',
+        KNOWLEDGE_GRAPH_CHAT_MODEL='chat-model',
+        KNOWLEDGE_GRAPH_CHAT_PRICE_PER_1K_TOKENS=0.0,
+    )
+    def test_successful_rebuild_triggers_s03_snapshot_storage_and_aggregate_diagnostics(self):
+        question = self._create_question_with_graph(author=self.owner)
+        Solution.objects.create(
+            user=self.owner,
+            question=question,
+            solution_body='Owner solution source body remains private.',
+        )
+        self.client.force_authenticate(self.owner)
+        provider = APISemanticEmbeddingProvider()
+
+        with patch(
+            'apps.knowledge.services.semantic_rebuild_service.create_source_provider',
+            Mock(return_value=provider),
+        ):
+            response = self.client.post('/knowledge-graph/me/rebuild/', {}, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual(response.data['state']['status'], UserKnowledgeGraphState.Status.FRESH)
+        self.assertEqual(response.data['semantic']['status'], UserKnowledgeGraphSemanticState.Status.SUCCEEDED)
+        self.assertGreater(response.data['semantic']['total_source_count'], 0)
+        self.assertEqual(response.data['semantic']['changed_source_count'], response.data['semantic']['total_source_count'])
+        self.assertEqual(response.data['semantic']['provider_called_source_count'], response.data['semantic']['total_source_count'])
+        self.assertGreater(response.data['semantic']['persisted_snapshot_count'], 0)
+        self.assertIn('neighbour_candidate_count', response.data['semantic'])
+        self.assertNotIn('snapshots', response.data['semantic'])
+        self.assertNotIn('candidates', response.data['semantic'])
+        self.assertNotIn('vectors', response.data['semantic'])
+        self.assertGreaterEqual(len(provider.requests), 1)
+        Snapshot = apps.get_model('knowledge', 'UserKnowledgeGraphEmbeddingSnapshot')
+        self.assertGreater(Snapshot.objects.filter(user=self.owner).count(), 0)
         self.assert_safe_payload(response.data)
 
     @override_settings(

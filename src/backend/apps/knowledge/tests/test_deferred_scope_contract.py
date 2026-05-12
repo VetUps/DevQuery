@@ -64,7 +64,9 @@ class DeferredKnowledgeGraphScopeContractTests(SimpleTestCase):
             'ConceptTagMapping',
             'QuestionConceptEdge',
             'UserConceptActivity',
+            'UserKnowledgeGraphEmbeddingSnapshot',
             'UserKnowledgeGraphLayout',
+            'UserKnowledgeGraphSemanticCandidate',
             'UserKnowledgeGraphSemanticState',
             'UserKnowledgeGraphState',
         }
@@ -90,9 +92,13 @@ class DeferredKnowledgeGraphScopeContractTests(SimpleTestCase):
             'R162-R168: knowledge app models must remain foundation graph models plus M016 aggregate semantic diagnostics only.',
         )
 
+        allowed_s03_model_names = {
+            'UserKnowledgeGraphEmbeddingSnapshot',
+            'UserKnowledgeGraphSemanticCandidate',
+        }
         leaked_model_names = {
             model_name
-            for model_name in actual_model_names
+            for model_name in actual_model_names - allowed_s03_model_names
             for term in deferred_model_terms
             if term in model_name.lower()
         }
@@ -102,13 +108,27 @@ class DeferredKnowledgeGraphScopeContractTests(SimpleTestCase):
             f'R162-R168: deferred knowledge model capability leaked via models: {sorted(leaked_model_names)}',
         )
 
+        allowed_s03_storage_fields = {
+            ('UserKnowledgeGraphEmbeddingSnapshot', 'vector_payload'),
+            ('UserKnowledgeGraphEmbeddingSnapshot', 'source_id'),
+            ('UserKnowledgeGraphEmbeddingSnapshot', 'source_type'),
+            ('UserKnowledgeGraphEmbeddingSnapshot', 'content_hash'),
+            ('UserKnowledgeGraphEmbeddingSnapshot', 'dimensions'),
+            ('UserKnowledgeGraphEmbeddingSnapshot', 'provider'),
+            ('UserKnowledgeGraphEmbeddingSnapshot', 'model'),
+            ('UserKnowledgeGraphEmbeddingSnapshot', 'generated_at'),
+            ('UserKnowledgeGraphSemanticCandidate', 'source_snapshot'),
+            ('UserKnowledgeGraphSemanticCandidate', 'target_snapshot'),
+            ('UserKnowledgeGraphSemanticCandidate', 'similarity_score'),
+            ('UserKnowledgeGraphSemanticCandidate', 'rank'),
+        }
         for model in knowledge_models:
             field_names = {field.name.lower() for field in model._meta.get_fields()}
             leaked_fields = {
                 field_name
                 for field_name in field_names
                 for term in {'embedding', 'vector', 'recommendation', 'expert_match', 'merge', 'split', 'diagnostic'}
-                if term in field_name
+                if term in field_name and (model.__name__, field_name) not in allowed_s03_storage_fields
             }
             self.assertEqual(
                 leaked_fields,
