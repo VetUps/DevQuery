@@ -18,6 +18,20 @@ from apps.user.models import CustomUser
 
 
 class KnowledgeGraphAPIContractTests(APITestCase):
+    SCORING_V2_INSIGHT_ONLY_FIELDS = {
+        'state_score',
+        'strength_score',
+        'freshness_score',
+        'connectivity_score',
+        'diversity_score',
+        'confidence_score',
+        'confidence_band',
+        'owner_graph_degree',
+        'owner_visible_related_question_count',
+        'activity_types',
+        'evidence',
+    }
+
     def setUp(self):
         self.owner = CustomUser.objects.create_user(
             user_email='graph-owner@example.com',
@@ -143,6 +157,11 @@ class KnowledgeGraphAPIContractTests(APITestCase):
         leaked_terms = sorted(term for term in forbidden_terms if term in rendered)
         self.assertEqual(leaked_terms, [], f'Graph read leaked semantic/provider internals: {leaked_terms}')
 
+    def assert_scoring_v2_payload_is_absent_from_graph_read(self, payload):
+        rendered = repr(payload)
+        leaked_terms = sorted(term for term in self.SCORING_V2_INSIGHT_ONLY_FIELDS if term in rendered)
+        self.assertEqual(leaked_terms, [], f'Graph read leaked scoring-v2 owner-only insight fields: {leaked_terms}')
+
     def test_graph_read_endpoints_do_not_touch_semantic_provider_factories_or_leak_semantic_state(self):
         UserKnowledgeGraphSemanticState.objects.create(
             user=self.owner,
@@ -186,6 +205,7 @@ class KnowledgeGraphAPIContractTests(APITestCase):
         for payload in [own_response.data, public_response.data, question_response.data]:
             self.assert_private_activity_fields_are_redacted(payload)
             self.assert_semantic_payload_is_absent_from_graph_read(payload)
+            self.assert_scoring_v2_payload_is_absent_from_graph_read(payload)
 
     def test_own_graph_returns_aggregate_owner_contract(self):
         self.client.force_authenticate(self.owner)
