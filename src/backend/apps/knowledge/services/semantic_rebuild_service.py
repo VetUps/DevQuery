@@ -8,7 +8,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from typing import Any, Callable
 
 from django.db import transaction
-from django.db.models import Count, Sum
+from django.db.models import Count, Q, Sum
 from django.utils import timezone
 
 from apps.knowledge.models import (
@@ -124,7 +124,7 @@ def estimate_owner_semantic_rebuild(
         UserConceptActivity.objects.filter(user=user, related_question__isnull=False)
         .select_related('related_question')
         .prefetch_related('related_question__tags')
-        .order_by('related_question_id')[:SEMANTIC_SOURCE_LIMIT]
+        .order_by('id')[:SEMANTIC_SOURCE_LIMIT]
     )
     questions_by_id = {}
     for activity in activities:
@@ -134,7 +134,7 @@ def estimate_owner_semantic_rebuild(
     source_summaries: list[dict[str, Any]] = []
     source_texts: list[str] = []
     source_hashes: list[str] = []
-    for question in sorted(questions_by_id.values(), key=lambda item: str(item.pk)):
+    for question in questions_by_id.values():
         tag_names = sorted(tag.name for tag in question.tags.all())
         canonical_text = _canonical_question_source_text(question, tag_names)
         source_summaries.append(
@@ -352,12 +352,13 @@ def _vector_norm(vector: list[float]) -> float:
 def _replace_semantic_candidates(user, snapshots_by_index: dict[int, UserKnowledgeGraphEmbeddingSnapshot], generated_at, limit: int = 10) -> int:
     snapshots = [snapshots_by_index[index] for index in sorted(snapshots_by_index)]
     if snapshots:
-        first = snapshots[0]
+        snapshot_ids = [snapshot.pk for snapshot in snapshots]
         UserKnowledgeGraphSemanticCandidate.objects.filter(
-            user=user,
-            provider=first.provider,
-            model=first.model,
-            dimensions=first.dimensions,
+            Q(user=user)
+            | Q(source_snapshot__user=user)
+            | Q(target_snapshot__user=user)
+            | Q(source_snapshot_id__in=snapshot_ids)
+            | Q(target_snapshot_id__in=snapshot_ids),
         ).delete()
     pairs = []
     for source in snapshots:
