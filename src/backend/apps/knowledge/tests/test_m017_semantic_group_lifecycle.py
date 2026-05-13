@@ -1,22 +1,29 @@
 from decimal import Decimal
+from unittest.mock import Mock
 
 from django.contrib.auth import get_user_model
+from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from apps.knowledge.models import (
+    UserConceptActivity,
     UserKnowledgeGraphSemanticGroup,
     UserKnowledgeGraphSemanticGroupMembership,
+    UserKnowledgeGraphSemanticState,
     KnowledgeConcept,
 )
 from apps.knowledge.semantic_providers import (
+    KnowledgeGraphEmbeddingResult,
     KnowledgeGraphGroup,
     KnowledgeGraphGroupingResult,
     KnowledgeGraphProviderMalformedResponse,
     KnowledgeGraphProviderMetadata,
+    KnowledgeGraphProviderTimeout,
 )
-from apps.knowledge.services.semantic_rebuild_service import _reconcile_semantic_groups
+from apps.knowledge.services.semantic_rebuild_service import _reconcile_semantic_groups, run_owner_semantic_boundary
+from apps.qa.models import Question, Tag
 
 
 @override_settings(DJANGO_TEST_SQLITE=True)
@@ -346,3 +353,247 @@ class SemanticGroupLifecycleReconcileTests(TestCase):
         self.assertEqual(existing.lifecycle_status, UserKnowledgeGraphSemanticGroup.LifecycleStatus.ACTIVE)
         self.assertEqual(existing.memberships.count(), 1)
         self.assertFalse(UserKnowledgeGraphSemanticGroup.objects.filter(group_key='bad-group').exists())
+
+
+SEMANTIC_FAILURE_PRESERVATION_SETTINGS = {
+    'DJANGO_TEST_SQLITE': True,
+    'KNOWLEDGE_GRAPH_AI_ENABLED': True,
+    'KNOWLEDGE_GRAPH_AI_DRY_RUN': False,
+    'KNOWLEDGE_GRAPH_REBUILD_BUDGET_CAP': 100.0,
+    'KNOWLEDGE_GRAPH_EMBEDDING_PROVIDER': 'fake',
+    'KNOWLEDGE_GRAPH_EMBEDDING_API_KEY': 'test-key',
+    'KNOWLEDGE_GRAPH_EMBEDDING_BASE_URL': 'https://example.test/embeddings',
+    'KNOWLEDGE_GRAPH_EMBEDDING_MODEL': 'snapshot-model',
+    'KNOWLEDGE_GRAPH_EMBEDDING_DIMENSIONS': 3,
+    'KNOWLEDGE_GRAPH_EMBEDDING_PRICE_PER_1K_TOKENS': 0.0,
+    'KNOWLEDGE_GRAPH_CHAT_PROVIDER': 'fake',
+    'KNOWLEDGE_GRAPH_CHAT_API_KEY': 'test-key',
+    'KNOWLEDGE_GRAPH_CHAT_BASE_URL': 'https://example.test/chat',
+    'KNOWLEDGE_GRAPH_CHAT_MODEL': 'grouping-model',
+    'KNOWLEDGE_GRAPH_CHAT_PRICE_PER_1K_TOKENS': 0.0,
+}
+
+
+class PreservingEmbeddingProvider:
+    metadata = KnowledgeGraphProviderMetadata(provider='preserving-embedding', model='snapshot-model', dimensions=3)
+
+    def __init__(self, vectors):
+        self.requests = []
+        self._vectors = vectors
+
+    def embed(self, request):
+        self.requests.append(request)
+        return KnowledgeGraphEmbeddingResult(
+            vectors=self._vectors,
+            metadata=self.metadata,
+            estimated_tokens=5 * len(request.texts),
+        )
+
+
+class TimeoutEmbeddingProvider:
+    metadata = KnowledgeGraphProviderMetadata(provider='timeout-embedding', model='snapshot-model', dimensions=3)
+
+    def embed(self, request):
+        raise KnowledgeGraphProviderTimeout(
+            'timeout leaked semantic-failure-owner@example.com sk_live_timeout private source text',
+            provider=self.metadata.provider,
+            model=self.metadata.model,
+            phase='embedding',
+        )
+
+
+class PreservingGroupingProvider:
+    metadata = KnowledgeGraphProviderMetadata(provider='preserving-grouping', model='grouping-model')
+
+    def __init__(self, groups=None):
+        self.requests = []
+        self._groups = groups
+
+    def group(self, request):
+        self.requests.append(request)
+        groups = self._groups
+        if groups is None:
+            groups = [
+                KnowledgeGraphGroup(
+                    group_key='stable-backend',
+                    label='Стабильная группа',
+                    concept_slugs=sorted(concept['slug'] for concept in request.concepts),
+                    rationale='Темы связаны по агрегированным кандидатам графа.',
+                    confidence=0.91,
+                )
+            ]
+        return KnowledgeGraphGroupingResult(groups=groups, metadata=self.metadata, estimated_tokens=5)
+
+
+class MalformedGroupingProvider(PreservingGroupingProvider):
+    def group(self, request):
+        self.requests.append(request)
+        return KnowledgeGraphGroupingResult(
+            groups=[
+                KnowledgeGraphGroup(
+                    group_key='poison-group',
+                    label='Poison group',
+                    concept_slugs=['unknown-poison-slug'],
+                    rationale='Provider returned an unknown concept slug.',
+                    confidence=0.5,
+                )
+            ],
+            metadata=self.metadata,
+            estimated_tokens=5,
+        )
+
+
+class UnsafeRuntimeGroupingProvider(PreservingGroupingProvider):
+    def group(self, request):
+        raise RuntimeError(
+            'provider failed for semantic-failure-owner@example.com body=private source text '
+            'source_id=abcdef1234567890abcdef1234567890 token=sk_live_runtime Traceback provider.py'
+        )
+
+
+@override_settings(**SEMANTIC_FAILURE_PRESERVATION_SETTINGS)
+class SemanticGroupFailurePreservationTests(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(
+            user_email='semantic-failure-owner@example.com',
+            user_name='semantic-failure-owner',
+            password='not-a-secret',
+        )
+        self.question_content_type = ContentType.objects.get_for_model(Question)
+        self.django = KnowledgeConcept.objects.create(slug='django-failure-preserve', name='Django Failure Preserve')
+        self.drf = KnowledgeConcept.objects.create(slug='drf-failure-preserve', name='DRF Failure Preserve')
+        self.questions = [
+            self._question_with_activity(title='Django failure preservation source', concept=self.django, tag_name='django-failure'),
+            self._question_with_activity(title='DRF failure preservation source', concept=self.drf, tag_name='drf-failure'),
+        ]
+
+    def _question_with_activity(self, *, title, concept, tag_name):
+        question = Question.objects.create(
+            user=self.user,
+            question_title=title,
+            question_body='Private body semantic-failure-owner@example.com sk_live_failure must not leak.',
+        )
+        tag, _ = Tag.objects.get_or_create(name=tag_name, defaults={'questions_count': 1})
+        question.tags.add(tag)
+        UserConceptActivity.objects.create(
+            user=self.user,
+            concept=concept,
+            activity_type=UserConceptActivity.ActivityType.AUTHORED_QUESTION,
+            weight_delta=Decimal('1.0000'),
+            source=UserConceptActivity.Source.QUESTION,
+            provider='activity-rebuild',
+            confidence=Decimal('1.0000'),
+            source_content_type=self.question_content_type,
+            source_object_id=question.pk,
+            related_question=question,
+            idempotency_key=f'failure-preserve:{question.pk}:{concept.slug}',
+        )
+        return question
+
+    def _successful_grouped_rebuild(self):
+        state = run_owner_semantic_boundary(
+            self.user,
+            source_provider_factory=Mock(return_value=PreservingEmbeddingProvider([[1.0, 0.0, 0.0], [0.9, 0.1, 0.0]])),
+            grouping_provider_factory=Mock(return_value=PreservingGroupingProvider()),
+        )
+        self.assertEqual(state['status'], UserKnowledgeGraphSemanticState.Status.SUCCEEDED)
+        self.assertEqual(state['semantic_group_count'], 1)
+        self.assertEqual(state['semantic_group_membership_count'], 2)
+        return self._stable_group_snapshot()
+
+    def _stable_group_snapshot(self):
+        groups = list(UserKnowledgeGraphSemanticGroup.objects.filter(user=self.user).order_by('group_key'))
+        return [
+            (
+                group.pk,
+                group.group_key,
+                group.lifecycle_status,
+                group.lifecycle_reason_code,
+                list(group.memberships.order_by('rank').values_list('concept__slug', flat=True)),
+            )
+            for group in groups
+        ]
+
+    def assert_redacted_failure_payload(self, payload):
+        rendered = repr(payload)
+        for unsafe in (
+            'semantic-failure-owner@example.com',
+            'Private body',
+            'private source text',
+            'source_id',
+            'abcdef1234567890abcdef1234567890',
+            'sk_live',
+            'Traceback',
+            'provider.py',
+            'vectors',
+            'raw',
+        ):
+            self.assertNotIn(unsafe, rendered)
+
+    def assert_failure_preserved_stable_groups(self, payload, before_snapshot, *, status, reason_code, phase):
+        self.assertEqual(payload['status'], status)
+        self.assertEqual(payload['reason_code'], reason_code)
+        self.assertEqual(payload['phase'], phase)
+        self.assertEqual(payload['semantic_group_count'], 1)
+        self.assertEqual(payload['semantic_group_membership_count'], 2)
+        self.assertEqual(self._stable_group_snapshot(), before_snapshot)
+        persisted_state = UserKnowledgeGraphSemanticState.objects.get(user=self.user)
+        self.assertEqual(persisted_state.status, status)
+        self.assertEqual(persisted_state.semantic_group_count, 1)
+        self.assertEqual(persisted_state.semantic_group_membership_count, 2)
+        self.assert_redacted_failure_payload(payload)
+
+    def test_embedding_timeout_preserves_previous_stable_groups_and_reports_counts(self):
+        before = self._successful_grouped_rebuild()
+        self.questions[0].question_title = 'Django failure preservation source changed'
+        self.questions[0].save(update_fields=['question_title'])
+
+        state = run_owner_semantic_boundary(
+            self.user,
+            source_provider_factory=Mock(return_value=TimeoutEmbeddingProvider()),
+            grouping_provider_factory=Mock(side_effect=AssertionError('timeout must stop before grouping')),
+        )
+
+        self.assert_failure_preserved_stable_groups(
+            state,
+            before,
+            status=UserKnowledgeGraphSemanticState.Status.TIMEOUT,
+            reason_code='timeout',
+            phase='embedding',
+        )
+
+    def test_malformed_grouping_response_preserves_previous_stable_groups_and_reports_counts(self):
+        before = self._successful_grouped_rebuild()
+
+        state = run_owner_semantic_boundary(
+            self.user,
+            source_provider_factory=Mock(side_effect=AssertionError('unchanged snapshots should be reused')),
+            grouping_provider_factory=Mock(return_value=MalformedGroupingProvider()),
+        )
+
+        self.assert_failure_preserved_stable_groups(
+            state,
+            before,
+            status=UserKnowledgeGraphSemanticState.Status.MALFORMED_RESPONSE,
+            reason_code='malformed_response',
+            phase='grouping',
+        )
+        self.assertFalse(UserKnowledgeGraphSemanticGroup.objects.filter(group_key='poison-group').exists())
+
+    def test_unexpected_grouping_exception_preserves_previous_stable_groups_and_redacts_error(self):
+        before = self._successful_grouped_rebuild()
+
+        state = run_owner_semantic_boundary(
+            self.user,
+            source_provider_factory=Mock(side_effect=AssertionError('unchanged snapshots should be reused')),
+            grouping_provider_factory=Mock(return_value=UnsafeRuntimeGroupingProvider()),
+        )
+
+        self.assert_failure_preserved_stable_groups(
+            state,
+            before,
+            status=UserKnowledgeGraphSemanticState.Status.PROVIDER_ERROR,
+            reason_code='provider_error',
+            phase='semantic_provider',
+        )
+        self.assertEqual(state['last_error_message'], 'Knowledge graph semantic provider request failed.')

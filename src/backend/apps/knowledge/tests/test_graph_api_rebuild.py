@@ -34,7 +34,7 @@ class APISemanticEmbeddingProvider:
         )
 
 
-class KnowledgeGraphRebuildAPITests(APITestCase):
+class GraphApiRebuildTests(APITestCase):
     def setUp(self):
         self.owner = CustomUser.objects.create_user(
             user_email='api-owner@example.com',

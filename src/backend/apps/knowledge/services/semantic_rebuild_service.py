@@ -73,6 +73,12 @@ class OwnerSemanticRebuildEstimate:
     source_hashes: list[str]
 
 
+@dataclass(frozen=True)
+class OwnerStableSemanticCounts:
+    group_count: int
+    membership_count: int
+
+
 def create_source_provider(config: KnowledgeGraphEmbeddingConfig) -> KnowledgeGraphEmbeddingProvider:
     """Factory seam for live or explicit-fake embedding providers."""
 
@@ -97,6 +103,23 @@ def create_grouping_provider(config: KnowledgeGraphGroupingConfig) -> KnowledgeG
 
 def _decimal_cost(value: float | Decimal) -> Decimal:
     return Decimal(str(value)).quantize(Decimal('0.000001'), rounding=ROUND_HALF_UP)
+
+
+def _read_owner_stable_semantic_counts(user) -> OwnerStableSemanticCounts:
+    """Read aggregate active/stale semantic map size without loading unsafe provider data."""
+
+    stable_statuses = (
+        UserKnowledgeGraphSemanticGroup.LifecycleStatus.ACTIVE,
+        UserKnowledgeGraphSemanticGroup.LifecycleStatus.STALE,
+    )
+    stable_groups = UserKnowledgeGraphSemanticGroup.objects.filter(
+        user=user,
+        lifecycle_status__in=stable_statuses,
+    )
+    return OwnerStableSemanticCounts(
+        group_count=stable_groups.count(),
+        membership_count=UserKnowledgeGraphSemanticGroupMembership.objects.filter(group__in=stable_groups).count(),
+    )
 
 
 def _state_payload(state: UserKnowledgeGraphSemanticState) -> dict[str, Any]:
@@ -910,6 +933,7 @@ def run_owner_semantic_boundary(
         return _state_payload(state)
     except (KnowledgeGraphProviderConfigurationError, KnowledgeGraphProviderBudgetExceeded, KnowledgeGraphProviderTimeout, KnowledgeGraphProviderMalformedResponse, KnowledgeGraphProviderError) as exc:
         status, code, phase, provider, model, message = _safe_error_payload(exc)
+        stable_counts = _read_owner_stable_semantic_counts(user)
         state = _persist_state(
             user,
             estimate=diagnostic_estimate,
@@ -923,8 +947,8 @@ def run_owner_semantic_boundary(
             reused_snapshot_count=reused_snapshot_count,
             snapshot_item_count=snapshot_item_count,
             neighbor_candidate_count=neighbor_candidate_count,
-            semantic_group_count=semantic_group_count,
-            semantic_group_membership_count=semantic_group_membership_count,
+            semantic_group_count=stable_counts.group_count,
+            semantic_group_membership_count=stable_counts.membership_count,
         )
         logger.warning(
             'knowledge graph semantic rebuild failed safely: status=%s reason_code=%s phase=%s provider=%s model=%s',
@@ -945,13 +969,14 @@ def run_owner_semantic_boundary(
                 'reused_snapshot_count': reused_snapshot_count,
                 'persisted_snapshot_count': snapshot_item_count,
                 'neighbour_candidate_count': neighbor_candidate_count,
-                'semantic_group_count': semantic_group_count,
-                'semantic_group_membership_count': semantic_group_membership_count,
+                'semantic_group_count': stable_counts.group_count,
+                'semantic_group_membership_count': stable_counts.membership_count,
             },
         )
         return _state_payload(state)
     except Exception as exc:
         status, code, phase, provider, model, message = _safe_error_payload(exc)
+        stable_counts = _read_owner_stable_semantic_counts(user)
         state = _persist_state(
             user,
             estimate=diagnostic_estimate,
@@ -965,8 +990,8 @@ def run_owner_semantic_boundary(
             reused_snapshot_count=reused_snapshot_count,
             snapshot_item_count=snapshot_item_count,
             neighbor_candidate_count=neighbor_candidate_count,
-            semantic_group_count=semantic_group_count,
-            semantic_group_membership_count=semantic_group_membership_count,
+            semantic_group_count=stable_counts.group_count,
+            semantic_group_membership_count=stable_counts.membership_count,
         )
         logger.warning(
             'knowledge graph semantic rebuild hit unexpected safe fallback: status=%s reason_code=%s phase=%s error_type=%s',
@@ -984,8 +1009,8 @@ def run_owner_semantic_boundary(
                 'reused_snapshot_count': reused_snapshot_count,
                 'persisted_snapshot_count': snapshot_item_count,
                 'neighbour_candidate_count': neighbor_candidate_count,
-                'semantic_group_count': semantic_group_count,
-                'semantic_group_membership_count': semantic_group_membership_count,
+                'semantic_group_count': stable_counts.group_count,
+                'semantic_group_membership_count': stable_counts.membership_count,
                 'error_type': exc.__class__.__name__,
             },
         )
