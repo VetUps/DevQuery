@@ -369,11 +369,21 @@ describe('KnowledgeGraphRenderer', () => {
     expect(wrapper.get('[data-testid="knowledge-graph-semantic-lifecycle-counts"]').text()).toContain('active 1 · stale 1')
 
     const activeArea = wrapper.get('[data-testid="knowledge-graph-semantic-area-frontend-patterns"]')
+    const activeToggle = wrapper.get('[data-testid="knowledge-graph-semantic-area-toggle-frontend-patterns"]')
     expect(activeArea.attributes('role')).toBe('listitem')
     expect(activeArea.attributes('aria-label')).toContain('Frontend patterns')
     expect(activeArea.attributes('data-lifecycle')).toBe('active')
-    expect(activeArea.text()).toContain('Vue')
-    expect(activeArea.text()).toContain('Django')
+    expect(activeArea.attributes('data-selected')).toBe('false')
+    expect(activeToggle.attributes('aria-expanded')).toBe('false')
+    expect(wrapper.find('[data-testid="knowledge-graph-semantic-area-details-frontend-patterns"]').exists()).toBe(false)
+
+    await activeToggle.trigger('click')
+
+    expect(wrapper.get('[data-testid="knowledge-graph-semantic-projection"]').attributes('data-selected-group-key')).toBe('frontend-patterns')
+    expect(activeArea.attributes('data-selected')).toBe('true')
+    expect(activeToggle.attributes('aria-expanded')).toBe('true')
+    expect(wrapper.get('[data-testid="knowledge-graph-semantic-area-details-frontend-patterns"]').text()).toContain('Vue')
+    expect(wrapper.get('[data-testid="knowledge-graph-semantic-area-details-frontend-patterns"]').text()).toContain('Django')
     expect(wrapper.get('[data-testid="knowledge-graph-semantic-area-lifecycle-backend-legacy"]').text()).toContain('Устаревшая')
     expect(wrapper.text()).not.toContain('provider_error raw')
   })
@@ -394,6 +404,7 @@ describe('KnowledgeGraphRenderer', () => {
           visible_member_count: 0,
           lifecycle_counts: { active: 0, stale: 0 },
         }),
+        isOwner: true,
       },
     })
     await flushPromises()
@@ -404,6 +415,24 @@ describe('KnowledgeGraphRenderer', () => {
     expect(wrapper.get('[data-testid="knowledge-graph-viewport-toolbar"]').text()).toContain('Сбросить масштаб')
   })
 
+  it('omits semantic projection chrome for public renderer even when semantic props are present', async () => {
+    const wrapper = mount(KnowledgeGraphRenderer, {
+      props: {
+        projectionMode: 'semantic',
+        nodes: buildNodes(),
+        edges: buildEdges(),
+        semanticGroups: buildSemanticGroups(),
+        semanticGraph: buildSemanticGraphMetadata(),
+        isOwner: false,
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="knowledge-graph-semantic-projection"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid^="knowledge-graph-semantic-area-toggle-"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="knowledge-graph-concept-selector"]').text()).toContain('Vue')
+  })
+
   it('marks semantic members filtered out of current nodes without exposing private internals', async () => {
     const wrapper = mount(KnowledgeGraphRenderer, {
       props: {
@@ -412,6 +441,7 @@ describe('KnowledgeGraphRenderer', () => {
         edges: [],
         semanticGroups: buildSemanticGroups().slice(0, 1),
         semanticGraph: buildSemanticGraphMetadata({ visible_group_count: 1, visible_member_count: 1, lifecycle_counts: { active: 1, stale: 0 } }),
+        isOwner: true,
       },
     })
     await flushPromises()
@@ -419,9 +449,63 @@ describe('KnowledgeGraphRenderer', () => {
     const area = wrapper.get('[data-testid="knowledge-graph-semantic-area-frontend-patterns"]')
     expect(area.text()).toContain('1 из 2 видимых концептов')
     expect(area.text()).toContain('1 скрыто фильтрами')
-    expect(area.text()).toContain('скрыт фильтрами')
+
+    await wrapper.get('[data-testid="knowledge-graph-semantic-area-toggle-frontend-patterns"]').trigger('click')
+
+    expect(wrapper.get('[data-testid="knowledge-graph-semantic-member-frontend-patterns-11"]').text()).toContain('скрыт фильтрами')
+    expect(wrapper.get('[data-testid="knowledge-graph-semantic-member-frontend-patterns-11"]').attributes('data-actionable')).toBe('false')
     expect(area.text()).not.toContain('safe aggregate rationale')
     expect(area.text()).not.toContain('reused')
+  })
+
+  it('emits existing node-selected contract from visible semantic member controls only', async () => {
+    const wrapper = mount(KnowledgeGraphRenderer, {
+      props: {
+        projectionMode: 'semantic',
+        nodes: buildNodes().slice(0, 1),
+        edges: [],
+        semanticGroups: buildSemanticGroups().slice(0, 1),
+        semanticGraph: buildSemanticGraphMetadata({ visible_group_count: 1, visible_member_count: 1, lifecycle_counts: { active: 1, stale: 0 } }),
+        isOwner: true,
+      },
+    })
+    await flushPromises()
+
+    await wrapper.get('[data-testid="knowledge-graph-semantic-area-toggle-frontend-patterns"]').trigger('click')
+    await wrapper.get('[data-testid="knowledge-graph-semantic-member-frontend-patterns-10"]').trigger('click')
+
+    expect(wrapper.emitted('node-selected')).toEqual([[10]])
+    expect(wrapper.get('[data-testid="knowledge-graph-semantic-member-frontend-patterns-11"]').element.tagName).toBe('SPAN')
+    expect(wrapper.get('[data-testid="knowledge-graph-semantic-member-frontend-patterns-11"]').attributes('aria-disabled')).toBe('true')
+    expect(wrapper.findAll('button[data-testid="knowledge-graph-semantic-member-frontend-patterns-11"]')).toHaveLength(0)
+  })
+
+  it('resets stale semantic area selection when available groups change', async () => {
+    const wrapper = mount(KnowledgeGraphRenderer, {
+      props: {
+        projectionMode: 'semantic',
+        nodes: buildNodes(),
+        edges: buildEdges(),
+        semanticGroups: buildSemanticGroups(),
+        semanticGraph: buildSemanticGraphMetadata(),
+        isOwner: true,
+      },
+    })
+    await flushPromises()
+
+    await wrapper.get('[data-testid="knowledge-graph-semantic-area-toggle-backend-legacy"]').trigger('click')
+    expect(wrapper.get('[data-testid="knowledge-graph-semantic-projection"]').attributes('data-selected-group-key')).toBe('backend-legacy')
+    expect(wrapper.get('[data-testid="knowledge-graph-semantic-area-details-backend-legacy"]').text()).toContain('Python')
+
+    await wrapper.setProps({
+      semanticGroups: buildSemanticGroups().slice(0, 1),
+      semanticGraph: buildSemanticGraphMetadata({ visible_group_count: 1, visible_member_count: 2, lifecycle_counts: { active: 1, stale: 0 } }),
+    })
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="knowledge-graph-semantic-projection"]').attributes('data-selected-group-key')).toBe('')
+    expect(wrapper.find('[data-testid="knowledge-graph-semantic-area-details-backend-legacy"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="knowledge-graph-semantic-area-toggle-frontend-patterns"]').attributes('aria-expanded')).toBe('false')
   })
 
   it('maps parsed concepts and shared-question edges into safe Cytoscape elements', async () => {

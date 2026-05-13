@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, shallowRef, useTemplateRef } from 'vue'
+import { computed, shallowRef, useTemplateRef, watch } from 'vue'
 
 import type {
   KnowledgeGraphEdge,
@@ -63,6 +63,7 @@ const emit = defineEmits<Emits>()
 
 const graphCanvasRef = useTemplateRef<InstanceType<typeof KnowledgeGraphCanvas>>('graphCanvas')
 const isFullscreenOpen = shallowRef(false)
+const selectedSemanticAreaKey = shallowRef<string | null>(null)
 
 const hasNodes = computed(() => props.nodes.length > 0)
 const semanticProjection = computed(() => buildKnowledgeGraphSemanticProjection(
@@ -84,6 +85,21 @@ const graphSummary = computed(() => {
   return `${props.nodes.length} концептов · ${props.edges.length} связей${semanticCopy}${semanticModeCopy}`
 })
 const isLayoutActionDisabled = computed(() => !props.isLayoutDirty || props.isLayoutSaving || props.isLayoutResetting)
+const selectedSemanticArea = computed(() => semanticProjection.value.areas.find((area) => area.key === selectedSemanticAreaKey.value) ?? null)
+
+watch(
+  () => semanticProjection.value.areas.map((area) => area.key).join('\u001f'),
+  () => {
+    if (!selectedSemanticAreaKey.value) {
+      return
+    }
+
+    const stillVisible = semanticProjection.value.areas.some((area) => area.key === selectedSemanticAreaKey.value)
+    if (!stillVisible) {
+      selectedSemanticAreaKey.value = null
+    }
+  },
+)
 
 function conceptLabel(node: KnowledgeGraphNode): string {
   return node.name || node.slug || `Концепт ${node.concept_id}`
@@ -107,6 +123,20 @@ function emitNodeSelected(conceptId: number): void {
 
 function isConceptSelected(conceptId: number): boolean {
   return props.selectedConceptId === conceptId
+}
+
+function isSemanticAreaSelected(areaKey: string): boolean {
+  return selectedSemanticAreaKey.value === areaKey
+}
+
+function selectSemanticArea(areaKey: string): void {
+  selectedSemanticAreaKey.value = areaKey
+}
+
+function emitSemanticMemberSelected(conceptId: number, isVisible: boolean): void {
+  if (isVisible) {
+    emitNodeSelected(conceptId)
+  }
 }
 
 function resetGraphView(): void {
@@ -271,11 +301,13 @@ function emitSemanticVisibilityChanged(visible: boolean): void {
     </div>
 
     <section
-      v-if="isSemanticProjectionMode"
+      v-if="isSemanticProjectionMode && props.isOwner"
       class="knowledge-graph-renderer__semantic-projection"
       data-testid="knowledge-graph-semantic-projection"
       :data-mode="props.projectionMode"
       :data-state="semanticProjection.state"
+      :data-selected-group-key="selectedSemanticArea?.key ?? ''"
+      :data-selected-concept-id="props.selectedConceptId ?? ''"
       aria-labelledby="knowledge-graph-semantic-projection-title"
     >
       <header class="knowledge-graph-renderer__semantic-header">
@@ -316,37 +348,82 @@ function emitSemanticVisibilityChanged(visible: boolean): void {
           v-for="area in semanticProjection.areas"
           :key="area.key"
           class="knowledge-graph-renderer__semantic-area"
-          :class="`knowledge-graph-renderer__semantic-area--${area.lifecycleStatus}`"
+          :class="[
+            `knowledge-graph-renderer__semantic-area--${area.lifecycleStatus}`,
+            { 'knowledge-graph-renderer__semantic-area--selected': isSemanticAreaSelected(area.key) },
+          ]"
           :data-testid="`knowledge-graph-semantic-area-${area.key}`"
           :data-lifecycle="area.lifecycleStatus"
+          :data-selected="isSemanticAreaSelected(area.key) ? 'true' : 'false'"
           role="listitem"
           :aria-label="area.ariaLabel"
         >
-          <div class="knowledge-graph-renderer__semantic-area-header">
-            <h5>{{ area.label }}</h5>
-            <span
-              class="knowledge-graph-renderer__semantic-badge"
-              :data-testid="`knowledge-graph-semantic-area-lifecycle-${area.key}`"
-            >
-              {{ area.lifecycleLabel }}
+          <button
+            class="knowledge-graph-renderer__semantic-area-toggle"
+            type="button"
+            :data-testid="`knowledge-graph-semantic-area-toggle-${area.key}`"
+            :aria-expanded="isSemanticAreaSelected(area.key)"
+            :aria-controls="`knowledge-graph-semantic-area-details-${area.key}`"
+            :aria-pressed="isSemanticAreaSelected(area.key)"
+            @click="selectSemanticArea(area.key)"
+          >
+            <span class="knowledge-graph-renderer__semantic-area-header">
+              <span class="knowledge-graph-renderer__semantic-area-title">{{ area.label }}</span>
+              <span
+                class="knowledge-graph-renderer__semantic-badge"
+                :data-testid="`knowledge-graph-semantic-area-lifecycle-${area.key}`"
+              >
+                {{ area.lifecycleLabel }}
+              </span>
             </span>
+            <span class="knowledge-graph-renderer__semantic-area-description">{{ area.description }}</span>
+            <span class="knowledge-graph-renderer__semantic-meta">
+              {{ area.visibleMemberCount }} из {{ area.memberCount }} видимых концептов
+              <span v-if="area.hiddenMemberCount > 0"> · {{ area.hiddenMemberCount }} скрыто фильтрами</span>
+            </span>
+          </button>
+          <div
+            v-if="isSemanticAreaSelected(area.key)"
+            :id="`knowledge-graph-semantic-area-details-${area.key}`"
+            class="knowledge-graph-renderer__semantic-area-details"
+            :data-testid="`knowledge-graph-semantic-area-details-${area.key}`"
+            :data-visible-member-count="area.visibleMemberCount"
+            :data-hidden-member-count="area.hiddenMemberCount"
+          >
+            <ul class="knowledge-graph-renderer__semantic-members" :data-testid="`knowledge-graph-semantic-area-members-${area.key}`">
+              <li
+                v-for="member in area.members"
+                :key="member.conceptId"
+                :class="{ 'knowledge-graph-renderer__semantic-member--hidden': !member.visible }"
+              >
+                <button
+                  v-if="member.visible"
+                  class="knowledge-graph-renderer__semantic-member-action"
+                  type="button"
+                  :data-testid="`knowledge-graph-semantic-member-${area.key}-${member.conceptId}`"
+                  :data-concept-id="member.conceptId"
+                  :aria-label="`Открыть детали концепта ${member.label} из группы ${area.label}`"
+                  @click="emitSemanticMemberSelected(member.conceptId, member.visible)"
+                >
+                  <span>#{{ member.rank }}</span>
+                  <span>{{ member.label }}</span>
+                  <small>открыть детали</small>
+                </button>
+                <span
+                  v-else
+                  class="knowledge-graph-renderer__semantic-member-static"
+                  :data-testid="`knowledge-graph-semantic-member-${area.key}-${member.conceptId}`"
+                  :data-concept-id="member.conceptId"
+                  data-actionable="false"
+                  aria-disabled="true"
+                >
+                  <span>#{{ member.rank }}</span>
+                  <span>{{ member.label }}</span>
+                  <small>скрыт фильтрами</small>
+                </span>
+              </li>
+            </ul>
           </div>
-          <p>{{ area.description }}</p>
-          <p class="knowledge-graph-renderer__semantic-meta">
-            {{ area.visibleMemberCount }} из {{ area.memberCount }} видимых концептов
-            <span v-if="area.hiddenMemberCount > 0"> · {{ area.hiddenMemberCount }} скрыто фильтрами</span>
-          </p>
-          <ul class="knowledge-graph-renderer__semantic-members" :data-testid="`knowledge-graph-semantic-area-members-${area.key}`">
-            <li
-              v-for="member in area.members"
-              :key="member.conceptId"
-              :class="{ 'knowledge-graph-renderer__semantic-member--hidden': !member.visible }"
-            >
-              <span>#{{ member.rank }}</span>
-              <span>{{ member.label }}</span>
-              <small>{{ member.visible ? 'видим' : 'скрыт фильтрами' }}</small>
-            </li>
-          </ul>
         </article>
       </div>
     </section>
@@ -720,7 +797,8 @@ function emitSemanticVisibilityChanged(visible: boolean): void {
 }
 
 .knowledge-graph-renderer__semantic-title,
-.knowledge-graph-renderer__semantic-area h5,
+.knowledge-graph-renderer__semantic-area-title,
+.knowledge-graph-renderer__semantic-area-description,
 .knowledge-graph-renderer__semantic-area p,
 .knowledge-graph-renderer__semantic-state {
   margin: 0;
@@ -760,6 +838,44 @@ function emitSemanticVisibilityChanged(visible: boolean): void {
   background: rgb(255 255 255 / 0.78);
 }
 
+.knowledge-graph-renderer__semantic-area-toggle {
+  display: grid;
+  width: 100%;
+  gap: var(--space-sm);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.knowledge-graph-renderer__semantic-area-toggle:focus-visible,
+.knowledge-graph-renderer__semantic-member-action:focus-visible {
+  outline: 3px solid rgb(124 58 237 / 0.38);
+  outline-offset: 3px;
+}
+
+.knowledge-graph-renderer__semantic-area-title {
+  font-size: 16px;
+  font-weight: 900;
+}
+
+.knowledge-graph-renderer__semantic-area-description {
+  display: block;
+}
+
+.knowledge-graph-renderer__semantic-area--selected {
+  border-color: rgb(124 58 237 / 0.48);
+  box-shadow: 0 12px 26px rgb(88 28 135 / 0.1);
+}
+
+.knowledge-graph-renderer__semantic-area-details {
+  display: grid;
+  gap: var(--space-xs);
+}
+
 .knowledge-graph-renderer__semantic-area--active {
   border-color: rgb(15 118 110 / 0.28);
 }
@@ -778,15 +894,35 @@ function emitSemanticVisibilityChanged(visible: boolean): void {
   list-style: none;
 }
 
-.knowledge-graph-renderer__semantic-members li {
+.knowledge-graph-renderer__semantic-member-action,
+.knowledge-graph-renderer__semantic-member-static {
   display: inline-flex;
   gap: var(--space-xs);
   align-items: center;
   padding: var(--space-xs) var(--space-sm);
+  border: 0;
   border-radius: 999px;
   background: rgb(248 250 252 / 0.92);
+  color: inherit;
+  font: inherit;
   font-size: 13px;
   font-weight: 800;
+}
+
+.knowledge-graph-renderer__semantic-member-action {
+  cursor: pointer;
+  transition-duration: 160ms;
+  transition-property: background-color, box-shadow, transform;
+  transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+}
+
+.knowledge-graph-renderer__semantic-member-action:hover {
+  background: rgb(237 233 254 / 0.94);
+  box-shadow: 0 8px 18px rgb(88 28 135 / 0.1);
+}
+
+.knowledge-graph-renderer__semantic-member-action:active {
+  transform: scale(0.96);
 }
 
 .knowledge-graph-renderer__semantic-members small {
