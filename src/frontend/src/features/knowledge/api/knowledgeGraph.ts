@@ -141,9 +141,55 @@ export const KNOWLEDGE_GRAPH_RECOMMENDATION_ACTION_TYPES = [
 export type KnowledgeGraphRecommendationActionType =
   (typeof KNOWLEDGE_GRAPH_RECOMMENDATION_ACTION_TYPES)[number]
 
+export type KnowledgeGraphSafeActionPayload = {
+  query?: string
+  tag?: string | string[]
+  search?: string
+  order?: string
+  page?: number | string
+}
+
 export interface KnowledgeGraphInsightAction {
   type: KnowledgeGraphRecommendationActionType
-  payload: Record<string, unknown>
+  payload: KnowledgeGraphSafeActionPayload
+}
+
+export interface KnowledgeGraphRecommendationTargetConcept {
+  concept_id: number
+  slug: string
+  name: string
+}
+
+export interface KnowledgeGraphRecommendationTargetGroup {
+  group_key: string
+  label: string
+}
+
+export interface KnowledgeGraphRecommendationV2Target {
+  concept: KnowledgeGraphRecommendationTargetConcept
+  discovery: KnowledgeGraphSafeActionPayload
+  neighbours: KnowledgeGraphRecommendationTargetConcept[]
+  group: KnowledgeGraphRecommendationTargetGroup | null
+}
+
+export interface KnowledgeGraphRecommendationV2EvidenceEntry {
+  code: string
+  label: string
+  value: string | number | boolean | null
+  weight: number
+}
+
+export interface KnowledgeGraphInsightRecommendationV2 {
+  rank: number
+  id: string
+  score: number
+  confidence: number
+  priority: string
+  label: string
+  reason_code: string
+  target: KnowledgeGraphRecommendationV2Target
+  action: KnowledgeGraphInsightAction
+  evidence: KnowledgeGraphRecommendationV2EvidenceEntry[]
 }
 
 export interface KnowledgeGraphInsightRecommendation {
@@ -177,6 +223,7 @@ export interface UserKnowledgeGraphInsightsResponse {
   viewer: KnowledgeGraphViewer
   state: KnowledgeGraphInsightsState
   summary: KnowledgeGraphInsightsSummary
+  recommendations: KnowledgeGraphInsightRecommendationV2[]
   concepts: KnowledgeGraphInsightConceptEntry[]
 }
 
@@ -220,7 +267,13 @@ const FORBIDDEN_SEMANTIC_EVIDENCE_TERMS = [
   'raw_output',
   'secret',
   'stack',
+  'traceback',
+  'source_object',
+  'idempotency',
+  'token',
 ] as const
+const PRIVATE_LOOKING_EMAIL_PATTERN = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i
+const PRIVATE_LOOKING_SECRET_PATTERN = /(?:sk|pk|token|secret|password)[_-]?[a-z0-9]{6,}/i
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -447,7 +500,7 @@ function evidenceContainerPath(path: string): string {
 function assertSafeEvidenceKey(key: string, path: string): void {
   const normalized = key.toLowerCase()
 
-  if (FORBIDDEN_SEMANTIC_EVIDENCE_TERMS.some((term) => normalized.includes(term))) {
+  if (FORBIDDEN_SEMANTIC_EVIDENCE_TERMS.some((term) => normalized.includes(term)) || PRIVATE_LOOKING_EMAIL_PATTERN.test(key) || PRIVATE_LOOKING_SECRET_PATTERN.test(key)) {
     throw new MalformedKnowledgeGraphResponseError(evidenceContainerPath(path), 'safe aggregate evidence')
   }
 }
@@ -455,7 +508,7 @@ function assertSafeEvidenceKey(key: string, path: string): void {
 function assertSafeEvidenceString(value: string, path: string): string {
   const normalized = value.toLowerCase()
 
-  if (FORBIDDEN_SEMANTIC_EVIDENCE_TERMS.some((term) => normalized.includes(term))) {
+  if (FORBIDDEN_SEMANTIC_EVIDENCE_TERMS.some((term) => normalized.includes(term)) || PRIVATE_LOOKING_EMAIL_PATTERN.test(value) || PRIVATE_LOOKING_SECRET_PATTERN.test(value)) {
     throw new MalformedKnowledgeGraphResponseError(evidenceContainerPath(path), 'safe aggregate evidence')
   }
 
@@ -734,13 +787,93 @@ function parseInsightsSummary(value: unknown, path: string): KnowledgeGraphInsig
   }
 }
 
+
+function assertPositiveInteger(value: unknown, path: string): number {
+  const parsed = assertNonNegativeInteger(value, path)
+
+  if (parsed < 1) {
+    throw new MalformedKnowledgeGraphResponseError(path, 'a positive integer')
+  }
+
+  return parsed
+}
+
+function assertRatioNumber(value: unknown, path: string): number {
+  const parsed = typeof value === 'string' && DECIMAL_STRING_PATTERN.test(value) ? Number.parseFloat(value) : assertNumber(value, path)
+
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > 1) {
+    throw new MalformedKnowledgeGraphResponseError(path, 'a number between 0 and 1')
+  }
+
+  return parsed
+}
+
+function assertSafeRecommendationPrimitive(value: unknown, path: string): string | number | boolean | null {
+  if (value === null || typeof value === 'boolean') {
+    return value
+  }
+
+  if (typeof value === 'string') {
+    return assertSafeEvidenceString(value, path)
+  }
+
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) {
+      throw new MalformedKnowledgeGraphResponseError(path, 'safe aggregate evidence value')
+    }
+    return value
+  }
+
+  throw new MalformedKnowledgeGraphResponseError(path, 'a safe primitive evidence value')
+}
+
+function parseSafeActionPayload(value: unknown, path: string, options: { dropUnknown?: boolean } = {}): KnowledgeGraphSafeActionPayload {
+  const record = assertRecord(value, path)
+  const payload: KnowledgeGraphSafeActionPayload = {}
+  const allowedKeys = new Set(['query', 'tag', 'search', 'order', 'page'])
+
+  Object.entries(record).forEach(([key, entryValue]) => {
+    if (!allowedKeys.has(key)) {
+      if (options.dropUnknown) {
+        return
+      }
+      throw new MalformedKnowledgeGraphResponseError(path + '.' + key, 'a safe discovery action payload field')
+    }
+    assertSafeEvidenceKey(key, path + '.' + key)
+
+    if (key === 'tag') {
+      if (Array.isArray(entryValue)) {
+        payload.tag = entryValue.map((tag, index) => assertSafeEvidenceString(assertString(tag, path + '.tag[' + index + ']'), path + '.tag[' + index + ']'))
+      } else {
+        payload.tag = assertSafeEvidenceString(assertString(entryValue, path + '.tag'), path + '.tag')
+      }
+      return
+    }
+
+    if (key === 'page') {
+      if (typeof entryValue !== 'number' && typeof entryValue !== 'string') {
+        throw new MalformedKnowledgeGraphResponseError(path + '.page', 'a safe page value')
+      }
+      payload.page = entryValue
+      return
+    }
+
+    payload[key as 'query' | 'search' | 'order'] = assertSafeEvidenceString(
+      assertString(entryValue, path + '.' + key),
+      path + '.' + key,
+    )
+  })
+
+  return payload
+}
+
 function assertRecommendationActionType(value: unknown, path: string): KnowledgeGraphRecommendationActionType {
   const parsed = assertNonEmptyString(value, path)
 
   if (!KNOWLEDGE_GRAPH_RECOMMENDATION_ACTION_TYPES.includes(parsed as KnowledgeGraphRecommendationActionType)) {
     throw new MalformedKnowledgeGraphResponseError(
       path,
-      `one of ${KNOWLEDGE_GRAPH_RECOMMENDATION_ACTION_TYPES.join(', ')}`,
+      'one of ' + KNOWLEDGE_GRAPH_RECOMMENDATION_ACTION_TYPES.join(', '),
     )
   }
 
@@ -751,8 +884,18 @@ function parseInsightAction(value: unknown, path: string): KnowledgeGraphInsight
   const record = assertRecord(value, path)
 
   return {
-    type: assertRecommendationActionType(record.type, `${path}.type`),
-    payload: assertRecord(record.payload, `${path}.payload`),
+    type: assertRecommendationActionType(record.type, path + '.type'),
+    payload: parseSafeActionPayload(record.payload, path + '.payload', { dropUnknown: true }),
+  }
+}
+
+
+function parseInsightActionV2(value: unknown, path: string): KnowledgeGraphInsightAction {
+  const record = assertRecord(value, path)
+
+  return {
+    type: assertRecommendationActionType(record.type, path + '.type'),
+    payload: parseSafeActionPayload(record.payload, path + '.payload'),
   }
 }
 
@@ -760,16 +903,111 @@ function parseInsightRecommendation(value: unknown, path: string): KnowledgeGrap
   const record = assertRecord(value, path)
 
   return {
-    id: assertNonEmptyString(record.id, `${path}.id`),
-    priority: assertString(record.priority, `${path}.priority`),
-    label: assertString(record.label, `${path}.label`),
-    reason_code: assertString(record.reason_code, `${path}.reason_code`),
-    action: parseInsightAction(record.action, `${path}.action`),
+    id: assertNonEmptyString(record.id, path + '.id'),
+    priority: assertString(record.priority, path + '.priority'),
+    label: assertString(record.label, path + '.label'),
+    reason_code: assertString(record.reason_code, path + '.reason_code'),
+    action: parseInsightAction(record.action, path + '.action'),
   }
 }
 
 function parseInsightRecommendations(value: unknown, path: string): KnowledgeGraphInsightRecommendation[] {
-  return assertArray(value, path).map((entry, index) => parseInsightRecommendation(entry, `${path}[${index}]`))
+  return assertArray(value, path).map((entry, index) => parseInsightRecommendation(entry, path + '[' + index + ']'))
+}
+
+function parseRecommendationTargetConcept(value: unknown, path: string): KnowledgeGraphRecommendationTargetConcept {
+  const record = assertRecord(value, path)
+
+  return {
+    concept_id: assertNonNegativeInteger(record.concept_id, path + '.concept_id'),
+    slug: assertNonEmptyString(record.slug, path + '.slug'),
+    name: assertString(record.name, path + '.name'),
+  }
+}
+
+function parseRecommendationTarget(value: unknown, path: string): KnowledgeGraphRecommendationV2Target {
+  const record = assertRecord(value, path)
+  const allowedTargetKeys = new Set(['concept', 'discovery', 'neighbours', 'group'])
+
+  Object.keys(record).forEach((key) => {
+    if (!allowedTargetKeys.has(key)) {
+      throw new MalformedKnowledgeGraphResponseError(path + '.' + key, 'a safe recommendation target field')
+    }
+  })
+
+  const parsed: KnowledgeGraphRecommendationV2Target = {
+    concept: parseRecommendationTargetConcept(record.concept, path + '.concept'),
+    discovery: parseSafeActionPayload(record.discovery, path + '.discovery'),
+    neighbours: [],
+    group: null,
+  }
+
+  if ('neighbours' in record) {
+    parsed.neighbours = assertArray(record.neighbours, path + '.neighbours').map((entry, index) => (
+      parseRecommendationTargetConcept(entry, path + '.neighbours[' + index + ']')
+    ))
+  }
+
+  if ('group' in record) {
+    if (record.group === null) {
+      parsed.group = null
+    } else {
+      const group = assertRecord(record.group, path + '.group')
+      parsed.group = {
+        group_key: assertNonEmptyString(group.group_key, path + '.group.group_key'),
+        label: assertString(group.label, path + '.group.label'),
+      }
+    }
+  }
+
+  return parsed
+}
+
+function parseRecommendationEvidenceEntry(value: unknown, path: string): KnowledgeGraphRecommendationV2EvidenceEntry {
+  const record = assertRecord(value, path)
+
+  return {
+    code: assertSafeEvidenceString(assertNonEmptyString(record.code, path + '.code'), path + '.code'),
+    label: assertSafeEvidenceString(assertString(record.label, path + '.label'), path + '.label'),
+    value: assertSafeRecommendationPrimitive(record.value, path + '.value'),
+    weight: assertRatioNumber(record.weight, path + '.weight'),
+  }
+}
+
+function parseRecommendationEvidence(value: unknown, path: string): KnowledgeGraphRecommendationV2EvidenceEntry[] {
+  return assertArray(value, path).map((entry, index) => parseRecommendationEvidenceEntry(entry, path + '[' + index + ']'))
+}
+
+function parseInsightRecommendationV2(value: unknown, path: string): KnowledgeGraphInsightRecommendationV2 {
+  const record = assertRecord(value, path)
+
+  return {
+    rank: assertPositiveInteger(record.rank, path + '.rank'),
+    id: assertNonEmptyString(record.id, path + '.id'),
+    score: assertRatioNumber(record.score, path + '.score'),
+    confidence: assertRatioNumber(record.confidence, path + '.confidence'),
+    priority: assertString(record.priority, path + '.priority'),
+    label: assertString(record.label, path + '.label'),
+    reason_code: assertString(record.reason_code, path + '.reason_code'),
+    target: parseRecommendationTarget(record.target, path + '.target'),
+    action: parseInsightActionV2(record.action, path + '.action'),
+    evidence: parseRecommendationEvidence(record.evidence, path + '.evidence'),
+  }
+}
+
+function parseTopLevelInsightRecommendations(record: Record<string, unknown>, viewer: KnowledgeGraphViewer): KnowledgeGraphInsightRecommendationV2[] {
+  if (!('recommendations' in record)) {
+    return []
+  }
+
+  const recommendations = assertArray(record.recommendations, 'recommendations')
+    .map((entry, index) => parseInsightRecommendationV2(entry, 'recommendations[' + index + ']'))
+
+  if (!viewer.is_owner && recommendations.length > 0) {
+    throw new MalformedKnowledgeGraphResponseError('recommendations', 'absent from public insights responses')
+  }
+
+  return viewer.is_owner ? recommendations : []
 }
 
 function parseInsightConceptEntry(value: unknown, path: string): KnowledgeGraphInsightConceptEntry {
@@ -795,6 +1033,10 @@ function parseInsightConcepts(value: unknown, path: string): KnowledgeGraphInsig
 export function parseUserKnowledgeGraphResponse(value: unknown): UserKnowledgeGraphResponse {
   const record = assertRecord(value, 'root')
   const viewer = parseViewer(record.viewer, 'viewer')
+
+  if (!viewer.is_owner && 'recommendations' in record) {
+    throw new MalformedKnowledgeGraphResponseError('recommendations', 'absent from public graph responses')
+  }
   const nodes = parseNodes(record.nodes, 'nodes')
   const edges = parseEdges(record.edges, 'edges')
   const semanticEdges = parseOwnerSemanticEdges(record, viewer)
@@ -825,12 +1067,14 @@ export function parseUserKnowledgeGraphResponse(value: unknown): UserKnowledgeGr
 
 export function parseUserKnowledgeGraphInsightsResponse(value: unknown): UserKnowledgeGraphInsightsResponse {
   const record = assertRecord(value, 'root')
+  const viewer = parseViewer(record.viewer, 'viewer')
 
   return {
     user_id: assertUuidString(record.user_id, 'user_id'),
-    viewer: parseViewer(record.viewer, 'viewer'),
+    viewer,
     state: parseInsightsGraphState(record.state, 'state'),
     summary: parseInsightsSummary(record.summary, 'summary'),
+    recommendations: parseTopLevelInsightRecommendations(record, viewer),
     concepts: parseInsightConcepts(record.concepts, 'concepts'),
   }
 }
