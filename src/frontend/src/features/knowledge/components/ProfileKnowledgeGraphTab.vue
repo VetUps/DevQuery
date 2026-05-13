@@ -13,7 +13,9 @@ import type {
   KnowledgeGraphInsightRecommendationV2,
   KnowledgeGraphLayoutPosition,
   KnowledgeGraphRelatedQuestion,
+  KnowledgeGraphSemanticDiagnostics,
   KnowledgeGraphSemanticEdge,
+  KnowledgeGraphSemanticGraphMetadata,
   KnowledgeGraphSemanticGroup,
   UserKnowledgeGraphResponse,
 } from '@/features/knowledge/api/knowledgeGraph'
@@ -33,6 +35,7 @@ import {
 import type { KnowledgeGraphSemanticState, KnowledgeGraphConceptStateById } from './knowledgeGraphStatePresentation'
 import { getKnowledgeGraphConceptState, resolveKnowledgeGraphStatePresentation, type KnowledgeGraphStatePresentation } from './knowledgeGraphStatePresentation'
 import { resolveKnowledgeGraphRecommendationPresentation, type KnowledgeGraphRecommendationPresentation } from './knowledgeGraphRecommendationPresentation'
+import type { KnowledgeGraphProjectionMode } from './knowledgeGraphSemanticProjection'
 
 const STALE_COPY = 'Мы обнаружили расхождение между графом и вашей активностью. Перестройте граф.'
 const SAFE_API_ERROR_COPY = 'Не удалось загрузить граф знаний. Попробуйте обновить вкладку.'
@@ -82,6 +85,7 @@ const viewMode = shallowRef<KnowledgeGraphViewMode>('graph')
 const insightSearchText = shallowRef('')
 const activeStateFilters = shallowRef<InsightFilterState[]>([])
 const showSemanticEdges = shallowRef(true)
+const graphProjectionMode = shallowRef<KnowledgeGraphProjectionMode>('structural')
 
 const graph = computed<UserKnowledgeGraphResponse | undefined>(() => graphQuery.data.value)
 const hasGraph = computed(() => Boolean(graph.value))
@@ -236,6 +240,8 @@ const modeHelpCopy = computed(() => (
 ))
 const isGraphMode = computed(() => viewMode.value === 'graph')
 const isListMode = computed(() => viewMode.value === 'list')
+const isStructuralProjectionMode = computed(() => effectiveGraphProjectionMode.value === 'structural')
+const isSemanticProjectionMode = computed(() => effectiveGraphProjectionMode.value === 'semantic')
 const hasListContent = computed(() => (graph.value?.activity_breakdown.length ?? 0) > 0 || hasConcepts.value)
 const graphLayoutPositions = computed(() => (isLayoutDirty.value ? draftLayoutPositions.value : graph.value?.layout?.positions ?? {}))
 const isLayoutSaving = computed(() => saveLayoutMutation.isPending.value)
@@ -292,11 +298,46 @@ const ownerSemanticEdges = computed<KnowledgeGraphSemanticEdge[]>(() => (
 const ownerSemanticGroups = computed<KnowledgeGraphSemanticGroup[]>(() => (
   canShowInsights.value ? graph.value?.semantic_groups ?? [] : []
 ))
+const ownerSemanticGraph = computed<KnowledgeGraphSemanticGraphMetadata | undefined>(() => (
+  canShowInsights.value ? graph.value?.semantic_graph : undefined
+))
+const ownerSemanticDiagnostics = computed<KnowledgeGraphSemanticDiagnostics | undefined>(() => (
+  canShowInsights.value ? graph.value?.semantic : undefined
+))
+const visibleSemanticGroups = computed<KnowledgeGraphSemanticGroup[]>(() => ownerSemanticGroups.value.filter((group) => (
+  group.members.some((member) => visibleNodeIds.value.has(member.concept_id))
+)))
 const visibleSemanticEdges = computed(() => ownerSemanticEdges.value.filter((edge) => (
   visibleNodeIds.value.has(edge.source_concept_id) && visibleNodeIds.value.has(edge.target_concept_id)
 )))
 const canShowSemanticEdges = computed(() => isOwner.value && visibleSemanticEdges.value.length > 0)
 const effectiveShowSemanticEdges = computed(() => canShowSemanticEdges.value && showSemanticEdges.value)
+const canShowSemanticProjection = computed(() => (
+  canShowInsights.value
+  && hasConcepts.value
+  && Boolean(ownerSemanticGraph.value)
+  && (visibleSemanticGroups.value.length > 0 || hasMeaningfulSemanticState(ownerSemanticGraph.value, ownerSemanticDiagnostics.value))
+))
+const effectiveGraphProjectionMode = computed<KnowledgeGraphProjectionMode>(() => (
+  canShowSemanticProjection.value ? graphProjectionMode.value : 'structural'
+))
+const semanticProjectionHelpCopy = computed(() => {
+  if (!canShowSemanticProjection.value) {
+    return ''
+  }
+
+  const metadata = ownerSemanticGraph.value
+
+  if (!metadata?.available) {
+    return 'Семантическая проекция временно недоступна. Структурный граф остаётся основным режимом.'
+  }
+
+  if (metadata.status === 'degraded' || metadata.status === 'stale' || metadata.lifecycle_counts.stale > 0) {
+    return 'Семантическая проекция доступна частично: показываем только безопасные агрегированные группы.'
+  }
+
+  return `Семантическая проекция доступна: ${visibleSemanticGroups.value.length} групп, ${metadata.visible_member_count} участников.`
+})
 const hasVisibleTopologyNodes = computed(() => filteredNodes.value.length > 0)
 const hasVisibleConcepts = computed(() => filteredConcepts.value.length > 0)
 const filterCountCopy = computed(() => filteredConcepts.value.length + ' из ' + (graph.value?.concepts.length ?? 0) + ' концептов')
@@ -500,6 +541,37 @@ function setViewMode(mode: KnowledgeGraphViewMode) {
   viewMode.value = mode
 }
 
+function setGraphProjectionMode(mode: KnowledgeGraphProjectionMode): void {
+  graphProjectionMode.value = canShowSemanticProjection.value ? mode : 'structural'
+}
+
+function hasMeaningfulSemanticState(
+  metadata: KnowledgeGraphSemanticGraphMetadata | undefined,
+  diagnostics: KnowledgeGraphSemanticDiagnostics | undefined,
+): boolean {
+  if (!metadata) {
+    return false
+  }
+
+  const safeMetadataSignal = metadata.available
+    || metadata.enabled
+    || metadata.status === 'degraded'
+    || metadata.status === 'stale'
+    || metadata.status === 'unavailable'
+    || metadata.status === 'failed'
+    || metadata.reason_code.trim().length > 0
+    || metadata.phase.trim().length > 0
+
+  const safeDiagnosticsSignal = Boolean(diagnostics) && (
+    diagnostics.enabled
+    || diagnostics.status !== 'pending'
+    || diagnostics.reason_code.trim().length > 0
+    || diagnostics.phase.trim().length > 0
+  )
+
+  return safeMetadataSignal || safeDiagnosticsSignal
+}
+
 function handleSemanticVisibilityChanged(visible: boolean) {
   showSemanticEdges.value = visible
 }
@@ -644,6 +716,16 @@ watch(
 )
 
 watch(
+  canShowSemanticProjection,
+  (canShow) => {
+    if (!canShow) {
+      graphProjectionMode.value = 'structural'
+    }
+  },
+  { immediate: true },
+)
+
+watch(
   () => filteredNodes.value.map((node) => node.concept_id).join('|'),
   () => {
     if (selectedConceptId.value === null) {
@@ -771,6 +853,45 @@ watch(
         <p class="knowledge-tab__mode-help" data-testid="knowledge-view-mode-help">
           {{ modeHelpCopy }}
         </p>
+
+        <div
+          v-if="canShowSemanticProjection"
+          class="knowledge-tab__mode-switch knowledge-tab__mode-switch--projection"
+          data-testid="profile-graph-projection-switch"
+          role="group"
+          aria-label="Проекция графа знаний"
+        >
+          <button
+            type="button"
+            class="knowledge-tab__mode-button"
+            :class="{ 'knowledge-tab__mode-button--active': isStructuralProjectionMode }"
+            data-testid="profile-graph-projection-structural"
+            :aria-pressed="isStructuralProjectionMode"
+            @click="setGraphProjectionMode('structural')"
+          >
+            Структурный
+          </button>
+          <button
+            type="button"
+            class="knowledge-tab__mode-button"
+            :class="{ 'knowledge-tab__mode-button--active': isSemanticProjectionMode }"
+            data-testid="profile-graph-projection-semantic"
+            :aria-pressed="isSemanticProjectionMode"
+            @click="setGraphProjectionMode('semantic')"
+          >
+            Семантический
+          </button>
+        </div>
+        <p
+          v-if="canShowSemanticProjection"
+          class="knowledge-tab__mode-help"
+          data-testid="profile-graph-projection-help"
+          :data-status="ownerSemanticGraph?.status ?? ''"
+          :data-reason="ownerSemanticGraph?.reason_code ?? ''"
+          :data-phase="ownerSemanticGraph?.phase ?? ''"
+        >
+          {{ semanticProjectionHelpCopy }}
+        </p>
       </SurfacePanel>
 
       <InlineFeedbackPanel
@@ -847,7 +968,7 @@ watch(
         padding="lg"
       >
         <KnowledgeGraphSemanticGroupsPanel
-          :groups="ownerSemanticGroups"
+          :groups="visibleSemanticGroups"
           :concepts="graph.concepts"
           :visible-concept-ids="visibleNodeIds"
           :graph-status="normalizedStatus"
@@ -962,11 +1083,13 @@ watch(
       <div v-if="isGraphMode && hasTopologyNodes" class="knowledge-tab__mode-panel" data-testid="knowledge-graph-panel">
         <SurfacePanel data-testid="knowledge-graph-mode" padding="lg">
           <KnowledgeGraphRenderer
+            :projection-mode="effectiveGraphProjectionMode"
             :nodes="filteredNodes"
             :edges="filteredEdges"
             :semantic-edges="visibleSemanticEdges"
-            :semantic-groups="ownerSemanticGroups"
-            :semantic-graph="graph.semantic_graph"
+            :semantic-groups="visibleSemanticGroups"
+            :semantic-graph="ownerSemanticGraph"
+            :semantic-diagnostics="ownerSemanticDiagnostics"
             :show-semantic-edges="effectiveShowSemanticEdges"
             :selected-concept-id="selectedConceptId"
             :neighbour-concept-ids="neighbourConceptIds"

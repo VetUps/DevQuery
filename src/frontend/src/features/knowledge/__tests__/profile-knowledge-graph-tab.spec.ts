@@ -2,7 +2,14 @@ import { computed, nextTick } from 'vue'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { UserKnowledgeGraphInsightsResponse, UserKnowledgeGraphResponse } from '@/features/knowledge/api/knowledgeGraph'
+import type {
+  KnowledgeGraphSemanticDiagnostics,
+  KnowledgeGraphSemanticGraphMetadata,
+  KnowledgeGraphSemanticGroup,
+  UserKnowledgeGraphInsightsResponse,
+  UserKnowledgeGraphResponse,
+} from '@/features/knowledge/api/knowledgeGraph'
+import type { KnowledgeGraphProjectionMode } from '@/features/knowledge/components/knowledgeGraphSemanticProjection'
 import ProfileKnowledgeGraphTab from '@/features/knowledge/components/ProfileKnowledgeGraphTab.vue'
 
 const queryHarness = vi.hoisted(() => {
@@ -68,9 +75,13 @@ const useSaveKnowledgeGraphLayoutMutationMock = vi.hoisted(() => vi.fn(() => mut
 const useResetKnowledgeGraphLayoutMutationMock = vi.hoisted(() => vi.fn(() => mutationHarness.resetLayoutMutation))
 const rendererHarness = vi.hoisted(() => ({
   props: [] as Array<{
+    projectionMode: KnowledgeGraphProjectionMode
     nodes: UserKnowledgeGraphResponse['nodes']
     edges: UserKnowledgeGraphResponse['edges']
     semanticEdges: UserKnowledgeGraphResponse['semantic_edges']
+    semanticGroups: KnowledgeGraphSemanticGroup[]
+    semanticGraph: KnowledgeGraphSemanticGraphMetadata | undefined
+    semanticDiagnostics: KnowledgeGraphSemanticDiagnostics | undefined
     showSemanticEdges: boolean
     selectedConceptId: number | null
     neighbourConceptIds: number[]
@@ -88,9 +99,13 @@ vi.mock('@/features/knowledge/components/KnowledgeGraphRenderer.vue', () => ({
   default: {
     name: 'KnowledgeGraphRendererStub',
     props: {
+      projectionMode: { type: String, default: 'structural' },
       nodes: { type: Array, required: true },
       edges: { type: Array, required: true },
       semanticEdges: { type: Array, default: () => [] },
+      semanticGroups: { type: Array, default: () => [] },
+      semanticGraph: { type: Object, default: undefined },
+      semanticDiagnostics: { type: Object, default: undefined },
       showSemanticEdges: { type: Boolean, default: false },
       selectedConceptId: { type: Number, default: null },
       neighbourConceptIds: { type: Array, default: () => [] },
@@ -104,9 +119,13 @@ vi.mock('@/features/knowledge/components/KnowledgeGraphRenderer.vue', () => ({
     },
     emits: ['node-selected', 'layout-changed', 'layout-save-requested', 'layout-reset-requested', 'semantic-visibility-changed'],
     setup(props: {
+      projectionMode: KnowledgeGraphProjectionMode
       nodes: UserKnowledgeGraphResponse['nodes']
       edges: UserKnowledgeGraphResponse['edges']
       semanticEdges: UserKnowledgeGraphResponse['semantic_edges']
+      semanticGroups: KnowledgeGraphSemanticGroup[]
+      semanticGraph?: KnowledgeGraphSemanticGraphMetadata
+      semanticDiagnostics?: KnowledgeGraphSemanticDiagnostics
       showSemanticEdges: boolean
       selectedConceptId: number | null
       neighbourConceptIds: number[]
@@ -119,9 +138,13 @@ vi.mock('@/features/knowledge/components/KnowledgeGraphRenderer.vue', () => ({
       conceptStates: Record<string | number, { semantic_state: string; tone_token: string } | undefined>
     }, { emit }: { emit: (event: 'node-selected' | 'layout-changed' | 'layout-save-requested' | 'layout-reset-requested' | 'semantic-visibility-changed', payload?: unknown) => void }) {
       rendererHarness.props.push({
+        projectionMode: props.projectionMode,
         nodes: props.nodes,
         edges: props.edges,
         semanticEdges: props.semanticEdges,
+        semanticGroups: props.semanticGroups,
+        semanticGraph: props.semanticGraph,
+        semanticDiagnostics: props.semanticDiagnostics,
         showSemanticEdges: props.showSemanticEdges,
         selectedConceptId: props.selectedConceptId,
         neighbourConceptIds: props.neighbourConceptIds,
@@ -159,7 +182,11 @@ vi.mock('@/features/knowledge/components/KnowledgeGraphRenderer.vue', () => ({
     template: `
       <section data-testid="knowledge-graph-renderer-stub">
         {{ props.nodes.length }} nodes / {{ props.edges.length }} edges
+        <span data-testid="renderer-projection-mode">{{ props.projectionMode }}</span>
         <span data-testid="renderer-semantic-count">{{ props.semanticEdges.length }}</span>
+        <span data-testid="renderer-semantic-groups-count">{{ props.semanticGroups.length }}</span>
+        <span data-testid="renderer-semantic-graph-status">{{ props.semanticGraph?.status ?? 'none' }}</span>
+        <span data-testid="renderer-semantic-diagnostics-status">{{ props.semanticDiagnostics?.status ?? 'none' }}</span>
         <span data-testid="renderer-semantic-visible">{{ props.showSemanticEdges ? 'semantic-on' : 'semantic-off' }}</span>
         <span data-testid="renderer-selected-id">{{ props.selectedConceptId ?? 'none' }}</span>
         <span data-testid="renderer-neighbour-ids">{{ props.neighbourConceptIds.join(',') }}</span>
@@ -277,6 +304,84 @@ function buildGraph(overrides: Partial<UserKnowledgeGraphResponse> = {}): UserKn
     ...graphWithoutTopology,
     nodes,
     edges,
+  }
+}
+
+function buildSemanticGraphMetadata(overrides: Partial<KnowledgeGraphSemanticGraphMetadata> = {}): KnowledgeGraphSemanticGraphMetadata {
+  return {
+    schema_version: 1,
+    mode: 'semantic',
+    status: 'available',
+    reason_code: '',
+    phase: 'projection',
+    enabled: true,
+    available: true,
+    visible_group_count: 1,
+    visible_member_count: 2,
+    semantic_edge_count: 0,
+    lifecycle_counts: { active: 1, stale: 0, archived: 0 },
+    supported_lifecycle_statuses: ['active', 'stale'],
+    archived_groups_included: false,
+    ...overrides,
+  }
+}
+
+function buildSemanticDiagnostics(overrides: Partial<KnowledgeGraphSemanticDiagnostics> = {}): KnowledgeGraphSemanticDiagnostics {
+  return {
+    status: 'available',
+    reason_code: '',
+    phase: 'projection',
+    enabled: true,
+    dry_run: false,
+    source_item_count: 2,
+    total_source_count: 2,
+    changed_source_count: 0,
+    provider_called_source_count: 0,
+    reused_snapshot_count: 0,
+    persisted_snapshot_count: 1,
+    neighbour_candidate_count: 0,
+    semantic_group_count: 1,
+    semantic_group_membership_count: 2,
+    semantic_group_reused_count: 0,
+    semantic_group_created_count: 1,
+    semantic_group_changed_count: 0,
+    semantic_group_stale_count: 0,
+    semantic_group_archived_count: 0,
+    estimated_token_count: 0,
+    estimated_cost: '0.000000',
+    budget_cap: '0.000000',
+    last_error_message: '',
+    started_at: '2026-05-11T10:00:00Z',
+    finished_at: '2026-05-11T10:01:00Z',
+    view: {
+      mode: 'semantic',
+      visible_lifecycle_statuses: ['active', 'stale'],
+      archived_groups_included: false,
+    },
+    ...overrides,
+  }
+}
+
+function buildSemanticGroup(overrides: Partial<KnowledgeGraphSemanticGroup> = {}): KnowledgeGraphSemanticGroup {
+  return {
+    group_key: 'frameworks',
+    label: 'Web frameworks',
+    description: 'Long safe description for related framework concepts that remains readable in the details surface.',
+    rationale: 'Grouped from aggregate activity patterns without private source details.',
+    confidence: '0.9100',
+    generated_at: '2026-05-11T10:00:00Z',
+    evidence: { aggregate_signal_count: 3 },
+    members: [
+      { concept_id: 10, slug: 'django', name: 'Django', rank: 1, confidence: '0.9300', evidence: { aggregate_signal_count: 2 } },
+      { concept_id: 11, slug: 'vue', name: 'Vue', rank: 2, confidence: '0.8200', evidence: { aggregate_signal_count: 1 } },
+    ],
+    lifecycle_status: 'active',
+    lifecycle_reason_code: 'current',
+    reuse_evidence: { aggregate_signal_count: 1 },
+    member_count: 2,
+    first_seen_at: '2026-05-11T10:00:00Z',
+    last_seen_at: '2026-05-11T10:00:00Z',
+    ...overrides,
   }
 }
 
@@ -886,6 +991,81 @@ describe('ProfileKnowledgeGraphTab', () => {
     expect(publicWrapper.find('[data-testid="knowledge-insights-status"]').exists()).toBe(false)
     expect(publicWrapper.find('[data-testid="knowledge-insights-search"]').exists()).toBe(false)
     expect(publicWrapper.find('[data-testid="knowledge-insights-legend"]').exists()).toBe(false)
+  })
+
+
+  it('wires owner-only structural and semantic projection mode into the renderer', async () => {
+    const graph = buildGraph({
+      semantic: buildSemanticDiagnostics(),
+      semantic_graph: buildSemanticGraphMetadata(),
+      semantic_groups: [buildSemanticGroup()],
+    })
+    setQueryState({ data: graph })
+
+    const wrapper = await mountTab()
+
+    expect(wrapper.get('[data-testid="profile-graph-projection-switch"]').attributes('role')).toBe('group')
+    expect(wrapper.get('[data-testid="profile-graph-projection-structural"]').attributes('aria-pressed')).toBe('true')
+    expect(wrapper.get('[data-testid="renderer-projection-mode"]').text()).toBe('structural')
+    expect(rendererHarness.props.at(-1)?.projectionMode).toBe('structural')
+    expect(rendererHarness.props.at(-1)?.semanticGroups).toHaveLength(1)
+    expect(rendererHarness.props.at(-1)?.semanticGraph?.status).toBe('available')
+    expect(rendererHarness.props.at(-1)?.semanticDiagnostics?.status).toBe('available')
+
+    await wrapper.get('[data-testid="profile-graph-projection-semantic"]').trigger('click')
+    await nextTick()
+
+    expect(wrapper.get('[data-testid="profile-graph-projection-semantic"]').attributes('aria-pressed')).toBe('true')
+    expect(wrapper.get('[data-testid="renderer-projection-mode"]').text()).toBe('semantic')
+    expect(wrapper.get('[data-testid="renderer-semantic-groups-count"]').text()).toBe('1')
+    expect(wrapper.get('[data-testid="renderer-semantic-graph-status"]').text()).toBe('available')
+  })
+
+  it('shows safe degraded semantic projection copy to the owner without requiring visible groups', async () => {
+    const graph = buildGraph({
+      semantic: buildSemanticDiagnostics({ status: 'degraded', reason_code: 'provider_error', phase: 'grouping', enabled: true }),
+      semantic_graph: buildSemanticGraphMetadata({
+        status: 'degraded',
+        reason_code: 'provider_error',
+        phase: 'grouping',
+        available: false,
+        visible_group_count: 0,
+        visible_member_count: 0,
+        lifecycle_counts: { active: 0, stale: 0, archived: 0 },
+      }),
+      semantic_groups: [],
+    })
+    setQueryState({ data: graph })
+
+    const wrapper = await mountTab()
+
+    expect(wrapper.get('[data-testid="profile-graph-projection-help"]').text()).toContain('временно недоступна')
+    expect(wrapper.get('[data-testid="profile-graph-projection-help"]').attributes('data-status')).toBe('degraded')
+    expect(wrapper.get('[data-testid="knowledge-graph-mode"]').text()).toContain('2 nodes / 1 edges')
+
+    await wrapper.get('[data-testid="profile-graph-projection-semantic"]').trigger('click')
+    await nextTick()
+
+    expect(wrapper.get('[data-testid="renderer-projection-mode"]').text()).toBe('semantic')
+    expect(wrapper.get('[data-testid="renderer-semantic-groups-count"]').text()).toBe('0')
+  })
+
+  it('omits semantic projection controls and owner DTO text from public graphs', async () => {
+    const graph = buildGraph({
+      viewer: { is_owner: false },
+      semantic: undefined,
+      semantic_graph: undefined,
+      semantic_groups: [buildSemanticGroup({ label: 'Private owner semantic label' })],
+    })
+    setQueryState({ data: graph })
+
+    const wrapper = await mountTab({ userId: 'user-42' })
+
+    expect(wrapper.find('[data-testid="profile-graph-projection-switch"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="renderer-projection-mode"]').text()).toBe('structural')
+    expect(wrapper.get('[data-testid="renderer-semantic-groups-count"]').text()).toBe('0')
+    expect(wrapper.text()).not.toContain('Private owner semantic label')
+    expect(wrapper.text()).not.toContain('provider_error')
   })
 
 
