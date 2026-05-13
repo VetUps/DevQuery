@@ -396,9 +396,9 @@ class FakeKnowledgeGraphGroupingProvider:
             'groups': [
                 {
                     'group_key': 'fake-local-group',
-                    'label': 'Fake local semantic group',
+                    'label': 'Связанные темы',
                     'concept_slugs': unique_slugs,
-                    'rationale': 'Deterministic local grouping for dry-run and tests.',
+                    'rationale': 'Детерминированная группировка по агрегированным семантическим сигналам.',
                     'confidence': 1.0,
                 }
             ] if unique_slugs else []
