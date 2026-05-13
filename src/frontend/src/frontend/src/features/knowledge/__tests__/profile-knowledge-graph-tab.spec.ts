@@ -813,7 +813,7 @@ describe('ProfileKnowledgeGraphTab', () => {
     expect(useOwnKnowledgeGraphInsightsQueryMock).toHaveBeenCalledOnce()
     const enabledArg = useOwnKnowledgeGraphInsightsQueryMock.mock.calls[0][0]
     expect(computed(() => enabledArg.value).value).toBe(true)
-    expect(wrapper.get('[data-testid="knowledge-insights-status"]').text()).toContain('Состояния концептов загружены')
+    expect(wrapper.find('[data-testid="knowledge-insights-status"]').exists()).toBe(false)
     expect(wrapper.get('[data-testid="knowledge-insights-legend"]').text()).toContain('Сильный')
     expect(wrapper.get('[data-testid="knowledge-insights-legend"]').text()).toContain('Без оценки')
     expect(wrapper.get('[data-testid="knowledge-insights-filter-count"]').text()).toContain('2 из 2 концептов')

@@ -480,6 +480,22 @@ async function mountTab(props: { userId?: string } = {}) {
   return wrapper
 }
 
+async function openSemanticGroupsDialog(wrapper: VueWrapper) {
+  await wrapper.get('[data-testid="knowledge-semantic-groups-open"]').trigger('click')
+  await flushPromises()
+  await nextTick()
+}
+
+function getBodyByTestId(testId: string): HTMLElement {
+  const element = document.body.querySelector<HTMLElement>(`[data-testid="${testId}"]`)
+
+  if (!element) {
+    throw new Error(`Unable to get body element [data-testid="${testId}"]`)
+  }
+
+  return element
+}
+
 describe('ProfileKnowledgeGraphTab', () => {
   beforeEach(() => {
     setQueryState()
@@ -496,6 +512,8 @@ describe('ProfileKnowledgeGraphTab', () => {
     while (mountedWrappers.length > 0) {
       mountedWrappers.pop()?.unmount()
     }
+    document.body.innerHTML = ''
+    document.body.style.overflow = ''
   })
 
   it('renders concept weights, activity breakdowns, explanations, and related question links', async () => {
@@ -702,6 +720,13 @@ describe('ProfileKnowledgeGraphTab', () => {
     await nextTick()
     expect(wrapper.get('[data-testid="renderer-selected-id"]').text()).toBe('10')
     expect(wrapper.get('[data-testid="knowledge-graph-selected-details"]').text()).toContain('Django')
+
+    await wrapper.get('[data-testid="select-concept-10"]').trigger('click')
+    await nextTick()
+
+    expect(wrapper.get('[data-testid="renderer-selected-id"]').text()).toBe('none')
+    expect(wrapper.find('[data-testid="knowledge-graph-selected-details"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="knowledge-graph-selection-empty"]').text()).toContain('Выберите концепт')
     expect(wrapper.text()).not.toContain('provider stack token leaked')
     expect(wrapper.text()).not.toContain('Traceback')
   })
@@ -918,7 +943,7 @@ describe('ProfileKnowledgeGraphTab', () => {
     expect(useOwnKnowledgeGraphInsightsQueryMock).toHaveBeenCalledOnce()
     const enabledArg = useOwnKnowledgeGraphInsightsQueryMock.mock.calls[0][0]
     expect(computed(() => enabledArg.value).value).toBe(true)
-    expect(wrapper.get('[data-testid="knowledge-insights-status"]').text()).toContain('Состояния концептов загружены')
+    expect(wrapper.find('[data-testid="knowledge-insights-status"]').exists()).toBe(false)
     expect(wrapper.get('[data-testid="knowledge-insights-legend"]').text()).toContain('Сильный')
     expect(wrapper.get('[data-testid="knowledge-insights-legend"]').text()).toContain('Без оценки')
     expect(wrapper.get('[data-testid="knowledge-insights-filter-count"]').text()).toContain('2 из 2 концептов')
@@ -1124,16 +1149,23 @@ describe('ProfileKnowledgeGraphTab', () => {
 
     const wrapper = await mountTab()
 
-    expect(wrapper.get('[data-testid="knowledge-semantic-groups-panel"]').text()).toContain('Как темы связаны по смыслу')
-    expect(wrapper.get('[data-testid="knowledge-semantic-groups-status"]').text()).toContain('Доступно групп: 1')
-    expect(wrapper.get('[data-testid="knowledge-semantic-group-card-frameworks"]').attributes('aria-pressed')).toBe('true')
-    expect(wrapper.get('[data-testid="knowledge-semantic-group-selected-details"]').text()).toContain('Web frameworks')
-    expect(wrapper.get('[data-testid="knowledge-semantic-group-selected-details"]').text()).toContain('Long safe description')
-    expect(wrapper.get('[data-testid="knowledge-semantic-group-members"]').text()).toContain('Django')
-    expect(wrapper.get('[data-testid="knowledge-semantic-group-members"]').text()).toContain('ранг 1')
-    expect(wrapper.get('[data-testid="knowledge-semantic-group-members"]').text()).toContain('уверенность 0,93')
+    expect(wrapper.find('[data-testid="knowledge-semantic-groups-panel"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="knowledge-semantic-groups-count-summary"]').text()).toContain('1')
+    await openSemanticGroupsDialog(wrapper)
 
-    await wrapper.get('[data-testid="knowledge-semantic-group-member-10"]').trigger('click')
+    expect(getBodyByTestId('knowledge-semantic-groups-panel').textContent).toContain('Как темы связаны по смыслу')
+    expect(getBodyByTestId('knowledge-semantic-groups-status').textContent).toContain('Доступно групп: 1')
+    expect(getBodyByTestId('knowledge-semantic-group-card-frameworks').getAttribute('aria-expanded')).toBe('false')
+    getBodyByTestId('knowledge-semantic-group-card-frameworks').click()
+    await nextTick()
+    expect(getBodyByTestId('knowledge-semantic-group-card-frameworks').getAttribute('aria-expanded')).toBe('true')
+    expect(getBodyByTestId('knowledge-semantic-group-details-frameworks').textContent).toContain('Web frameworks')
+    expect(getBodyByTestId('knowledge-semantic-group-details-frameworks').textContent).toContain('Long safe description')
+    expect(getBodyByTestId('knowledge-semantic-group-members').textContent).toContain('Django')
+    expect(getBodyByTestId('knowledge-semantic-group-members').textContent).toContain('ранг 1')
+    expect(getBodyByTestId('knowledge-semantic-group-members').textContent).toContain('уверенность 0,93')
+
+    getBodyByTestId('knowledge-semantic-group-member-10').click()
     await nextTick()
 
     expect(wrapper.get('[data-testid="renderer-selected-id"]').text()).toBe('10')
@@ -1149,28 +1181,30 @@ describe('ProfileKnowledgeGraphTab', () => {
     await nextTick()
     expect(wrapper.get('[data-testid="knowledge-list-panel"]').text()).toContain('Django')
 
-    await wrapper.get('[data-testid="knowledge-semantic-group-member-11"]').trigger('click')
+    await openSemanticGroupsDialog(wrapper)
+    getBodyByTestId('knowledge-semantic-group-card-frameworks').click()
+    await nextTick()
+    getBodyByTestId('knowledge-semantic-group-member-11').click()
     await nextTick()
 
     expect(wrapper.get('[data-testid="knowledge-view-mode-graph"]').attributes('aria-pressed')).toBe('true')
     expect(wrapper.get('[data-testid="renderer-selected-id"]').text()).toBe('11')
     expect(wrapper.get('[data-testid="knowledge-graph-selected-details"]').text()).toContain('Vue')
 
-    wrapper.findComponent({ name: 'KnowledgeGraphSemanticGroupsPanel' }).vm.$emit('member-selected', 404)
-    await nextTick()
-    expect(wrapper.get('[data-testid="renderer-selected-id"]').text()).toBe('11')
-
-    expect(wrapper.text()).not.toContain('signal_count')
-    expect(wrapper.text()).not.toContain('raw_output')
-    expect(wrapper.text()).not.toContain('provider')
+    expect(document.body.textContent).not.toContain('signal_count')
+    expect(document.body.textContent).not.toContain('raw_output')
+    expect(document.body.textContent).not.toContain('provider')
 
     await wrapper.get('[data-testid="knowledge-insights-search"]').setValue('django')
     await nextTick()
+    await openSemanticGroupsDialog(wrapper)
+    getBodyByTestId('knowledge-semantic-group-card-frameworks').click()
+    await nextTick()
 
-    expect(wrapper.get('[data-testid="knowledge-semantic-group-card-frameworks"]').attributes('aria-pressed')).toBe('true')
-    expect(wrapper.get('[data-testid="knowledge-semantic-group-members"]').text()).toContain('Django')
-    expect(wrapper.find('[data-testid="knowledge-semantic-group-member-11"]').exists()).toBe(false)
-    expect(wrapper.get('[data-testid="knowledge-semantic-group-hidden-members"]').text()).toContain('Скрыто фильтрами: 1')
+    expect(getBodyByTestId('knowledge-semantic-group-card-frameworks').getAttribute('aria-expanded')).toBe('true')
+    expect(getBodyByTestId('knowledge-semantic-group-members').textContent).toContain('Django')
+    expect(document.body.querySelector('[data-testid="knowledge-semantic-group-member-11"]')).toBeNull()
+    expect(getBodyByTestId('knowledge-semantic-group-hidden-members').textContent).toContain('Скрыто фильтрами: 1')
     expect(wrapper.get('[data-testid="renderer-selected-id"]').text()).toBe('none')
     expect(rendererHarness.props.at(-1)?.edges).toBe(graph.edges)
   })
@@ -1180,9 +1214,12 @@ describe('ProfileKnowledgeGraphTab', () => {
 
     const wrapper = await mountTab()
 
-    expect(wrapper.get('[data-testid="knowledge-semantic-groups-panel"]').text()).toContain('Семантические группы')
-    expect(wrapper.get('[data-testid="knowledge-semantic-groups-status"]').text()).toContain('временно недоступно')
-    expect(wrapper.get('[data-testid="knowledge-semantic-groups-empty"]').text()).toContain('после достаточного количества')
+    expect(wrapper.find('[data-testid="knowledge-semantic-groups-panel"]').exists()).toBe(false)
+    await openSemanticGroupsDialog(wrapper)
+
+    expect(getBodyByTestId('knowledge-semantic-groups-panel').textContent).toContain('Семантические группы')
+    expect(getBodyByTestId('knowledge-semantic-groups-status').textContent).toContain('временно недоступно')
+    expect(getBodyByTestId('knowledge-semantic-groups-empty').textContent).toContain('после достаточного количества')
     expect(wrapper.get('[data-testid="knowledge-graph-mode"]').text()).toContain('2 nodes / 1 edges')
     expect(wrapper.find('[data-testid="knowledge-rebuild-button"]').exists()).toBe(true)
   })

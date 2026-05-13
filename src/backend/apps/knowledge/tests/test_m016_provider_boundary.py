@@ -17,6 +17,7 @@ from apps.knowledge.semantic_providers import (
     KnowledgeGraphSemanticConfig,
     parse_grouping_response,
     validate_embedding_vectors,
+    _deepseek_grouping_messages,
 )
 
 
@@ -126,6 +127,16 @@ class KnowledgeGraphProviderBoundaryTests(SimpleTestCase):
                 self.assertNotIn('user@example.com', safe_message)
                 self.assertNotIn('question body', safe_message)
                 self.assertNotIn('Traceback', safe_message)
+
+    def test_deepseek_grouping_prompt_requires_russian_user_facing_text(self):
+        messages = _deepseek_grouping_messages([
+            {'slug': 'vue', 'name': 'Vue', 'activity_count': 3, 'candidate_count': 2, 'max_similarity': '0.95'},
+        ])
+
+        system_message = messages[0]['content']
+        self.assertIn('Write every user-facing label and rationale in Russian', system_message)
+        self.assertIn('explain the cluster in Russian', system_message)
+        self.assertIn('Return only valid JSON', system_message)
 
     def test_fake_providers_happy_path_is_deterministic_and_exposes_metadata(self):
         embedding_provider = FakeKnowledgeGraphEmbeddingProvider(dimensions=4)

@@ -195,9 +195,6 @@ watch(
       <section class="knowledge-details__block knowledge-details__questions-card" aria-labelledby="knowledge-selected-questions-title">
         <div>
           <h4 id="knowledge-selected-questions-title">Связанные вопросы</h4>
-          <p class="knowledge-details__muted">
-            {{ selectedRelatedQuestions.length }} вопросов доступны в отдельном окне, чтобы панель концепта оставалась компактной.
-          </p>
         </div>
         <div class="knowledge-details__actions">
           <RouterLink

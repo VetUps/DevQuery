@@ -28,9 +28,7 @@ const progressLabel = computed(() => {
   return `До уровня ${props.reputation.next_level_label} осталось ${props.reputation.points_to_next_level} очк.`
 })
 const statusLabel = computed(() => (
-  props.reputation.is_manual_override
-    ? 'Уровень закреплён вручную администратором.'
-    : 'Уровень рассчитывается автоматически по накопленной репутации.'
+  props.reputation.is_manual_override ? 'Уровень закреплён вручную администратором.' : ''
 ))
 </script>
 
@@ -89,7 +87,7 @@ const statusLabel = computed(() => (
       </div>
       <div class="profile-reputation-summary__progress-meta">
         <span>{{ Math.round(progress.percent) }}%</span>
-        <span>{{ statusLabel }}</span>
+        <span v-if="statusLabel">{{ statusLabel }}</span>
       </div>
     </div>
   </SurfacePanel>

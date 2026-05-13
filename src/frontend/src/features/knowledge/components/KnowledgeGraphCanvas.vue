@@ -8,6 +8,7 @@ import type {
   KnowledgeGraphLayoutPosition,
   KnowledgeGraphNode,
   KnowledgeGraphSemanticEdge,
+  KnowledgeGraphSemanticGroup,
 } from '@/features/knowledge/api/knowledgeGraph'
 import type { KnowledgeGraphConceptStateById } from './knowledgeGraphStatePresentation'
 import { getKnowledgeGraphConceptState } from './knowledgeGraphStatePresentation'
@@ -21,7 +22,9 @@ const props = withDefaults(defineProps<{
   nodes: KnowledgeGraphNode[]
   edges: KnowledgeGraphEdge[]
   semanticEdges?: KnowledgeGraphSemanticEdge[]
+  semanticGroups?: KnowledgeGraphSemanticGroup[]
   showSemanticEdges?: boolean
+  showSemanticClusters?: boolean
   selectedConceptId?: number | null
   neighbourConceptIds?: number[]
   neighbourEdgeIds?: string[]
@@ -32,7 +35,9 @@ const props = withDefaults(defineProps<{
 }>(), {
   selectedConceptId: null,
   semanticEdges: () => [],
+  semanticGroups: () => [],
   showSemanticEdges: false,
+  showSemanticClusters: false,
   neighbourConceptIds: () => [],
   neighbourEdgeIds: () => [],
   surfaceClass: '',
@@ -58,12 +63,31 @@ const graphError = shallowRef('')
 
 const hasNodes = computed(() => props.nodes.length > 0)
 const visibleSemanticEdges = computed(() => (props.showSemanticEdges ? props.semanticEdges : []))
+const visibleSemanticClusters = computed(() => (props.showSemanticClusters ? props.semanticGroups.filter(hasVisibleClusterMembers) : []))
+const semanticClusterIdByConceptId = computed(() => {
+  const clusterByConceptId = new Map<number, string>()
+  const visibleNodeIds = new Set(props.nodes.map((node) => node.concept_id))
+
+  visibleSemanticClusters.value.forEach((group) => {
+    const clusterId = semanticClusterElementId(group.group_key)
+
+    group.members.forEach((member) => {
+      if (visibleNodeIds.has(member.concept_id) && !clusterByConceptId.has(member.concept_id)) {
+        clusterByConceptId.set(member.concept_id, clusterId)
+      }
+    })
+  })
+
+  return clusterByConceptId
+})
 const graphSummary = computed(() => {
   const semanticCopy = visibleSemanticEdges.value.length > 0 ? `, ${visibleSemanticEdges.value.length} семантических соседей` : ''
+  const clusterCopy = visibleSemanticClusters.value.length > 0 ? `, ${visibleSemanticClusters.value.length} семантических кластеров` : ''
 
-  return `${props.nodes.length} концептов, ${props.edges.length} структурных связей${semanticCopy}`
+  return `${props.nodes.length} концептов, ${props.edges.length} структурных связей${semanticCopy}${clusterCopy}`
 })
 const graphElements = computed<ElementDefinition[]>(() => [
+  ...visibleSemanticClusters.value.map(mapSemanticClusterToElement),
   ...props.nodes.map(mapNodeToElement),
   ...props.edges.map(mapEdgeToElement),
   ...visibleSemanticEdges.value.map(mapSemanticEdgeToElement),
@@ -71,6 +95,62 @@ const graphElements = computed<ElementDefinition[]>(() => [
 const hasLayoutPositions = computed(() => Object.keys(props.layoutPositions).length > 0)
 
 const cytoscapeStyles: Stylesheet[] = [
+  {
+    selector: '.knowledge-semantic-cluster',
+    style: {
+      label: 'data(label)',
+      'background-color': '#ecfeff',
+      'background-opacity': 0.34,
+      'border-color': '#0891b2',
+      'border-width': 3,
+      'border-style': 'solid',
+      'border-opacity': 0.72,
+      shape: 'round-rectangle',
+      padding: 34,
+      color: '#155e75',
+      'font-size': 14,
+      'font-weight': 800,
+      'text-valign': 'top',
+      'text-halign': 'center',
+      'text-margin-y': -34,
+      'text-wrap': 'wrap',
+      'text-max-width': 220,
+      'text-background-color': '#ffffff',
+      'text-background-opacity': 0.88,
+      'text-background-padding': 5,
+      'text-border-color': '#99f6e4',
+      'text-border-opacity': 0.9,
+      'text-border-width': 1,
+      'z-compound-depth': 'bottom',
+      'overlay-opacity': 0,
+    },
+  },
+  {
+    selector: '.knowledge-semantic-cluster--stale',
+    style: {
+      'background-color': '#faf5ff',
+      'border-color': '#7e22ce',
+      'border-style': 'dashed',
+      color: '#581c87',
+    },
+  },
+  {
+    selector: '.knowledge-semantic-cluster--active',
+    style: {
+      'background-color': '#f0fdfa',
+      'border-color': '#0f766e',
+      color: '#134e4a',
+    },
+  },
+  {
+    selector: '.knowledge-semantic-cluster--archived',
+    style: {
+      'background-color': '#f8fafc',
+      'border-color': '#64748b',
+      'border-style': 'dotted',
+      color: '#334155',
+    },
+  },
   {
     selector: 'node',
     style: {
@@ -271,6 +351,10 @@ function semanticEdgeElementId(edgeId: string): string {
   return `semantic-${edgeId}`
 }
 
+function semanticClusterElementId(groupKey: string): string {
+  return `semantic-cluster-${groupKey}`
+}
+
 function weightClass(weight: number): string {
   if (weight >= 3) {
     return 'knowledge-node--strong'
@@ -285,6 +369,36 @@ function weightClass(weight: number): string {
 
 function conceptLabel(node: KnowledgeGraphNode): string {
   return node.name || node.slug || `Концепт ${node.concept_id}`
+}
+
+function hasVisibleClusterMembers(group: KnowledgeGraphSemanticGroup): boolean {
+  const visibleNodeIds = new Set(props.nodes.map((node) => node.concept_id))
+
+  return group.members.some((member) => visibleNodeIds.has(member.concept_id))
+}
+
+function semanticClusterLabel(group: KnowledgeGraphSemanticGroup): string {
+  return group.label || group.group_key || 'Семантический кластер'
+}
+
+function mapSemanticClusterToElement(group: KnowledgeGraphSemanticGroup): ElementDefinition {
+  const visibleMemberCount = group.members.filter((member) => props.nodes.some((node) => node.concept_id === member.concept_id)).length
+
+  return {
+    group: 'nodes',
+    data: {
+      id: semanticClusterElementId(group.group_key),
+      label: semanticClusterLabel(group),
+      semanticClusterKey: group.group_key,
+      semanticClusterLabel: semanticClusterLabel(group),
+      lifecycleStatus: group.lifecycle_status,
+      visibleMemberCount,
+      memberCount: group.member_count,
+      isSemanticCluster: true,
+      accessibleLabel: `Семантический кластер ${semanticClusterLabel(group)}. Видимых концептов: ${visibleMemberCount} из ${group.member_count}.`,
+    },
+    classes: `knowledge-semantic-cluster knowledge-semantic-cluster--${group.lifecycle_status}`,
+  }
 }
 
 function fallbackPosition(index: number): KnowledgeGraphLayoutPosition {
@@ -319,6 +433,7 @@ function mapNodeToElement(node: KnowledgeGraphNode, index: number): ElementDefin
       sourceCount: node.source_count,
       activitySourceCount,
       relatedQuestionCount: node.related_questions.length,
+      parent: semanticClusterIdByConceptId.value.get(node.concept_id),
     },
     classes: `knowledge-node ${weightClass(weight)} knowledge-node--state-${statePresentation.classSuffix}`,
   }
@@ -412,6 +527,10 @@ function syncHighlightClasses(): void {
   }
 
   const highlightedNodeIds = new Set([selectedNode.id(), ...neighbourConceptIds])
+  const selectedClusterId = selectedNode.data('parent')
+  if (typeof selectedClusterId === 'string' && selectedClusterId) {
+    highlightedNodeIds.add(selectedClusterId)
+  }
 
   selectedNode.addClass('knowledge-node--selected')
 
@@ -420,6 +539,10 @@ function syncHighlightClasses(): void {
 
     if (hasElement(node)) {
       node.addClass('knowledge-node--neighbour')
+      const neighbourClusterId = node.data('parent')
+      if (typeof neighbourClusterId === 'string' && neighbourClusterId) {
+        highlightedNodeIds.add(neighbourClusterId)
+      }
     }
   }
 

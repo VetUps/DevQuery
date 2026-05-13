@@ -33,9 +33,6 @@ function entryMeta(item: ReputationLedgerEntry) {
         <p class="reputation-ledger-list__eyebrow">История репутации</p>
         <h2 class="reputation-ledger-list__title">Последние изменения счёта</h2>
       </div>
-      <p class="reputation-ledger-list__copy">
-        Здесь видно, за что именно менялась репутация и кто инициировал изменение.
-      </p>
     </header>
 
     <div v-if="isPending && !hasItems" class="reputation-ledger-list__loading" data-testid="reputation-ledger-loading">
