@@ -95,6 +95,8 @@ def _state_payload(state: UserKnowledgeGraphSemanticState) -> dict[str, Any]:
         'reused_snapshot_count': state.reused_snapshot_count,
         'persisted_snapshot_count': state.snapshot_item_count,
         'neighbour_candidate_count': state.neighbor_candidate_count,
+        'semantic_group_count': state.semantic_group_count,
+        'semantic_group_membership_count': state.semantic_group_membership_count,
         'estimated_token_count': state.estimated_token_count,
         'estimated_cost': state.estimated_cost,
         'budget_cap': state.budget_cap,

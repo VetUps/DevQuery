@@ -98,6 +98,8 @@ class UserGraphSemanticStateSerializer(serializers.Serializer):
     reused_snapshot_count = serializers.IntegerField(min_value=0, required=False)
     persisted_snapshot_count = serializers.IntegerField(min_value=0, required=False)
     neighbour_candidate_count = serializers.IntegerField(min_value=0, required=False)
+    semantic_group_count = serializers.IntegerField(min_value=0, required=False)
+    semantic_group_membership_count = serializers.IntegerField(min_value=0, required=False)
     estimated_token_count = serializers.IntegerField(min_value=0)
     estimated_cost = serializers.DecimalField(max_digits=12, decimal_places=6)
     budget_cap = serializers.DecimalField(max_digits=12, decimal_places=6)
