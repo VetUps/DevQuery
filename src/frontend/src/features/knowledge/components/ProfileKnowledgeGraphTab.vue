@@ -10,6 +10,7 @@ import type {
   KnowledgeGraphConceptEntry,
   KnowledgeGraphInsightConceptEntry,
   KnowledgeGraphInsightRecommendation,
+  KnowledgeGraphInsightRecommendationV2,
   KnowledgeGraphLayoutPosition,
   KnowledgeGraphRelatedQuestion,
   KnowledgeGraphSemanticEdge,
@@ -47,7 +48,7 @@ interface KnowledgeRecommendationCard {
   conceptId: number
   conceptName: string
   state: KnowledgeGraphStatePresentation
-  recommendation: KnowledgeGraphInsightRecommendation
+  recommendation: KnowledgeGraphInsightRecommendation | KnowledgeGraphInsightRecommendationV2
   presentation: KnowledgeGraphRecommendationPresentation
   discoveryRoute: KnowledgeGraphQuestionDiscoveryRoute | null
 }
@@ -298,7 +299,17 @@ const knowledgeRecommendations = computed<KnowledgeRecommendationCard[]>(() => {
     return []
   }
 
-  return (insightsQuery.data.value?.concepts ?? []).flatMap((concept) => {
+  const insights = insightsQuery.data.value
+
+  if (!insights) {
+    return []
+  }
+
+  if ((insights.recommendations?.length ?? 0) > 0) {
+    return insights.recommendations.map((recommendation) => buildRecommendationV2Card(recommendation))
+  }
+
+  return insights.concepts.flatMap((concept) => {
     return concept.recommendations.map((recommendation) => buildRecommendationCard(concept, recommendation))
   })
 })
@@ -363,6 +374,20 @@ function buildRecommendationCard(
     recommendation,
     presentation: resolveKnowledgeGraphRecommendationPresentation(recommendation),
     discoveryRoute: buildRecommendationQuestionDiscoveryRoute(recommendation.action, concept),
+  }
+}
+
+function buildRecommendationV2Card(recommendation: KnowledgeGraphInsightRecommendationV2): KnowledgeRecommendationCard {
+  const conceptState = insightsByConceptId.value[recommendation.target.concept.concept_id]
+
+  return {
+    id: recommendation.id,
+    conceptId: recommendation.target.concept.concept_id,
+    conceptName: recommendation.target.concept.name,
+    state: resolveKnowledgeGraphStatePresentation(conceptState ?? { semantic_state: 'unknown', tone_token: 'unknown' }),
+    recommendation,
+    presentation: resolveKnowledgeGraphRecommendationPresentation(recommendation),
+    discoveryRoute: buildRecommendationQuestionDiscoveryRoute(recommendation.action, recommendation.target.concept),
   }
 }
 

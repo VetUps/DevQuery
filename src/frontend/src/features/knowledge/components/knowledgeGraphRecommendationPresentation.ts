@@ -1,5 +1,6 @@
 import type {
   KnowledgeGraphInsightRecommendation,
+  KnowledgeGraphInsightRecommendationV2,
   KnowledgeGraphRecommendationActionType,
 } from '@/features/knowledge/api/knowledgeGraph'
 
@@ -54,6 +55,7 @@ const REASON_DESCRIPTIONS: Record<string, string> = {
   isolated_concept_needs_connections: 'Тема почти не связана с другими областями вашего графа.',
   growing_concept_has_momentum: 'По теме есть положительная динамика — её стоит развить.',
   strong_concept_maintenance: 'Тема уже сильная, рекомендация помогает сохранить уровень.',
+  semantic_neighbour_suggests_bridge: 'Семантические связи показывают безопасный мост к соседним темам.',
 }
 
 function normalizePriority(value: string): KnowledgeGraphRecommendationPriority {
@@ -65,7 +67,7 @@ function normalizePriority(value: string): KnowledgeGraphRecommendationPriority 
 }
 
 export function resolveKnowledgeGraphRecommendationPresentation(
-  recommendation: Pick<KnowledgeGraphInsightRecommendation, 'action' | 'priority' | 'reason_code'>,
+  recommendation: Pick<KnowledgeGraphInsightRecommendation | KnowledgeGraphInsightRecommendationV2, 'action' | 'priority' | 'reason_code'>,
 ): KnowledgeGraphRecommendationPresentation {
   const actionPresentation = ACTION_PRESENTATION[recommendation.action.type] ?? {
     actionLabel: 'Рекомендация по развитию',

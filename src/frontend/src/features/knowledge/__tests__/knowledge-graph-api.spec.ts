@@ -202,6 +202,29 @@ const insightConcept = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 })
 
+
+const insightRecommendationV2 = (overrides: Record<string, unknown> = {}) => ({
+  rank: 1,
+  id: 'v2:weak_concept_needs_practice:10',
+  score: 0.84,
+  confidence: 0.72,
+  priority: 'high',
+  label: 'Review related Django questions',
+  reason_code: 'weak_concept_needs_practice',
+  target: {
+    concept: { concept_id: 10, slug: 'django', name: 'Django' },
+    discovery: { query: 'Django', tag: 'django', search: 'Django', order: 'relevance', page: 1 },
+  },
+  action: {
+    type: 'review_related_questions',
+    payload: { query: 'Django', tag: 'django', search: 'Django', order: 'relevance', page: 1 },
+  },
+  evidence: [
+    { code: 'state_score', label: 'Composite concept readiness score', value: '0.42', weight: 0.58 },
+  ],
+  ...overrides,
+})
+
 const insightsPayload = (overrides: Record<string, unknown> = {}) => ({
   user_id: '11111111-1111-4111-8111-111111111111',
   viewer: { is_owner: true },
@@ -223,6 +246,7 @@ const insightsPayload = (overrides: Record<string, unknown> = {}) => ({
       isolated: 1,
     },
   },
+  recommendations: [],
   concepts: [
     insightConcept({ semantic_state: 'strong', tone_token: 'confident' }),
     insightConcept({ concept_id: 20, slug: 'vue', name: 'Vue', semantic_state: 'growing', tone_token: 'momentum' }),
@@ -486,6 +510,7 @@ describe('knowledge graph API contract', () => {
           isolated: 1,
         },
       },
+      recommendations: [],
       concepts: [
         expect.objectContaining({ semantic_state: 'strong', tone_token: 'confident' }),
         expect.objectContaining({ semantic_state: 'growing', tone_token: 'momentum' }),
@@ -645,6 +670,57 @@ describe('knowledge graph API contract', () => {
     expect(() => parseUserKnowledgeGraphInsightsResponse(insightsPayload({ concepts: [insightConcept({ recommendations: [{ id: 'x', priority: 'high', label: 'Bad', reason_code: 'bad', action: { type: 'review_related_questions', payload: [] } }] })] }))).toThrow(
       /concepts\[0\]\.recommendations\[0\]\.action\.payload/,
     )
+  })
+
+  it('parses bounded recommendation-v2 DTOs without expanding top-level recommendations client-side', () => {
+    const parsed = parseUserKnowledgeGraphInsightsResponse(
+      insightsPayload({
+        summary: { ...insightsPayload().summary, recommendation_count: 1 },
+        recommendations: [insightRecommendationV2()],
+      }),
+    )
+
+    expect(parsed.recommendations).toEqual([
+      expect.objectContaining({
+        rank: 1,
+        score: 0.84,
+        confidence: 0.72,
+        target: expect.objectContaining({
+          concept: { concept_id: 10, slug: 'django', name: 'Django' },
+          discovery: { query: 'Django', tag: 'django', search: 'Django', order: 'relevance', page: 1 },
+          neighbours: [],
+          group: null,
+        }),
+      }),
+    ])
+    expect(parsed.concepts.flatMap((concept) => concept.recommendations)).toHaveLength(5)
+    expect(parsed.summary.recommendation_count).toBe(1)
+    expect(JSON.stringify(parsed.recommendations)).not.toContain('provider')
+    expect(JSON.stringify(parsed.recommendations)).not.toContain('source_id')
+  })
+
+  it('rejects malformed or private-looking recommendation-v2 DTOs with generic path errors', () => {
+    const cases: Array<[Record<string, unknown>, RegExp]> = [
+      [{ recommendations: {} }, /recommendations/],
+      [{ recommendations: [insightRecommendationV2({ target: { concept: { concept_id: 10, slug: 'django', name: 'Django' }, discovery: {}, unsafe_target: true } })] }, /recommendations\[0\]\.target/],
+      [{ recommendations: [insightRecommendationV2({ rank: 0 })] }, /recommendations\[0\]\.rank/],
+      [{ recommendations: [insightRecommendationV2({ score: 1.1 })] }, /recommendations\[0\]\.score/],
+      [{ recommendations: [insightRecommendationV2({ confidence: -0.1 })] }, /recommendations\[0\]\.confidence/],
+      [{ recommendations: [insightRecommendationV2({ action: { type: 'review_related_questions', payload: { source_id: 'private' } } })] }, /recommendations\[0\]\.action\.payload\.source_id/],
+      [{ recommendations: [insightRecommendationV2({ action: { type: 'review_related_questions' } })] }, /recommendations\[0\]\.action\.payload/],
+      [{ recommendations: [insightRecommendationV2({ evidence: [{ code: 'vector', label: 'safe', value: 'ok', weight: 0.1 }] })] }, /recommendations\[0\]\.evidence/],
+      [{ recommendations: [insightRecommendationV2({ evidence: [{ code: 'state_score', label: 'safe', value: 'owner@example.com', weight: 0.1 }] })] }, /recommendations\[0\]\.evidence/],
+      [{ recommendations: [insightRecommendationV2({ evidence: [{ code: 'state_score', label: 'safe', value: 'sk_live_secret', weight: 0.1 }] })] }, /recommendations\[0\]\.evidence/],
+    ]
+
+    cases.forEach(([override, pathMatcher]) => {
+      expect(() => parseUserKnowledgeGraphInsightsResponse(insightsPayload(override))).toThrow(pathMatcher)
+    })
+  })
+
+  it('rejects public graph and public-looking insights responses that contain recommendations', () => {
+    expect(() => parseUserKnowledgeGraphResponse(graphPayload({ viewer: { is_owner: false }, recommendations: [insightRecommendationV2()] }))).toThrow(/recommendations/)
+    expect(() => parseUserKnowledgeGraphInsightsResponse(insightsPayload({ viewer: { is_owner: false }, recommendations: [insightRecommendationV2()] }))).toThrow(/recommendations/)
   })
 
   it('fetches owner insights through the owner-only endpoint and strict parser', async () => {

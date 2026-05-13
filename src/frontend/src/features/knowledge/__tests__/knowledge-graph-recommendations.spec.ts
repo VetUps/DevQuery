@@ -171,6 +171,7 @@ function buildInsights(overrides: Partial<UserKnowledgeGraphInsightsResponse> = 
       last_rebuild_finished_at: '2026-05-06T12:00:00Z',
     },
     summary: { concept_count: 2, recommendation_count: 2, states: { weak: 1, growing: 1 } },
+    recommendations: [],
     concepts: [
       {
         concept_id: 10,
