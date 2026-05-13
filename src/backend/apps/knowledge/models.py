@@ -4,7 +4,7 @@ from django.conf import settings
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
-from django.core.validators import MaxValueValidator, MinValueValidator
+from django.core.validators import MaxValueValidator, MinValueValidator, RegexValidator
 from django.db import models
 
 from apps.qa.models import Question, Tag
@@ -30,6 +30,10 @@ SEMANTIC_GROUP_FORBIDDEN_EVIDENCE_KEYS = {
     'vector_payload',
 }
 SEMANTIC_GROUP_FORBIDDEN_VALUE_MARKERS = ('<', '>', 'sk_', '@', 'source_id', 'content_hash', 'vector_payload')
+SEMANTIC_GROUP_LIFECYCLE_REASON_VALIDATOR = RegexValidator(
+    regex=r'^[a-z0-9_]*$',
+    message='Semantic group lifecycle reason code must be a safe lowercase code.',
+)
 
 
 def validate_semantic_group_safe_json(value):
@@ -362,6 +366,11 @@ class UserKnowledgeGraphSemanticCandidate(models.Model):
 
 
 class UserKnowledgeGraphSemanticGroup(models.Model):
+    class LifecycleStatus(models.TextChoices):
+        ACTIVE = 'active', 'Active'
+        STALE = 'stale', 'Stale'
+        ARCHIVED = 'archived', 'Archived'
+
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -379,6 +388,17 @@ class UserKnowledgeGraphSemanticGroup(models.Model):
         validators=[MinValueValidator(Decimal('0.0000')), MaxValueValidator(Decimal('1.0000'))],
     )
     evidence = models.JSONField(default=dict, blank=True, validators=[validate_semantic_group_safe_json])
+    lifecycle_status = models.CharField(max_length=20, choices=LifecycleStatus.choices, default=LifecycleStatus.ACTIVE)
+    lifecycle_reason_code = models.CharField(
+        max_length=80,
+        blank=True,
+        default='',
+        validators=[SEMANTIC_GROUP_LIFECYCLE_REASON_VALIDATOR],
+    )
+    first_seen_at = models.DateTimeField(blank=True, null=True)
+    last_seen_at = models.DateTimeField(blank=True, null=True)
+    stale_at = models.DateTimeField(blank=True, null=True)
+    archived_at = models.DateTimeField(blank=True, null=True)
     generated_at = models.DateTimeField()
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -391,6 +411,7 @@ class UserKnowledgeGraphSemanticGroup(models.Model):
         indexes = [
             models.Index(fields=['user', 'provider', 'model'], name='ukgsg_user_provider_idx'),
             models.Index(fields=['user', 'generated_at'], name='ukgsg_user_generated_idx'),
+            models.Index(fields=['user', 'lifecycle_status'], name='ukgsg_user_lifecycle_idx'),
         ]
 
     def __str__(self):
