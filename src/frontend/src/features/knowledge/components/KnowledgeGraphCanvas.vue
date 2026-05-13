@@ -7,6 +7,7 @@ import type {
   KnowledgeGraphEdge,
   KnowledgeGraphLayoutPosition,
   KnowledgeGraphNode,
+  KnowledgeGraphSemanticEdge,
 } from '@/features/knowledge/api/knowledgeGraph'
 import type { KnowledgeGraphConceptStateById } from './knowledgeGraphStatePresentation'
 import { getKnowledgeGraphConceptState } from './knowledgeGraphStatePresentation'
@@ -19,6 +20,8 @@ interface Emits {
 const props = withDefaults(defineProps<{
   nodes: KnowledgeGraphNode[]
   edges: KnowledgeGraphEdge[]
+  semanticEdges?: KnowledgeGraphSemanticEdge[]
+  showSemanticEdges?: boolean
   selectedConceptId?: number | null
   neighbourConceptIds?: number[]
   neighbourEdgeIds?: string[]
@@ -28,6 +31,8 @@ const props = withDefaults(defineProps<{
   conceptStates?: KnowledgeGraphConceptStateById
 }>(), {
   selectedConceptId: null,
+  semanticEdges: () => [],
+  showSemanticEdges: false,
   neighbourConceptIds: () => [],
   neighbourEdgeIds: () => [],
   surfaceClass: '',
@@ -44,6 +49,7 @@ const HIGHLIGHT_CLASSES = [
   'knowledge-node--neighbour',
   'knowledge-node--dimmed',
   'knowledge-edge--neighbour',
+  'knowledge-edge--semantic-highlight',
   'knowledge-edge--dimmed',
 ]
 const graphContainer = useTemplateRef<HTMLElement>('graphContainer')
@@ -51,10 +57,16 @@ const cyInstance = shallowRef<Core | null>(null)
 const graphError = shallowRef('')
 
 const hasNodes = computed(() => props.nodes.length > 0)
-const graphSummary = computed(() => `${props.nodes.length} концептов · ${props.edges.length} связей`)
+const visibleSemanticEdges = computed(() => (props.showSemanticEdges ? props.semanticEdges : []))
+const graphSummary = computed(() => {
+  const semanticCopy = visibleSemanticEdges.value.length > 0 ? `, ${visibleSemanticEdges.value.length} семантических соседей` : ''
+
+  return `${props.nodes.length} концептов, ${props.edges.length} структурных связей${semanticCopy}`
+})
 const graphElements = computed<ElementDefinition[]>(() => [
   ...props.nodes.map(mapNodeToElement),
   ...props.edges.map(mapEdgeToElement),
+  ...visibleSemanticEdges.value.map(mapSemanticEdgeToElement),
 ])
 const hasLayoutPositions = computed(() => Object.keys(props.layoutPositions).length > 0)
 
@@ -202,6 +214,30 @@ const cytoscapeStyles: Stylesheet[] = [
     },
   },
   {
+    selector: '.knowledge-edge--semantic-neighbour',
+    style: {
+      'line-color': '#7c3aed',
+      'target-arrow-color': '#7c3aed',
+      'line-style': 'dashed',
+      width: 'mapData(weight, 0, 5, 1, 4)',
+      opacity: 0.72,
+      label: 'data(semanticLabel)',
+      color: '#5b21b6',
+      'text-background-color': '#f5f3ff',
+    },
+  },
+  {
+    selector: '.knowledge-edge--semantic-highlight',
+    style: {
+      'line-color': '#6d28d9',
+      'target-arrow-color': '#6d28d9',
+      width: 6,
+      opacity: 1,
+      'line-style': 'dashed',
+      'z-index': 8,
+    },
+  },
+  {
     selector: '.knowledge-edge--neighbour',
     style: {
       'line-color': '#16a34a',
@@ -229,6 +265,10 @@ function toNumber(value: string): number {
 
 function conceptElementId(conceptId: number): string {
   return `concept-${conceptId}`
+}
+
+function semanticEdgeElementId(edgeId: string): string {
+  return `semantic-${edgeId}`
 }
 
 function weightClass(weight: number): string {
@@ -298,11 +338,36 @@ function mapEdgeToElement(edge: KnowledgeGraphEdge): ElementDefinition {
       source: conceptElementId(edge.source_concept_id),
       target: conceptElementId(edge.target_concept_id),
       weight: toNumber(edge.weight),
+      edgeKind: 'structural_shared_question',
+      accessibleLabel: `Структурная связь: ${edge.shared_question_count} общих вопросов`,
       sharedQuestionCount: edge.shared_question_count,
       sharedQuestionLabel: edge.shared_question_count > 0 ? `${edge.shared_question_count}` : '',
       relatedQuestionCount: edge.related_questions.length,
     },
     classes: `knowledge-edge knowledge-edge--${edge.reason.replaceAll('_', '-')}`,
+  }
+}
+
+function mapSemanticEdgeToElement(edge: KnowledgeGraphSemanticEdge): ElementDefinition {
+  const similarity = toNumber(edge.similarity_score)
+  const confidence = toNumber(edge.confidence)
+
+  return {
+    group: 'edges',
+    data: {
+      id: semanticEdgeElementId(edge.id),
+      source: conceptElementId(edge.source_concept_id),
+      target: conceptElementId(edge.target_concept_id),
+      weight: toNumber(edge.weight),
+      edgeKind: 'semantic_neighbour',
+      semanticReason: edge.reason,
+      similarity,
+      confidence,
+      rank: edge.rank,
+      semanticLabel: `${Math.round(similarity * 100)}%`,
+      accessibleLabel: `Семантический сосед: похожесть ${Math.round(similarity * 100)}%, уверенность ${Math.round(confidence * 100)}%. Пунктирная приватная связь владельца.`,
+    },
+    classes: 'knowledge-edge knowledge-edge--semantic-neighbour',
   }
 }
 
@@ -331,6 +396,21 @@ function syncHighlightClasses(): void {
 
   const neighbourConceptIds = new Set(props.neighbourConceptIds.map(conceptElementId))
   const neighbourEdgeIds = new Set(props.neighbourEdgeIds)
+
+  if (props.showSemanticEdges) {
+    props.semanticEdges.forEach((edge) => {
+      if (edge.source_concept_id === props.selectedConceptId) {
+        neighbourConceptIds.add(conceptElementId(edge.target_concept_id))
+        neighbourEdgeIds.add(semanticEdgeElementId(edge.id))
+      }
+
+      if (edge.target_concept_id === props.selectedConceptId) {
+        neighbourConceptIds.add(conceptElementId(edge.source_concept_id))
+        neighbourEdgeIds.add(semanticEdgeElementId(edge.id))
+      }
+    })
+  }
+
   const highlightedNodeIds = new Set([selectedNode.id(), ...neighbourConceptIds])
 
   selectedNode.addClass('knowledge-node--selected')
@@ -347,7 +427,7 @@ function syncHighlightClasses(): void {
     const edge = cy.getElementById(edgeId)
 
     if (hasElement(edge)) {
-      edge.addClass('knowledge-edge--neighbour')
+      edge.addClass(edgeId.startsWith('semantic-') ? 'knowledge-edge--semantic-highlight' : 'knowledge-edge--neighbour')
     }
   }
 
@@ -520,7 +600,7 @@ watch(graphElements, () => {
 })
 
 watch(
-  () => [props.selectedConceptId, props.neighbourConceptIds, props.neighbourEdgeIds] as const,
+  () => [props.selectedConceptId, props.neighbourConceptIds, props.neighbourEdgeIds, props.showSemanticEdges, props.semanticEdges] as const,
   () => {
     syncHighlightClasses()
   },

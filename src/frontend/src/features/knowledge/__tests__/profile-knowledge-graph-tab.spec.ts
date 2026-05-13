@@ -70,6 +70,8 @@ const rendererHarness = vi.hoisted(() => ({
   props: [] as Array<{
     nodes: UserKnowledgeGraphResponse['nodes']
     edges: UserKnowledgeGraphResponse['edges']
+    semanticEdges: UserKnowledgeGraphResponse['semantic_edges']
+    showSemanticEdges: boolean
     selectedConceptId: number | null
     neighbourConceptIds: number[]
     neighbourEdgeIds: string[]
@@ -88,6 +90,8 @@ vi.mock('@/features/knowledge/components/KnowledgeGraphRenderer.vue', () => ({
     props: {
       nodes: { type: Array, required: true },
       edges: { type: Array, required: true },
+      semanticEdges: { type: Array, default: () => [] },
+      showSemanticEdges: { type: Boolean, default: false },
       selectedConceptId: { type: Number, default: null },
       neighbourConceptIds: { type: Array, default: () => [] },
       neighbourEdgeIds: { type: Array, default: () => [] },
@@ -98,10 +102,12 @@ vi.mock('@/features/knowledge/components/KnowledgeGraphRenderer.vue', () => ({
       isLayoutResetting: { type: Boolean, default: false },
       conceptStates: { type: Object, default: () => ({}) },
     },
-    emits: ['node-selected', 'layout-changed', 'layout-save-requested', 'layout-reset-requested'],
+    emits: ['node-selected', 'layout-changed', 'layout-save-requested', 'layout-reset-requested', 'semantic-visibility-changed'],
     setup(props: {
       nodes: UserKnowledgeGraphResponse['nodes']
       edges: UserKnowledgeGraphResponse['edges']
+      semanticEdges: UserKnowledgeGraphResponse['semantic_edges']
+      showSemanticEdges: boolean
       selectedConceptId: number | null
       neighbourConceptIds: number[]
       neighbourEdgeIds: string[]
@@ -111,10 +117,12 @@ vi.mock('@/features/knowledge/components/KnowledgeGraphRenderer.vue', () => ({
       isLayoutSaving: boolean
       isLayoutResetting: boolean
       conceptStates: Record<string | number, { semantic_state: string; tone_token: string } | undefined>
-    }, { emit }: { emit: (event: 'node-selected' | 'layout-changed' | 'layout-save-requested' | 'layout-reset-requested', payload?: unknown) => void }) {
+    }, { emit }: { emit: (event: 'node-selected' | 'layout-changed' | 'layout-save-requested' | 'layout-reset-requested' | 'semantic-visibility-changed', payload?: unknown) => void }) {
       rendererHarness.props.push({
         nodes: props.nodes,
         edges: props.edges,
+        semanticEdges: props.semanticEdges,
+        showSemanticEdges: props.showSemanticEdges,
         selectedConceptId: props.selectedConceptId,
         neighbourConceptIds: props.neighbourConceptIds,
         neighbourEdgeIds: props.neighbourEdgeIds,
@@ -142,11 +150,17 @@ vi.mock('@/features/knowledge/components/KnowledgeGraphRenderer.vue', () => ({
         emit('layout-reset-requested')
       }
 
-      return { props, selectConcept, changeLayout, saveLayout, resetLayout }
+      function toggleSemanticLayer() {
+        emit('semantic-visibility-changed', !props.showSemanticEdges)
+      }
+
+      return { props, selectConcept, changeLayout, saveLayout, resetLayout, toggleSemanticLayer }
     },
     template: `
       <section data-testid="knowledge-graph-renderer-stub">
         {{ props.nodes.length }} nodes / {{ props.edges.length }} edges
+        <span data-testid="renderer-semantic-count">{{ props.semanticEdges.length }}</span>
+        <span data-testid="renderer-semantic-visible">{{ props.showSemanticEdges ? 'semantic-on' : 'semantic-off' }}</span>
         <span data-testid="renderer-selected-id">{{ props.selectedConceptId ?? 'none' }}</span>
         <span data-testid="renderer-neighbour-ids">{{ props.neighbourConceptIds.join(',') }}</span>
         <span data-testid="renderer-edge-ids">{{ props.neighbourEdgeIds.join(',') }}</span>
@@ -160,6 +174,7 @@ vi.mock('@/features/knowledge/components/KnowledgeGraphRenderer.vue', () => ({
         <button type="button" data-testid="change-layout" @click="changeLayout">change layout</button>
         <button type="button" data-testid="save-layout" @click="saveLayout">save layout</button>
         <button type="button" data-testid="reset-layout" @click="resetLayout">reset layout</button>
+        <button type="button" data-testid="toggle-semantic-layer" @click="toggleSemanticLayer">toggle semantic</button>
       </section>
     `,
   },
@@ -238,6 +253,8 @@ function buildGraph(overrides: Partial<UserKnowledgeGraphResponse> = {}): UserKn
       { activity_type: 'question_upvote', total_weight: '1.7500', source_count: 4 },
     ],
     concepts: baseConcepts,
+    semantic_edges: [],
+    semantic_groups: [],
     ...overrides,
   }
 
@@ -869,6 +886,57 @@ describe('ProfileKnowledgeGraphTab', () => {
     expect(publicWrapper.find('[data-testid="knowledge-insights-status"]').exists()).toBe(false)
     expect(publicWrapper.find('[data-testid="knowledge-insights-search"]').exists()).toBe(false)
     expect(publicWrapper.find('[data-testid="knowledge-insights-legend"]').exists()).toBe(false)
+  })
+
+
+  it('passes owner semantic neighbours separately and toggles the private overlay without changing structural edges', async () => {
+    const graph = buildGraph({
+      semantic_edges: [
+        {
+          id: 'semantic-10-11',
+          source_concept_id: 10,
+          target_concept_id: 11,
+          weight: '0.9000',
+          similarity_score: '0.8700',
+          confidence: '0.7600',
+          rank: 1,
+          reason: 'semantic_neighbour',
+          evidence: { overlap_count: 2 },
+        },
+      ],
+    })
+    setQueryState({ data: graph })
+
+    const wrapper = await mountTab()
+
+    expect(wrapper.get('[data-testid="renderer-semantic-count"]').text()).toBe('1')
+    expect(wrapper.get('[data-testid="renderer-semantic-visible"]').text()).toBe('semantic-on')
+    expect(rendererHarness.props[0].edges).toBe(graph.edges)
+    expect(rendererHarness.props[0].semanticEdges).toStrictEqual(graph.semantic_edges)
+
+    await wrapper.get('[data-testid="toggle-semantic-layer"]').trigger('click')
+    await nextTick()
+
+    expect(wrapper.get('[data-testid="renderer-semantic-count"]').text()).toBe('1')
+    expect(wrapper.get('[data-testid="renderer-semantic-visible"]').text()).toBe('semantic-off')
+    expect(rendererHarness.props.at(-1)?.edges).toBe(graph.edges)
+  })
+
+  it('hides owner-only semantic surfaces for public graphs and tolerates empty semantic arrays', async () => {
+    const graph = buildGraph({
+      viewer: { is_owner: false },
+      semantic_edges: [],
+      semantic_groups: [],
+    })
+    setQueryState({ data: graph })
+
+    const wrapper = await mountTab({ userId: 'user-42' })
+
+    expect(wrapper.get('[data-testid="renderer-is-owner"]').text()).toBe('readonly')
+    expect(wrapper.get('[data-testid="renderer-semantic-count"]').text()).toBe('0')
+    expect(wrapper.get('[data-testid="renderer-semantic-visible"]').text()).toBe('semantic-off')
+    expect(wrapper.text()).not.toContain('semantic_neighbour')
+    expect(wrapper.text()).not.toContain('raw_output')
   })
 
 })
