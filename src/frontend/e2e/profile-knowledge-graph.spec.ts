@@ -169,6 +169,14 @@ const staleGraphFixture = {
           evidence: { safe_signal_count: 2 },
         },
       ],
+      lifecycle_status: 'active',
+      lifecycle_reason_code: '',
+      reuse_evidence: { stable_group_key: 'vue-state-cache' },
+      member_count: 2,
+      first_seen_at: '2024-06-10T12:00:00Z',
+      last_seen_at: '2024-06-10T12:00:00Z',
+      stale_at: null,
+      archived_at: null,
     },
   ],
   layout: {
@@ -729,7 +737,7 @@ test.describe('profile knowledge graph smoke', () => {
     await expect(page.getByTestId('knowledge-semantic-groups-count')).toHaveText('1')
     await expect(page.getByTestId('knowledge-semantic-groups-status')).toContainText('Граф может быть устаревшим')
     await expect(page.getByTestId('knowledge-semantic-group-card-vue-state-cache')).toContainText('Vue state and cache')
-    await expect(page.getByTestId('knowledge-semantic-group-card-vue-state-cache')).toContainText('2 концепта')
+    await expect(page.getByTestId('knowledge-semantic-group-card-vue-state-cache')).toContainText('2 из 2 концептов')
     await expect(page.getByTestId('knowledge-semantic-group-selected-details')).toContainText('Агрегированные сигналы')
     await expect(page.getByTestId('knowledge-semantic-group-members')).toContainText('Vue Query')
     await expect(page.getByTestId('knowledge-semantic-group-members')).toContainText('Pinia')
