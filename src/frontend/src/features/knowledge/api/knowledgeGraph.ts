@@ -81,6 +81,65 @@ export interface KnowledgeGraphSemanticGroupMember {
   evidence: KnowledgeGraphSafeEvidencePayload
 }
 
+export type KnowledgeGraphSemanticLifecycleStatus = 'active' | 'stale' | 'archived'
+
+export interface KnowledgeGraphSemanticDiagnosticsView {
+  mode: 'semantic'
+  visible_lifecycle_statuses: KnowledgeGraphSemanticLifecycleStatus[]
+  archived_groups_included: boolean
+}
+
+export interface KnowledgeGraphSemanticDiagnostics {
+  status: string
+  reason_code: string
+  phase: string
+  enabled: boolean
+  dry_run: boolean
+  source_item_count: number
+  total_source_count: number
+  changed_source_count: number
+  provider_called_source_count: number
+  reused_snapshot_count: number
+  persisted_snapshot_count: number
+  neighbour_candidate_count: number
+  semantic_group_count: number
+  semantic_group_membership_count: number
+  semantic_group_reused_count: number
+  semantic_group_created_count: number
+  semantic_group_changed_count: number
+  semantic_group_stale_count: number
+  semantic_group_archived_count: number
+  estimated_token_count: number
+  estimated_cost: string
+  budget_cap: string
+  last_error_message: string
+  started_at: string | null
+  finished_at: string | null
+  view: KnowledgeGraphSemanticDiagnosticsView
+}
+
+export interface KnowledgeGraphSemanticLifecycleCounts {
+  active: number
+  stale: number
+  archived?: number
+}
+
+export interface KnowledgeGraphSemanticGraphMetadata {
+  schema_version: 1
+  mode: 'semantic'
+  status: string
+  reason_code: string
+  phase: string
+  enabled: boolean
+  available: boolean
+  visible_group_count: number
+  visible_member_count: number
+  semantic_edge_count: number
+  lifecycle_counts: KnowledgeGraphSemanticLifecycleCounts
+  supported_lifecycle_statuses: KnowledgeGraphSemanticLifecycleStatus[]
+  archived_groups_included: boolean
+}
+
 export interface KnowledgeGraphSemanticGroup {
   group_key: string
   label: string
@@ -90,6 +149,14 @@ export interface KnowledgeGraphSemanticGroup {
   generated_at: string
   evidence: KnowledgeGraphSafeEvidencePayload
   members: KnowledgeGraphSemanticGroupMember[]
+  lifecycle_status: KnowledgeGraphSemanticLifecycleStatus
+  lifecycle_reason_code: string
+  reuse_evidence: KnowledgeGraphSafeEvidencePayload
+  member_count: number
+  first_seen_at: string | null
+  last_seen_at: string | null
+  stale_at: string | null
+  archived_at: string | null
 }
 
 export interface KnowledgeGraphLayoutPosition {
@@ -119,6 +186,8 @@ export interface UserKnowledgeGraphResponse {
   edges: KnowledgeGraphEdge[]
   semantic_edges: KnowledgeGraphSemanticEdge[]
   semantic_groups: KnowledgeGraphSemanticGroup[]
+  semantic?: KnowledgeGraphSemanticDiagnostics
+  semantic_graph?: KnowledgeGraphSemanticGraphMetadata
   layout?: KnowledgeGraphLayout
 }
 
@@ -596,6 +665,214 @@ function parseSemanticGroupMembers(value: unknown, path: string): KnowledgeGraph
     .sort((left, right) => left.rank - right.rank || left.concept_id - right.concept_id)
 }
 
+const KNOWLEDGE_GRAPH_SEMANTIC_LIFECYCLE_STATUSES = ['active', 'stale', 'archived'] as const
+
+function assertSemanticLifecycleStatus(value: unknown, path: string): KnowledgeGraphSemanticLifecycleStatus {
+  const parsed = assertNonEmptyString(value, path)
+
+  if (!KNOWLEDGE_GRAPH_SEMANTIC_LIFECYCLE_STATUSES.includes(parsed as KnowledgeGraphSemanticLifecycleStatus)) {
+    throw new MalformedKnowledgeGraphResponseError(path, 'one of active, stale, archived')
+  }
+
+  return parsed as KnowledgeGraphSemanticLifecycleStatus
+}
+
+function assertSemanticMode(value: unknown, path: string): 'semantic' {
+  const parsed = assertNonEmptyString(value, path)
+
+  if (parsed !== 'semantic') {
+    throw new MalformedKnowledgeGraphResponseError(path, "'semantic'")
+  }
+
+  return 'semantic'
+}
+
+function assertSemanticGraphSchemaVersion(value: unknown, path: string): 1 {
+  const parsed = assertNonNegativeInteger(value, path)
+
+  if (parsed !== 1) {
+    throw new MalformedKnowledgeGraphResponseError(path, 'semantic graph schema version 1')
+  }
+
+  return 1
+}
+
+function assertNullableTimestampString(value: unknown, path: string): string | null {
+  if (value === null) {
+    return null
+  }
+
+  return assertNonEmptyString(value, path)
+}
+
+function assertSafeDiagnosticsString(value: unknown, path: string): string {
+  const parsed = assertString(value, path)
+
+  if (PRIVATE_LOOKING_EMAIL_PATTERN.test(parsed) || PRIVATE_LOOKING_SECRET_PATTERN.test(parsed) || /(?:source_id|raw_output|traceback|private source text)/i.test(parsed)) {
+    throw new MalformedKnowledgeGraphResponseError(path, 'safe semantic diagnostics')
+  }
+
+  return parsed
+}
+
+function parseSemanticLifecycleStatuses(value: unknown, path: string): KnowledgeGraphSemanticLifecycleStatus[] {
+  return assertArray(value, path).map((entry, index) => assertSemanticLifecycleStatus(entry, `${path}[${index}]`))
+}
+
+function parseSemanticDiagnosticsView(value: unknown, path: string): KnowledgeGraphSemanticDiagnosticsView {
+  const record = assertRecord(value, path)
+
+  return {
+    mode: assertSemanticMode(record.mode, `${path}.mode`),
+    visible_lifecycle_statuses: parseSemanticLifecycleStatuses(record.visible_lifecycle_statuses, `${path}.visible_lifecycle_statuses`),
+    archived_groups_included: assertBoolean(record.archived_groups_included, `${path}.archived_groups_included`),
+  }
+}
+
+function parseSemanticLifecycleCounts(value: unknown, path: string): KnowledgeGraphSemanticLifecycleCounts {
+  const record = assertRecord(value, path)
+  const parsed: KnowledgeGraphSemanticLifecycleCounts = {
+    active: assertNonNegativeInteger(record.active, `${path}.active`),
+    stale: assertNonNegativeInteger(record.stale, `${path}.stale`),
+  }
+
+  if ('archived' in record) {
+    parsed.archived = assertNonNegativeInteger(record.archived, `${path}.archived`)
+  }
+
+  return parsed
+}
+
+function defaultSemanticDiagnostics(): KnowledgeGraphSemanticDiagnostics {
+  return {
+    status: 'pending',
+    reason_code: '',
+    phase: '',
+    enabled: false,
+    dry_run: true,
+    source_item_count: 0,
+    total_source_count: 0,
+    changed_source_count: 0,
+    provider_called_source_count: 0,
+    reused_snapshot_count: 0,
+    persisted_snapshot_count: 0,
+    neighbour_candidate_count: 0,
+    semantic_group_count: 0,
+    semantic_group_membership_count: 0,
+    semantic_group_reused_count: 0,
+    semantic_group_created_count: 0,
+    semantic_group_changed_count: 0,
+    semantic_group_stale_count: 0,
+    semantic_group_archived_count: 0,
+    estimated_token_count: 0,
+    estimated_cost: '0.000000',
+    budget_cap: '0.000000',
+    last_error_message: '',
+    started_at: null,
+    finished_at: null,
+    view: {
+      mode: 'semantic',
+      visible_lifecycle_statuses: ['active', 'stale'],
+      archived_groups_included: false,
+    },
+  }
+}
+
+function defaultSemanticGraphMetadata(): KnowledgeGraphSemanticGraphMetadata {
+  return {
+    schema_version: 1,
+    mode: 'semantic',
+    status: 'pending',
+    reason_code: '',
+    phase: '',
+    enabled: false,
+    available: false,
+    visible_group_count: 0,
+    visible_member_count: 0,
+    semantic_edge_count: 0,
+    lifecycle_counts: { active: 0, stale: 0 },
+    supported_lifecycle_statuses: ['active', 'stale'],
+    archived_groups_included: false,
+  }
+}
+
+function parseSemanticDiagnostics(value: unknown, path: string): KnowledgeGraphSemanticDiagnostics {
+  const record = assertRecord(value, path)
+
+  return {
+    status: assertString(record.status, `${path}.status`),
+    reason_code: assertString(record.reason_code, `${path}.reason_code`),
+    phase: assertString(record.phase, `${path}.phase`),
+    enabled: assertBoolean(record.enabled, `${path}.enabled`),
+    dry_run: assertBoolean(record.dry_run, `${path}.dry_run`),
+    source_item_count: assertNonNegativeInteger(record.source_item_count, `${path}.source_item_count`),
+    total_source_count: assertNonNegativeInteger(record.total_source_count, `${path}.total_source_count`),
+    changed_source_count: assertNonNegativeInteger(record.changed_source_count, `${path}.changed_source_count`),
+    provider_called_source_count: assertNonNegativeInteger(record.provider_called_source_count, `${path}.provider_called_source_count`),
+    reused_snapshot_count: assertNonNegativeInteger(record.reused_snapshot_count, `${path}.reused_snapshot_count`),
+    persisted_snapshot_count: assertNonNegativeInteger(record.persisted_snapshot_count, `${path}.persisted_snapshot_count`),
+    neighbour_candidate_count: assertNonNegativeInteger(record.neighbour_candidate_count, `${path}.neighbour_candidate_count`),
+    semantic_group_count: assertNonNegativeInteger(record.semantic_group_count, `${path}.semantic_group_count`),
+    semantic_group_membership_count: assertNonNegativeInteger(record.semantic_group_membership_count, `${path}.semantic_group_membership_count`),
+    semantic_group_reused_count: assertNonNegativeInteger(record.semantic_group_reused_count, `${path}.semantic_group_reused_count`),
+    semantic_group_created_count: assertNonNegativeInteger(record.semantic_group_created_count, `${path}.semantic_group_created_count`),
+    semantic_group_changed_count: assertNonNegativeInteger(record.semantic_group_changed_count, `${path}.semantic_group_changed_count`),
+    semantic_group_stale_count: assertNonNegativeInteger(record.semantic_group_stale_count, `${path}.semantic_group_stale_count`),
+    semantic_group_archived_count: assertNonNegativeInteger(record.semantic_group_archived_count, `${path}.semantic_group_archived_count`),
+    estimated_token_count: assertNonNegativeInteger(record.estimated_token_count, `${path}.estimated_token_count`),
+    estimated_cost: assertDecimalString(record.estimated_cost, `${path}.estimated_cost`),
+    budget_cap: assertDecimalString(record.budget_cap, `${path}.budget_cap`),
+    last_error_message: assertSafeDiagnosticsString(record.last_error_message, `${path}.last_error_message`),
+    started_at: assertNullableTimestampString(record.started_at, `${path}.started_at`),
+    finished_at: assertNullableTimestampString(record.finished_at, `${path}.finished_at`),
+    view: parseSemanticDiagnosticsView(record.view, `${path}.view`),
+  }
+}
+
+function parseSemanticGraphMetadata(value: unknown, path: string): KnowledgeGraphSemanticGraphMetadata {
+  const record = assertRecord(value, path)
+
+  return {
+    schema_version: assertSemanticGraphSchemaVersion(record.schema_version, `${path}.schema_version`),
+    mode: assertSemanticMode(record.mode, `${path}.mode`),
+    status: assertString(record.status, `${path}.status`),
+    reason_code: assertString(record.reason_code, `${path}.reason_code`),
+    phase: assertString(record.phase, `${path}.phase`),
+    enabled: assertBoolean(record.enabled, `${path}.enabled`),
+    available: assertBoolean(record.available, `${path}.available`),
+    visible_group_count: assertNonNegativeInteger(record.visible_group_count, `${path}.visible_group_count`),
+    visible_member_count: assertNonNegativeInteger(record.visible_member_count, `${path}.visible_member_count`),
+    semantic_edge_count: assertNonNegativeInteger(record.semantic_edge_count, `${path}.semantic_edge_count`),
+    lifecycle_counts: parseSemanticLifecycleCounts(record.lifecycle_counts, `${path}.lifecycle_counts`),
+    supported_lifecycle_statuses: parseSemanticLifecycleStatuses(record.supported_lifecycle_statuses, `${path}.supported_lifecycle_statuses`),
+    archived_groups_included: assertBoolean(record.archived_groups_included, `${path}.archived_groups_included`),
+  }
+}
+
+function parseOwnerSemanticDiagnostics(record: Record<string, unknown>, viewer: KnowledgeGraphViewer): KnowledgeGraphSemanticDiagnostics | undefined {
+  if (!viewer.is_owner) {
+    if ('semantic' in record) {
+      throw new MalformedKnowledgeGraphResponseError('semantic', 'absent from public graph responses')
+    }
+
+    return undefined
+  }
+
+  return 'semantic' in record ? parseSemanticDiagnostics(record.semantic, 'semantic') : defaultSemanticDiagnostics()
+}
+
+function parseOwnerSemanticGraphMetadata(record: Record<string, unknown>, viewer: KnowledgeGraphViewer): KnowledgeGraphSemanticGraphMetadata | undefined {
+  if (!viewer.is_owner) {
+    if ('semantic_graph' in record) {
+      throw new MalformedKnowledgeGraphResponseError('semantic_graph', 'absent from public graph responses')
+    }
+
+    return undefined
+  }
+
+  return 'semantic_graph' in record ? parseSemanticGraphMetadata(record.semantic_graph, 'semantic_graph') : defaultSemanticGraphMetadata()
+}
+
 function parseSemanticGroup(value: unknown, path: string): KnowledgeGraphSemanticGroup {
   const record = assertRecord(value, path)
 
@@ -605,9 +882,17 @@ function parseSemanticGroup(value: unknown, path: string): KnowledgeGraphSemanti
     description: assertString(record.description, `${path}.description`),
     rationale: assertString(record.rationale, `${path}.rationale`),
     confidence: assertDecimalString(record.confidence, `${path}.confidence`),
-    generated_at: assertNonEmptyString(record.generated_at, `${path}.generated_at`),
+    generated_at: assertNullableTimestampString(record.generated_at, `${path}.generated_at`) ?? '',
     evidence: parseSafeEvidencePayload(record.evidence, `${path}.evidence`),
     members: parseSemanticGroupMembers(record.members, `${path}.members`),
+    lifecycle_status: assertSemanticLifecycleStatus(record.lifecycle_status, `${path}.lifecycle_status`),
+    lifecycle_reason_code: assertString(record.lifecycle_reason_code, `${path}.lifecycle_reason_code`),
+    reuse_evidence: parseSafeEvidencePayload(record.reuse_evidence, `${path}.reuse_evidence`),
+    member_count: assertNonNegativeInteger(record.member_count, `${path}.member_count`),
+    first_seen_at: assertNullableTimestampString(record.first_seen_at, `${path}.first_seen_at`),
+    last_seen_at: assertNullableTimestampString(record.last_seen_at, `${path}.last_seen_at`),
+    stale_at: assertNullableTimestampString(record.stale_at, `${path}.stale_at`),
+    archived_at: assertNullableTimestampString(record.archived_at, `${path}.archived_at`),
   }
 }
 
@@ -1037,6 +1322,8 @@ export function parseUserKnowledgeGraphResponse(value: unknown): UserKnowledgeGr
   if (!viewer.is_owner && 'recommendations' in record) {
     throw new MalformedKnowledgeGraphResponseError('recommendations', 'absent from public graph responses')
   }
+  const semantic = parseOwnerSemanticDiagnostics(record, viewer)
+  const semanticGraph = parseOwnerSemanticGraphMetadata(record, viewer)
   const nodes = parseNodes(record.nodes, 'nodes')
   const edges = parseEdges(record.edges, 'edges')
   const semanticEdges = parseOwnerSemanticEdges(record, viewer)
@@ -1056,6 +1343,14 @@ export function parseUserKnowledgeGraphResponse(value: unknown): UserKnowledgeGr
     edges,
     semantic_edges: semanticEdges,
     semantic_groups: semanticGroups,
+  }
+
+  if (semantic) {
+    parsed.semantic = semantic
+  }
+
+  if (semanticGraph) {
+    parsed.semantic_graph = semanticGraph
   }
 
   if ('layout' in record) {
