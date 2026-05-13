@@ -129,6 +129,48 @@ const staleGraphFixture = {
       related_questions: [sharedQuestion],
     },
   ],
+  semantic_edges: [
+    {
+      id: 'semantic-vue-query-pinia',
+      source_concept_id: vueQueryConcept.concept_id,
+      target_concept_id: piniaConcept.concept_id,
+      weight: '5.75',
+      similarity_score: '0.88',
+      confidence: '0.82',
+      rank: 1,
+      reason: 'semantic_neighbour',
+      evidence: { matched_terms: ['cache', 'state'], shared_safe_signals: 3 },
+    },
+  ],
+  semantic_groups: [
+    {
+      group_key: 'vue-state-cache',
+      label: 'Vue state and cache',
+      description: 'Безопасная группа тем про кэширование и состояние Vue.',
+      rationale: 'Агрегированные сигналы показывают соседство вопросов про Vue Query и Pinia.',
+      confidence: '0.86',
+      generated_at: '2024-06-10T12:00:00Z',
+      evidence: { safe_signal_count: 4, topics: ['cache', 'store'] },
+      members: [
+        {
+          concept_id: vueQueryConcept.concept_id,
+          slug: vueQueryConcept.slug,
+          name: vueQueryConcept.name,
+          rank: 1,
+          confidence: '0.89',
+          evidence: { safe_signal_count: 2 },
+        },
+        {
+          concept_id: piniaConcept.concept_id,
+          slug: piniaConcept.slug,
+          name: piniaConcept.name,
+          rank: 2,
+          confidence: '0.78',
+          evidence: { safe_signal_count: 2 },
+        },
+      ],
+    },
+  ],
   layout: {
     schema_version: 1,
     positions: {},
@@ -137,7 +179,12 @@ const staleGraphFixture = {
 }
 
 const publicGraphFixture = (() => {
-  const { layout: _layout, ...graphWithoutLayout } = staleGraphFixture
+  const {
+    layout: _layout,
+    semantic_edges: _semanticEdges,
+    semantic_groups: _semanticGroups,
+    ...graphWithoutLayout
+  } = staleGraphFixture
 
   return {
     ...graphWithoutLayout,
@@ -179,7 +226,38 @@ const ownerInsightsFixture = {
     last_rebuild_started_at: null,
     last_rebuild_finished_at: '2024-06-10T12:10:00Z',
   },
-  summary: { concept_count: 2, recommendation_count: 1, states: { weak: 1, strong: 1 } },
+  summary: { concept_count: 2, recommendation_count: 2, states: { weak: 1, strong: 1 } },
+  recommendations: [
+    {
+      rank: 1,
+      id: 'rec-v2-vue-query-bridge',
+      score: 0.92,
+      confidence: 0.81,
+      priority: 'high',
+      label: 'Ответьте на публичные вопросы по мосту Vue Query и Pinia',
+      reason_code: 'semantic_neighbour_suggests_bridge',
+      target: {
+        concept: {
+          concept_id: vueQueryConcept.concept_id,
+          slug: vueQueryConcept.slug,
+          name: vueQueryConcept.name,
+        },
+        discovery: { tag: ['vue-query', 'pinia'], search: 'cache invalidation', order: '-question_created_at', page: 1 },
+        neighbours: [
+          { concept_id: piniaConcept.concept_id, slug: piniaConcept.slug, name: piniaConcept.name },
+        ],
+        group: { group_key: 'vue-state-cache', label: 'Vue state and cache' },
+      },
+      action: {
+        type: 'answer_question',
+        payload: { tag: ['vue-query', 'pinia'], search: 'cache invalidation', order: '-question_created_at', page: 1 },
+      },
+      evidence: [
+        { code: 'safe_similarity', label: 'Сходство тем', value: '0.88', weight: 0.7 },
+        { code: 'safe_group_membership', label: 'Общая группа', value: 'Vue state and cache', weight: 0.3 },
+      ],
+    },
+  ],
   concepts: [
     {
       concept_id: vueQueryConcept.concept_id,
@@ -562,7 +640,7 @@ test.describe('profile knowledge graph smoke', () => {
     await expect(page.getByTestId('knowledge-view-mode-graph')).toHaveAttribute('aria-pressed', 'true')
     await expect(page.getByTestId('knowledge-view-mode-list')).toHaveAttribute('aria-pressed', 'false')
     await expect(page.getByTestId('knowledge-view-mode-help')).toContainText('Граф показывает связи между концептами')
-    await expect(page.getByTestId('knowledge-graph-renderer-summary')).toHaveText('2 концептов · 1 связей')
+    await expect(page.getByTestId('knowledge-graph-renderer-summary')).toHaveText('2 концептов · 1 связей · 1 семантических соседей')
     await expect(page.getByTestId('knowledge-graph-canvas')).toBeVisible()
     await expect(page.getByTestId('knowledge-graph-layout-save-control')).toBeDisabled()
     await expect(page.getByTestId('knowledge-graph-layout-reset-control')).toBeDisabled()
@@ -629,6 +707,58 @@ test.describe('profile knowledge graph smoke', () => {
     await expectNoPrivateMarkers(page)
   })
 
+  test('renders owner semantic overlays, groups, recommendation-v2 cards, and a safe overlay toggle', async ({ page }) => {
+    await page.route(`${API_ORIGIN}/knowledge-graph/me/`, async (route) => {
+      await json(route, 200, staleGraphFixture)
+    })
+
+    await page.route(`${API_ORIGIN}/knowledge-graph/me/insights/`, async (route) => {
+      await json(route, 200, ownerInsightsFixture)
+    })
+
+    await page.goto('/profile?tab=knowledge')
+
+    await expect(page.getByTestId('knowledge-graph-renderer-summary')).toHaveText('2 концептов · 1 связей · 1 семантических соседей')
+    await expect(page.getByTestId('knowledge-graph-semantic-legend')).toBeVisible()
+    await expect(page.getByTestId('knowledge-graph-semantic-count')).toContainText('Семантических соседей: 1')
+    await expect(page.getByTestId('knowledge-graph-semantic-toggle')).toHaveAttribute('aria-pressed', 'true')
+    await expect(page.getByTestId('knowledge-graph-semantic-toggle')).toHaveAccessibleName('Скрыть семантический слой')
+    await expect(page.getByTestId('knowledge-graph-canvas')).toHaveAttribute('aria-label', /1 семантических соседей/)
+
+    await expect(page.getByTestId('knowledge-semantic-groups-panel')).toBeVisible()
+    await expect(page.getByTestId('knowledge-semantic-groups-count')).toHaveText('1')
+    await expect(page.getByTestId('knowledge-semantic-groups-status')).toContainText('Граф может быть устаревшим')
+    await expect(page.getByTestId('knowledge-semantic-group-card-vue-state-cache')).toContainText('Vue state and cache')
+    await expect(page.getByTestId('knowledge-semantic-group-card-vue-state-cache')).toContainText('2 концепта')
+    await expect(page.getByTestId('knowledge-semantic-group-selected-details')).toContainText('Агрегированные сигналы')
+    await expect(page.getByTestId('knowledge-semantic-group-members')).toContainText('Vue Query')
+    await expect(page.getByTestId('knowledge-semantic-group-members')).toContainText('Pinia')
+
+    await expect(page.getByTestId('knowledge-recommendation-card-rec-v2-vue-query-bridge')).toBeVisible()
+    await expect(page.getByTestId('knowledge-recommendation-rank-rec-v2-vue-query-bridge')).toContainText('Ранг 1')
+    await expect(page.getByTestId('knowledge-recommendation-rank-rec-v2-vue-query-bridge')).toContainText('Уверенность 0,81')
+    await expect(page.getByTestId('knowledge-recommendation-card-rec-v2-vue-query-bridge')).toContainText('Высокий приоритет')
+    await expect(page.getByTestId('knowledge-recommendation-target-rec-v2-vue-query-bridge')).toContainText('Vue Query')
+    await expect(page.getByTestId('knowledge-recommendation-target-rec-v2-vue-query-bridge')).toContainText('Pinia')
+    await expect(page.getByTestId('knowledge-recommendation-evidence-rec-v2-vue-query-bridge')).toContainText('Сходство тем')
+    await expect(page.getByTestId('knowledge-recommendation-action-rec-v2-vue-query-bridge')).toHaveAttribute('href', /tag=vue-query/)
+
+    await page.getByTestId('knowledge-graph-semantic-toggle').click()
+    await expect(page.getByTestId('knowledge-graph-semantic-toggle')).toHaveAttribute('aria-pressed', 'false')
+    await expect(page.getByTestId('knowledge-graph-renderer-summary')).toHaveText('2 концептов · 1 связей · 1 семантических соседей скрыто')
+    await expect(page.getByTestId('knowledge-graph-canvas')).toHaveAttribute('aria-label', /2 концептов, 1 структурных связей$/)
+    await expect(page.getByTestId('knowledge-graph-renderer-summary')).toContainText('1 связей')
+
+    await page.getByTestId('knowledge-graph-concept-option-7').click()
+    await page.getByTestId('knowledge-neighbour-option-8').click()
+    await expect(page.getByTestId('knowledge-selected-edge-explanation')).toContainText('1 общих вопросов · вес 3,25')
+    await expect(page.getByRole('link', { name: sharedQuestion.title }).first()).toHaveAttribute(
+      'href',
+      `/questions/${RELATED_QUESTION_ID}`,
+    )
+    await expectNoPrivateMarkers(page)
+  })
+
   test('navigates owner recommendation and concept discovery actions into question discovery with safe query params', async ({ page }) => {
     const questionRequestUrls = await routeQuestionDiscoveryApi(page)
     let insightsRequests = 0
@@ -639,7 +769,7 @@ test.describe('profile knowledge graph smoke', () => {
 
     await page.route(`${API_ORIGIN}/knowledge-graph/me/insights/`, async (route) => {
       insightsRequests += 1
-      await json(route, 200, ownerInsightsFixture)
+      await json(route, 200, { ...ownerInsightsFixture, recommendations: [] })
     })
 
     await page.goto('/profile?tab=knowledge')
@@ -727,6 +857,9 @@ test.describe('profile knowledge graph smoke', () => {
     await expect(page.getByTestId('knowledge-state-banner')).toContainText('Сбой перестроения')
     await expect(page.getByTestId('knowledge-state-banner')).toContainText('Технические детали скрыты')
     await expect(page.getByTestId('knowledge-graph-renderer-summary')).toHaveText('2 концептов · 1 связей')
+    await expect(page.getByTestId('knowledge-graph-semantic-count')).toContainText('Публичный просмотр показывает только структурные связи')
+    await expect(page.getByTestId('knowledge-graph-semantic-toggle')).toHaveCount(0)
+    await expect(page.getByTestId('knowledge-semantic-groups-panel')).toHaveCount(0)
     await expect(page.getByTestId('knowledge-graph-layout-save-control')).toHaveCount(0)
     await expect(page.getByTestId('knowledge-graph-layout-reset-control')).toHaveCount(0)
     await expect(page.getByTestId('knowledge-recommendations')).toHaveCount(0)
@@ -831,7 +964,7 @@ test.describe('profile knowledge graph smoke', () => {
       'Не удалось запустить перестроение графа. Попробуйте ещё раз позже.',
     )
     await expect(page.getByTestId('knowledge-graph-tab')).toBeVisible()
-    await expect(page.getByTestId('knowledge-graph-renderer-summary')).toHaveText('2 концептов · 1 связей')
+    await expect(page.getByTestId('knowledge-graph-renderer-summary')).toHaveText('2 концептов · 1 связей · 1 семантических соседей')
     await page.getByTestId('knowledge-view-mode-list').click()
     await expect(page.getByTestId('knowledge-list-panel')).toBeVisible()
     await expectNoPrivateMarkers(page)

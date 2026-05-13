@@ -95,6 +95,8 @@ class M015RuleBasedInsightsBoundaryTests(SimpleTestCase):
             'UserKnowledgeGraphEmbeddingSnapshot',
             'UserKnowledgeGraphLayout',
             'UserKnowledgeGraphSemanticCandidate',
+            'UserKnowledgeGraphSemanticGroup',
+            'UserKnowledgeGraphSemanticGroupMembership',
             'UserKnowledgeGraphSemanticState',
             'UserKnowledgeGraphState',
         }
