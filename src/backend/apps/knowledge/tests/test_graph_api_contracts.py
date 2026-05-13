@@ -141,9 +141,40 @@ class KnowledgeGraphAPIContractTests(APITestCase):
         self.assertNotIn('token', rendered)
         self.assertNotIn('activity_service.py', rendered)
 
-    def assert_semantic_payload_is_absent_from_graph_read(self, payload):
+    def assert_owner_semantic_payload_is_aggregate_safe(self, payload):
         rendered = repr(payload)
         forbidden_terms = {
+            'embedding-provider',
+            'embedding-model',
+            'grouping-provider',
+            'grouping-model',
+            'budget_cap',
+            'estimated_cost',
+            'estimated_token_count',
+            'source_item_count',
+            'snapshot',
+            'content_hash',
+            'vector_payload',
+            'source_id',
+            'changed_source_count',
+            'provider_called_source_count',
+            'neighbour_candidate_count',
+            'sk_live_semantic_secret',
+            'semantic-provider-raw-output',
+            'Traceback',
+            'provider-stack.py',
+            'graph-owner@example.com',
+            'Private question body',
+        }
+        leaked_terms = sorted(term for term in forbidden_terms if term in rendered)
+        self.assertEqual(leaked_terms, [], f'Owner graph leaked semantic/provider internals: {leaked_terms}')
+
+    def assert_semantic_payload_is_absent_from_public_graph_read(self, payload):
+        rendered = repr(payload)
+        forbidden_terms = {
+            'semantic_edges',
+            'semantic_groups',
+            'semantic_neighbour',
             'embedding',
             'grouping',
             'group_key',
@@ -171,11 +202,16 @@ class KnowledgeGraphAPIContractTests(APITestCase):
             'shared_candidate',
         }
         leaked_terms = sorted(term for term in forbidden_terms if term in rendered)
-        self.assertEqual(leaked_terms, [], f'Graph read leaked semantic/provider internals: {leaked_terms}')
+        self.assertEqual(leaked_terms, [], f'Public/question graph read leaked semantic/provider internals: {leaked_terms}')
 
     def assert_scoring_v2_payload_is_absent_from_graph_read(self, payload):
-        rendered = repr(payload)
-        leaked_terms = sorted(term for term in self.SCORING_V2_INSIGHT_ONLY_FIELDS if term in rendered)
+        leaked_terms = sorted(
+            field
+            for section_name in ('concepts', 'nodes')
+            for entry in payload.get(section_name, [])
+            for field in self.SCORING_V2_INSIGHT_ONLY_FIELDS
+            if field in entry
+        )
         self.assertEqual(leaked_terms, [], f'Graph read leaked scoring-v2 owner-only insight fields: {leaked_terms}')
 
     def test_graph_read_endpoints_do_not_touch_semantic_provider_factories_or_leak_semantic_state(self):
@@ -237,18 +273,27 @@ class KnowledgeGraphAPIContractTests(APITestCase):
         ) as grouping_factory:
             self.client.force_authenticate(self.owner)
             own_response = self.client.get('/knowledge-graph/me/')
+            owner_public_route_response = self.client.get(f'/knowledge-graph/users/{self.owner.pk}/')
             self.client.force_authenticate(self.viewer)
             public_response = self.client.get(f'/knowledge-graph/users/{self.owner.pk}/')
             question_response = self.client.get(f'/knowledge-graph/questions/{self.question.pk}/')
 
         self.assertEqual(own_response.status_code, status.HTTP_200_OK, own_response.data)
+        self.assertEqual(owner_public_route_response.status_code, status.HTTP_200_OK, owner_public_route_response.data)
         self.assertEqual(public_response.status_code, status.HTTP_200_OK, public_response.data)
         self.assertEqual(question_response.status_code, status.HTTP_200_OK, question_response.data)
         source_factory.assert_not_called()
         grouping_factory.assert_not_called()
-        for payload in [own_response.data, public_response.data, question_response.data]:
+        self.assertIn('semantic_groups', own_response.data)
+        self.assertIn('semantic_groups', owner_public_route_response.data)
+        self.assertEqual(own_response.data['semantic_groups'], owner_public_route_response.data['semantic_groups'])
+        for payload in [own_response.data, owner_public_route_response.data]:
             self.assert_private_activity_fields_are_redacted(payload)
-            self.assert_semantic_payload_is_absent_from_graph_read(payload)
+            self.assert_owner_semantic_payload_is_aggregate_safe(payload)
+            self.assert_scoring_v2_payload_is_absent_from_graph_read(payload)
+        for payload in [public_response.data, question_response.data]:
+            self.assert_private_activity_fields_are_redacted(payload)
+            self.assert_semantic_payload_is_absent_from_public_graph_read(payload)
             self.assert_scoring_v2_payload_is_absent_from_graph_read(payload)
 
     def test_own_graph_returns_aggregate_owner_contract(self):

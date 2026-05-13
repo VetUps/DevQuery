@@ -39,7 +39,10 @@ class OwnUserGraphView(APIView):
 
     @extend_schema(
         responses={200: UserGraphResponseSerializer},
-        description='Return the authenticated user knowledge graph as aggregate concept/state DTOs.',
+        description=(
+            'Return the authenticated owner knowledge graph as aggregate concept/state DTOs with '
+            'owner-only semantic_edges and semantic_groups from persisted semantic rows; graph GETs are provider-free.'
+        ),
     )
     def get(self, request):
         payload = get_user_graph_payload(request.user, is_owner=True)
@@ -143,7 +146,10 @@ class PublicUserGraphView(APIView):
 
     @extend_schema(
         responses={200: UserGraphResponseSerializer},
-        description='Return a public user knowledge graph as aggregate concept/state DTOs without raw activity rows.',
+        description=(
+            'Return a user knowledge graph as aggregate concept/state DTOs without raw activity rows. '
+            'semantic_edges and semantic_groups are included only when the authenticated requester is the owner.'
+        ),
     )
     def get(self, request, user_id):
         user = get_object_or_404(get_user_model(), pk=user_id)
@@ -157,7 +163,9 @@ class QuestionGraphView(APIView):
 
     @extend_schema(
         responses={200: QuestionGraphResponseSerializer},
-        description='Return the structural concept graph for one question without private question body content.',
+        description=(
+            'Return the structural concept graph for one question without private question body content or semantic payloads.'
+        ),
     )
     def get(self, request, question_id):
         question = get_object_or_404(Question, pk=question_id)
