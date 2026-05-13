@@ -84,7 +84,7 @@ class UnsafeEmbeddingProvider(RecordingEmbeddingProvider):
         raise RuntimeError('sk_live_secret user@example.com Traceback private question body 123e4567-e89b-12d3-a456-426614174000')
 
 
-@override_settings(DJANGO_TEST_SQLITE=True)
+@override_settings(DJANGO_TEST_SQLITE=True, KNOWLEDGE_GRAPH_GIGACHAT_AUTH_URL=None, KNOWLEDGE_GRAPH_GIGACHAT_VERIFY_SSL_CERTS=True)
 class SemanticRebuildBoundaryTests(TestCase):
     def setUp(self):
         self.user = get_user_model().objects.create_user(
@@ -170,6 +170,8 @@ class SemanticRebuildBoundaryTests(TestCase):
         KNOWLEDGE_GRAPH_CHAT_API_KEY='key',
         KNOWLEDGE_GRAPH_CHAT_BASE_URL='https://example.test/chat',
         KNOWLEDGE_GRAPH_CHAT_MODEL='chat-model',
+        KNOWLEDGE_GRAPH_GIGACHAT_AUTH_URL=None,
+        KNOWLEDGE_GRAPH_GIGACHAT_VERIFY_SSL_CERTS=True,
         KNOWLEDGE_GRAPH_CHAT_PRICE_PER_1K_TOKENS=1.00,
     )
     def test_dry_run_estimates_budget_and_skips_provider_factories(self):
@@ -204,6 +206,8 @@ class SemanticRebuildBoundaryTests(TestCase):
         KNOWLEDGE_GRAPH_CHAT_API_KEY='key',
         KNOWLEDGE_GRAPH_CHAT_BASE_URL='https://example.test/chat',
         KNOWLEDGE_GRAPH_CHAT_MODEL='chat-model',
+        KNOWLEDGE_GRAPH_GIGACHAT_AUTH_URL=None,
+        KNOWLEDGE_GRAPH_GIGACHAT_VERIFY_SSL_CERTS=True,
     )
     def test_empty_owner_graph_persists_empty_state_without_provider_calls(self):
         state = run_owner_semantic_boundary(
@@ -228,6 +232,8 @@ class SemanticRebuildBoundaryTests(TestCase):
         KNOWLEDGE_GRAPH_CHAT_API_KEY='key',
         KNOWLEDGE_GRAPH_CHAT_BASE_URL='https://example.test/chat',
         KNOWLEDGE_GRAPH_CHAT_MODEL='chat-model',
+        KNOWLEDGE_GRAPH_GIGACHAT_AUTH_URL=None,
+        KNOWLEDGE_GRAPH_GIGACHAT_VERIFY_SSL_CERTS=True,
     )
     def test_missing_config_persists_safe_configuration_error_before_provider_calls(self):
         self.add_activity()
@@ -253,6 +259,8 @@ class SemanticRebuildBoundaryTests(TestCase):
         KNOWLEDGE_GRAPH_CHAT_API_KEY='key',
         KNOWLEDGE_GRAPH_CHAT_BASE_URL='https://example.test/chat',
         KNOWLEDGE_GRAPH_CHAT_MODEL='chat-model',
+        KNOWLEDGE_GRAPH_GIGACHAT_AUTH_URL=None,
+        KNOWLEDGE_GRAPH_GIGACHAT_VERIFY_SSL_CERTS=True,
         KNOWLEDGE_GRAPH_CHAT_PRICE_PER_1K_TOKENS=100.0,
     )
     def test_budget_exceeded_stops_before_provider_calls(self):
@@ -284,6 +292,8 @@ class SemanticRebuildBoundaryTests(TestCase):
         KNOWLEDGE_GRAPH_CHAT_API_KEY='key',
         KNOWLEDGE_GRAPH_CHAT_BASE_URL='https://example.test/chat',
         KNOWLEDGE_GRAPH_CHAT_MODEL='chat-model',
+        KNOWLEDGE_GRAPH_GIGACHAT_AUTH_URL=None,
+        KNOWLEDGE_GRAPH_GIGACHAT_VERIFY_SSL_CERTS=True,
         KNOWLEDGE_GRAPH_CHAT_PRICE_PER_1K_TOKENS=1.0,
     )
     def test_exact_budget_success_invokes_fakeable_providers_and_persists_only_aggregate_state(self):
@@ -319,6 +329,8 @@ class SemanticRebuildBoundaryTests(TestCase):
         KNOWLEDGE_GRAPH_CHAT_API_KEY='key',
         KNOWLEDGE_GRAPH_CHAT_BASE_URL='https://example.test/chat',
         KNOWLEDGE_GRAPH_CHAT_MODEL='chat-model',
+        KNOWLEDGE_GRAPH_GIGACHAT_AUTH_URL=None,
+        KNOWLEDGE_GRAPH_GIGACHAT_VERIFY_SSL_CERTS=True,
     )
     def test_provider_timeout_error_and_malformed_output_are_status_mapped_and_redacted(self):
         self.add_activity()
