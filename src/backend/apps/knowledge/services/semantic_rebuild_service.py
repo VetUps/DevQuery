@@ -79,6 +79,17 @@ class OwnerStableSemanticCounts:
     membership_count: int
 
 
+@dataclass(frozen=True)
+class SemanticGroupPersistenceStats:
+    group_count: int = 0
+    membership_count: int = 0
+    reused_count: int = 0
+    created_count: int = 0
+    changed_count: int = 0
+    stale_count: int = 0
+    archived_count: int = 0
+
+
 def create_source_provider(config: KnowledgeGraphEmbeddingConfig) -> KnowledgeGraphEmbeddingProvider:
     """Factory seam for live or explicit-fake embedding providers."""
 
@@ -142,6 +153,11 @@ def _state_payload(state: UserKnowledgeGraphSemanticState) -> dict[str, Any]:
         'neighbour_candidate_count': state.neighbor_candidate_count,
         'semantic_group_count': state.semantic_group_count,
         'semantic_group_membership_count': state.semantic_group_membership_count,
+        'semantic_group_reused_count': state.semantic_group_reused_count,
+        'semantic_group_created_count': state.semantic_group_created_count,
+        'semantic_group_changed_count': state.semantic_group_changed_count,
+        'semantic_group_stale_count': state.semantic_group_stale_count,
+        'semantic_group_archived_count': state.semantic_group_archived_count,
         'estimated_token_count': state.estimated_token_count,
         'estimated_cost': state.estimated_cost,
         'budget_cap': state.budget_cap,
@@ -277,6 +293,11 @@ def _persist_state(
     neighbor_candidate_count: int = 0,
     semantic_group_count: int = 0,
     semantic_group_membership_count: int = 0,
+    semantic_group_reused_count: int = 0,
+    semantic_group_created_count: int = 0,
+    semantic_group_changed_count: int = 0,
+    semantic_group_stale_count: int = 0,
+    semantic_group_archived_count: int = 0,
 ) -> UserKnowledgeGraphSemanticState:
     now = timezone.now()
     with transaction.atomic():
@@ -297,6 +318,11 @@ def _persist_state(
         state.neighbor_candidate_count = neighbor_candidate_count
         state.semantic_group_count = semantic_group_count
         state.semantic_group_membership_count = semantic_group_membership_count
+        state.semantic_group_reused_count = semantic_group_reused_count
+        state.semantic_group_created_count = semantic_group_created_count
+        state.semantic_group_changed_count = semantic_group_changed_count
+        state.semantic_group_stale_count = semantic_group_stale_count
+        state.semantic_group_archived_count = semantic_group_archived_count
         state.estimated_token_count = estimate.estimated_token_count
         state.estimated_cost = estimate.estimated_cost
         state.budget_cap = estimate.budget_cap
@@ -632,6 +658,232 @@ def _reconcile_semantic_groups(user, result, concept_summaries: list[dict[str, A
 
     return len(normalized_groups), membership_count
 
+
+def _quantized_centroid(vectors: list[list[float]]) -> list[float]:
+    if not vectors:
+        return []
+    dimensions = len(vectors[0])
+    centroid = []
+    for index in range(dimensions):
+        value = sum(vector[index] for vector in vectors) / len(vectors)
+        centroid.append(round(float(value), 6))
+    return centroid
+
+
+def _centroid_changed(left: list[float], right: list[float]) -> bool:
+    if len(left) != len(right):
+        return True
+    return any(abs(float(a) - float(b)) > 0.000001 for a, b in zip(left, right))
+
+
+def _semantic_member_signature(slugs: list[str]) -> tuple[str, str]:
+    member_slug_signature = '|'.join(sorted(slugs))
+    return hashlib.sha256(member_slug_signature.encode('utf-8')).hexdigest(), member_slug_signature
+
+
+def _concept_vectors_by_slug(user, snapshots_by_index: dict[int, UserKnowledgeGraphEmbeddingSnapshot]) -> dict[str, list[list[float]]]:
+    snapshots_by_source_id = {str(snapshot.source_id): snapshot for snapshot in snapshots_by_index.values()}
+    if not snapshots_by_source_id:
+        return {}
+    concept_vectors: dict[str, list[list[float]]] = {}
+    activities = (
+        UserConceptActivity.objects.filter(user=user, related_question_id__in=snapshots_by_source_id.keys())
+        .select_related('concept')
+        .order_by('concept__slug', 'related_question_id')
+    )
+    for activity in activities:
+        snapshot = snapshots_by_source_id.get(str(activity.related_question_id))
+        if snapshot is None:
+            continue
+        concept_vectors.setdefault(activity.concept.slug, []).append([float(value) for value in snapshot.vector_payload])
+    return concept_vectors
+
+
+def _deterministic_semantic_clusters(
+    concept_summaries: list[dict[str, Any]],
+    concept_vectors: dict[str, list[list[float]]],
+    *,
+    similarity_threshold: Decimal = Decimal('0.90000'),
+) -> list[dict[str, Any]]:
+    concepts = []
+    for summary in concept_summaries:
+        vectors = concept_vectors.get(summary['slug'], [])
+        centroid = _quantized_centroid(vectors)
+        if centroid:
+            concepts.append({'summary': summary, 'centroid': centroid})
+    if not concepts:
+        return []
+
+    parent = {item['summary']['slug']: item['summary']['slug'] for item in concepts}
+
+    def find(slug):
+        while parent[slug] != slug:
+            parent[slug] = parent[parent[slug]]
+            slug = parent[slug]
+        return slug
+
+    def union(left, right):
+        left_root = find(left)
+        right_root = find(right)
+        if left_root != right_root:
+            parent[max(left_root, right_root)] = min(left_root, right_root)
+
+    for left_index, left in enumerate(concepts):
+        for right in concepts[left_index + 1 :]:
+            if _cosine_similarity(left['centroid'], right['centroid']) >= similarity_threshold:
+                union(left['summary']['slug'], right['summary']['slug'])
+
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for item in concepts:
+        grouped.setdefault(find(item['summary']['slug']), []).append(item)
+
+    clusters = []
+    for items in grouped.values():
+        provisional_centroid = _quantized_centroid([item['centroid'] for item in items])
+        dominant_dimension = max(range(len(provisional_centroid)), key=lambda index: provisional_centroid[index]) if provisional_centroid else 0
+        items.sort(key=lambda item: (-item['centroid'][dominant_dimension], item['summary']['slug']))
+        slugs = [item['summary']['slug'] for item in items]
+        centroid = _quantized_centroid([item['centroid'] for item in items])
+        member_signature, member_slug_signature = _semantic_member_signature(slugs)
+        clusters.append(
+            {
+                'slugs': slugs,
+                'centroid_payload': centroid,
+                'member_signature': member_signature,
+                'member_slug_signature': member_slug_signature,
+                'top_member_slugs': slugs[:10],
+                'reuse_evidence': {
+                    'deterministic_match': 'member_signature',
+                    'member_count': len(slugs),
+                    'centroid_dimensions': len(centroid),
+                },
+                'evidence': {
+                    'deterministic_clustering': {
+                        'member_count': len(slugs),
+                        'centroid_dimensions': len(centroid),
+                        'centroid_preview': centroid[:8],
+                        'top_member_slugs': slugs[:10],
+                    }
+                },
+            }
+        )
+    clusters.sort(key=lambda cluster: cluster['member_slug_signature'])
+    return clusters
+
+
+def _reconcile_deterministic_semantic_groups(
+    user,
+    grouping_result,
+    concept_summaries: list[dict[str, Any]],
+    snapshots_by_index: dict[int, UserKnowledgeGraphEmbeddingSnapshot],
+    generated_at,
+) -> SemanticGroupPersistenceStats:
+    # Validate provider text/shape for S01 failure semantics, but do not let
+    # provider-owned keys or memberships define deterministic S02 identities.
+    _normalize_grouping_result(user, grouping_result, concept_summaries)
+    concept_vectors = _concept_vectors_by_slug(user, snapshots_by_index)
+    clusters = _deterministic_semantic_clusters(concept_summaries, concept_vectors)
+    if not clusters:
+        return SemanticGroupPersistenceStats()
+
+    provider = grouping_result.metadata.provider
+    model = grouping_result.metadata.model
+    concepts_by_slug = {concept.slug: concept for concept in KnowledgeConcept.objects.filter(slug__in={slug for cluster in clusters for slug in cluster['slugs']})}
+    active_signatures = {cluster['member_signature'] for cluster in clusters}
+    created_count = reused_count = changed_count = stale_count = archived_count = 0
+    membership_count = sum(len(cluster['slugs']) for cluster in clusters)
+
+    with transaction.atomic():
+        existing_groups = list(
+            UserKnowledgeGraphSemanticGroup.objects.select_for_update().filter(
+                user=user,
+                provider=provider,
+                model=model,
+            )
+        )
+        by_signature = {group.member_signature: group for group in existing_groups if group.member_signature}
+        used_group_ids: set[int] = set()
+
+        for index, cluster in enumerate(clusters, start=1):
+            group = by_signature.get(cluster['member_signature'])
+            is_created = group is None
+            old_centroid = list(group.centroid_payload or []) if group is not None else []
+            if is_created:
+                group = UserKnowledgeGraphSemanticGroup(
+                    user=user,
+                    provider=provider,
+                    model=model,
+                    group_key=f"semantic-cluster-{cluster['member_signature'][:24]}",
+                    first_seen_at=generated_at,
+                    created_at=generated_at,
+                    generated_at=generated_at,
+                )
+                created_count += 1
+            else:
+                reused_count += 1
+                if _centroid_changed(old_centroid, cluster['centroid_payload']):
+                    changed_count += 1
+
+            group.label = f"Semantic cluster {index}"
+            group.description = 'Детерминированная группа по агрегированным embedding-сигналам.'
+            group.rationale = 'Идентичность группы сохраняется по сигнатуре участников и безопасному centroid evidence.'
+            group.confidence = Decimal('1.0000')
+            group.evidence = cluster['evidence']
+            group.centroid_payload = cluster['centroid_payload']
+            group.member_signature = cluster['member_signature']
+            group.member_slug_signature = cluster['member_slug_signature']
+            group.top_member_slugs = cluster['top_member_slugs']
+            group.reuse_evidence = cluster['reuse_evidence']
+            group.generated_at = generated_at
+            group.last_seen_at = generated_at
+            if group.first_seen_at is None:
+                group.first_seen_at = generated_at
+            group.lifecycle_status = UserKnowledgeGraphSemanticGroup.LifecycleStatus.ACTIVE
+            group.lifecycle_reason_code = ''
+            group.stale_at = None
+            group.archived_at = None
+            group.full_clean()
+            group.save()
+            used_group_ids.add(group.pk)
+
+            UserKnowledgeGraphSemanticGroupMembership.objects.filter(group=group).delete()
+            for rank, slug in enumerate(cluster['slugs'], start=1):
+                membership = UserKnowledgeGraphSemanticGroupMembership(
+                    group=group,
+                    concept=concepts_by_slug[slug],
+                    rank=rank,
+                    confidence=Decimal('1.0000'),
+                    evidence={'signals': [{'concept_slug': slug, 'rank': rank}]},
+                )
+                membership.full_clean()
+                membership.save()
+
+        stale_candidates = [
+            group
+            for group in existing_groups
+            if group.pk not in used_group_ids
+            and group.lifecycle_status == UserKnowledgeGraphSemanticGroup.LifecycleStatus.ACTIVE
+            and group.member_signature not in active_signatures
+        ]
+        for group in stale_candidates:
+            group.lifecycle_status = UserKnowledgeGraphSemanticGroup.LifecycleStatus.STALE
+            group.lifecycle_reason_code = 'deterministic_cluster_absent'
+            group.stale_at = generated_at
+            group.last_seen_at = group.last_seen_at or group.generated_at
+            group.full_clean()
+            group.save(update_fields=['lifecycle_status', 'lifecycle_reason_code', 'stale_at', 'last_seen_at', 'updated_at'])
+            stale_count += 1
+
+    return SemanticGroupPersistenceStats(
+        group_count=len(clusters),
+        membership_count=membership_count,
+        reused_count=reused_count,
+        created_count=created_count,
+        changed_count=changed_count,
+        stale_count=stale_count,
+        archived_count=archived_count,
+    )
+
 def _replace_semantic_candidates(user, snapshots_by_index: dict[int, UserKnowledgeGraphEmbeddingSnapshot], generated_at, limit: int = 10) -> int:
     snapshots = [snapshots_by_index[index] for index in sorted(snapshots_by_index)]
     if snapshots:
@@ -712,6 +964,11 @@ def run_owner_semantic_boundary(
     neighbor_candidate_count = 0
     semantic_group_count = 0
     semantic_group_membership_count = 0
+    semantic_group_reused_count = 0
+    semantic_group_created_count = 0
+    semantic_group_changed_count = 0
+    semantic_group_stale_count = 0
+    semantic_group_archived_count = 0
 
     try:
         embedding_config.validate(enabled=semantic_config.enabled)
@@ -883,9 +1140,16 @@ def run_owner_semantic_boundary(
             )
             grouping_provider = grouping_provider_factory(grouping_config)
             grouping_result = grouping_provider.group(KnowledgeGraphGroupingRequest(concepts=concept_summaries))
-            semantic_group_count, semantic_group_membership_count = _reconcile_semantic_groups(
-                user, grouping_result, concept_summaries, generated_at
+            semantic_group_stats = _reconcile_deterministic_semantic_groups(
+                user, grouping_result, concept_summaries, snapshots_by_index, generated_at
             )
+            semantic_group_count = semantic_group_stats.group_count
+            semantic_group_membership_count = semantic_group_stats.membership_count
+            semantic_group_reused_count = semantic_group_stats.reused_count
+            semantic_group_created_count = semantic_group_stats.created_count
+            semantic_group_changed_count = semantic_group_stats.changed_count
+            semantic_group_stale_count = semantic_group_stats.stale_count
+            semantic_group_archived_count = semantic_group_stats.archived_count
             logger.info(
                 'knowledge graph semantic groups persisted',
                 extra={
@@ -893,6 +1157,11 @@ def run_owner_semantic_boundary(
                     'user_id': str(user.pk),
                     'semantic_group_count': semantic_group_count,
                     'semantic_group_membership_count': semantic_group_membership_count,
+                    'semantic_group_reused_count': semantic_group_reused_count,
+                    'semantic_group_created_count': semantic_group_created_count,
+                    'semantic_group_changed_count': semantic_group_changed_count,
+                    'semantic_group_stale_count': semantic_group_stale_count,
+                    'semantic_group_archived_count': semantic_group_archived_count,
                     'grouping_provider': grouping_result.metadata.provider,
                     'grouping_model': grouping_result.metadata.model,
                 },
@@ -913,6 +1182,11 @@ def run_owner_semantic_boundary(
             neighbor_candidate_count=neighbor_candidate_count,
             semantic_group_count=semantic_group_count,
             semantic_group_membership_count=semantic_group_membership_count,
+            semantic_group_reused_count=semantic_group_reused_count,
+            semantic_group_created_count=semantic_group_created_count,
+            semantic_group_changed_count=semantic_group_changed_count,
+            semantic_group_stale_count=semantic_group_stale_count,
+            semantic_group_archived_count=semantic_group_archived_count,
         )
         logger.info(
             'knowledge graph semantic rebuild completed',
@@ -928,6 +1202,11 @@ def run_owner_semantic_boundary(
                 'neighbour_candidate_count': neighbor_candidate_count,
                 'semantic_group_count': semantic_group_count,
                 'semantic_group_membership_count': semantic_group_membership_count,
+                'semantic_group_reused_count': semantic_group_reused_count,
+                'semantic_group_created_count': semantic_group_created_count,
+                'semantic_group_changed_count': semantic_group_changed_count,
+                'semantic_group_stale_count': semantic_group_stale_count,
+                'semantic_group_archived_count': semantic_group_archived_count,
             },
         )
         return _state_payload(state)

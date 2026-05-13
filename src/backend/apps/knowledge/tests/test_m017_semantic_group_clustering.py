@@ -2,7 +2,9 @@ from decimal import Decimal
 
 from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
+from django.core.exceptions import ValidationError
 from django.test import TestCase, override_settings
+from django.utils import timezone
 
 from apps.knowledge.models import (
     KnowledgeConcept,
@@ -226,6 +228,30 @@ class SemanticGroupDeterministicClusteringContractTests(TestCase):
         self.assertIn('semantic_group_archived_count', state)
         self.assertEqual(state['semantic_group_created_count'], created_count)
         self.assertEqual(state['semantic_group_reused_count'], reused_count)
+
+
+    def test_semantic_group_deterministic_reuse_fields_have_safe_additive_defaults(self):
+        group = UserKnowledgeGraphSemanticGroup.objects.create(
+            user=self.user,
+            provider='deterministic-clustering-embedding',
+            model='embedding-v1',
+            group_key='safe-defaults-group',
+            label='Safe defaults group',
+            description='',
+            rationale='',
+            confidence=Decimal('1.0000'),
+            generated_at=timezone.now(),
+        )
+
+        self.assertEqual(group.centroid_payload, [])
+        self.assertEqual(group.member_signature, '')
+        self.assertEqual(group.member_slug_signature, '')
+        self.assertEqual(group.top_member_slugs, [])
+        self.assertEqual(group.reuse_evidence, {})
+
+        group.centroid_payload = {'raw': 'unsafe provider payload'}
+        with self.assertRaises(ValidationError):
+            group.full_clean()
 
     def test_unchanged_rebuild_reuses_group_identities_despite_provider_key_and_membership_drift(self):
         embedding_provider = DeterministicClusteringEmbeddingProvider()
