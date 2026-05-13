@@ -293,11 +293,18 @@ def _estimate_changed_rebuild_cost(
     embedding_config: KnowledgeGraphEmbeddingConfig,
     grouping_config: KnowledgeGraphGroupingConfig,
 ) -> OwnerSemanticRebuildEstimate:
-    """Return diagnostics with provider-budget cost scoped to sources that need fresh embeddings."""
+    """Return diagnostics with provider-budget cost scoped to eligible provider work.
+
+    Embedding cost is estimated only for changed/missing sources. Grouping cost is
+    included only when the owner has enough sources to produce semantic candidate
+    pairs, including the unchanged-snapshot path where grouping can run without a
+    fresh embedding provider call.
+    """
 
     changed_texts = [estimate.source_texts[index] for index in missing_indexes]
     embedding_tokens = estimate_text_tokens(changed_texts) if changed_texts else 0
-    grouping_tokens = estimate_text_tokens([summary['title'] for summary in estimate.source_summaries]) if changed_texts else 0
+    grouping_may_run = len(estimate.source_summaries) > 1
+    grouping_tokens = estimate_text_tokens([summary['title'] for summary in estimate.source_summaries]) if grouping_may_run else 0
     estimated_cost = _decimal_cost(
         (Decimal(embedding_tokens) * Decimal(str(embedding_config.price_per_1k_tokens)) / Decimal('1000'))
         + (Decimal(grouping_tokens) * Decimal(str(grouping_config.price_per_1k_tokens)) / Decimal('1000'))
@@ -583,7 +590,12 @@ def run_owner_semantic_boundary(
         grouping_config=grouping_config,
     )
     diagnostic_estimate = estimate
-    provider_attempted_count = 0
+    changed_source_item_count = 0
+    reused_snapshot_count = 0
+    snapshot_item_count = 0
+    neighbor_candidate_count = 0
+    semantic_group_count = 0
+    semantic_group_membership_count = 0
 
     try:
         embedding_config.validate(enabled=semantic_config.enabled)
@@ -622,6 +634,8 @@ def run_owner_semantic_boundary(
             grouping_config=grouping_config,
         )
         diagnostic_estimate = changed_estimate
+        changed_source_item_count = len(missing_indexes)
+        reused_snapshot_count = len(reusable_snapshots)
         semantic_config.validate_budget(float(changed_estimate.estimated_cost))
 
         if semantic_config.dry_run:
@@ -633,8 +647,8 @@ def run_owner_semantic_boundary(
                 reason_code='dry_run_only',
                 phase='estimation',
                 started_at=started_at,
-                changed_source_item_count=len(missing_indexes),
-                reused_snapshot_count=len(reusable_snapshots),
+                changed_source_item_count=changed_source_item_count,
+                reused_snapshot_count=reused_snapshot_count,
             )
             return _state_payload(state)
 
@@ -642,7 +656,6 @@ def run_owner_semantic_boundary(
         provider_metadata = None
         generated_at = timezone.now()
         if missing_indexes:
-            provider_attempted_count = len(missing_indexes)
             source_provider = source_provider_factory(embedding_config)
             result = source_provider.embed(
                 KnowledgeGraphEmbeddingRequest(texts=[estimate.source_texts[index] for index in missing_indexes])
@@ -660,10 +673,9 @@ def run_owner_semantic_boundary(
             with transaction.atomic():
                 persisted_snapshots = _persist_snapshots(user, estimate, provider_metadata, missing_indexes, vectors, generated_at)
         snapshots_by_index = {**reusable_snapshots, **persisted_snapshots}
-        candidate_count = _replace_semantic_candidates(user, snapshots_by_index, generated_at)
-        semantic_group_count = 0
-        semantic_group_membership_count = 0
-        concept_summaries = _build_grouping_concept_summaries(user) if candidate_count else []
+        snapshot_item_count = len(persisted_snapshots)
+        neighbor_candidate_count = _replace_semantic_candidates(user, snapshots_by_index, generated_at)
+        concept_summaries = _build_grouping_concept_summaries(user) if neighbor_candidate_count else []
         if concept_summaries:
             grouping_provider = grouping_provider_factory(grouping_config)
             grouping_result = grouping_provider.group(KnowledgeGraphGroupingRequest(concepts=concept_summaries))
@@ -671,18 +683,19 @@ def run_owner_semantic_boundary(
                 user, grouping_result, concept_summaries, generated_at
             )
 
+        grouping_ran = bool(concept_summaries)
         state = _persist_state(
             user,
             estimate=changed_estimate,
             semantic_config=semantic_config,
             status=UserKnowledgeGraphSemanticState.Status.SUCCEEDED,
-            reason_code='semantic_snapshots_persisted',
-            phase='embedding',
+            reason_code='semantic_groups_persisted' if grouping_ran else 'semantic_candidates_persisted',
+            phase='grouping' if grouping_ran else 'embedding',
             started_at=started_at,
-            changed_source_item_count=len(missing_indexes),
-            reused_snapshot_count=len(reusable_snapshots),
-            snapshot_item_count=len(persisted_snapshots),
-            neighbor_candidate_count=candidate_count,
+            changed_source_item_count=changed_source_item_count,
+            reused_snapshot_count=reused_snapshot_count,
+            snapshot_item_count=snapshot_item_count,
+            neighbor_candidate_count=neighbor_candidate_count,
             semantic_group_count=semantic_group_count,
             semantic_group_membership_count=semantic_group_membership_count,
         )
@@ -698,7 +711,12 @@ def run_owner_semantic_boundary(
             phase=phase,
             last_error_message=message,
             started_at=started_at,
-            changed_source_item_count=provider_attempted_count if code in {'timeout', 'provider_error', 'malformed_response'} else 0,
+            changed_source_item_count=changed_source_item_count if code in {'timeout', 'provider_error', 'malformed_response'} else 0,
+            reused_snapshot_count=reused_snapshot_count,
+            snapshot_item_count=snapshot_item_count,
+            neighbor_candidate_count=neighbor_candidate_count,
+            semantic_group_count=semantic_group_count,
+            semantic_group_membership_count=semantic_group_membership_count,
         )
         return _state_payload(state)
     except Exception as exc:
@@ -712,5 +730,11 @@ def run_owner_semantic_boundary(
             phase=phase,
             last_error_message=message,
             started_at=started_at,
+            changed_source_item_count=changed_source_item_count,
+            reused_snapshot_count=reused_snapshot_count,
+            snapshot_item_count=snapshot_item_count,
+            neighbor_candidate_count=neighbor_candidate_count,
+            semantic_group_count=semantic_group_count,
+            semantic_group_membership_count=semantic_group_membership_count,
         )
         return _state_payload(state)
