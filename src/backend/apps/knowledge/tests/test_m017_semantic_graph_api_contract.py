@@ -189,6 +189,24 @@ class OwnerSemanticGraphApiContractTests(APITestCase):
             response.data['semantic']['view'],
             {'mode': 'semantic', 'visible_lifecycle_statuses': ['active', 'stale'], 'archived_groups_included': False},
         )
+        self.assertEqual(response.data['semantic_graph']['schema_version'], 1)
+        self.assertEqual(response.data['semantic_graph']['mode'], 'semantic')
+        self.assertEqual(response.data['semantic_graph']['status'], UserKnowledgeGraphSemanticState.Status.PROVIDER_ERROR)
+        self.assertEqual(response.data['semantic_graph']['reason_code'], 'provider_error')
+        self.assertEqual(response.data['semantic_graph']['phase'], 'semantic_provider')
+        self.assertEqual(response.data['semantic_graph']['enabled'], True)
+        self.assertEqual(response.data['semantic_graph']['available'], False)
+        self.assertEqual(response.data['semantic_graph']['visible_group_count'], 2)
+        self.assertEqual(response.data['semantic_graph']['visible_member_count'], 2)
+        self.assertEqual(response.data['semantic_graph']['semantic_edge_count'], 0)
+        self.assertEqual(response.data['semantic_graph']['lifecycle_counts'], {'active': 1, 'stale': 1})
+        self.assertEqual(response.data['semantic_graph']['supported_lifecycle_statuses'], ['active', 'stale'])
+        self.assertEqual(response.data['semantic_graph']['archived_groups_included'], False)
+
+        owner_route_response = self.client.get(f'/knowledge-graph/users/{self.owner.pk}/')
+        self.assertEqual(owner_route_response.status_code, status.HTTP_200_OK, owner_route_response.data)
+        self.assertEqual(owner_route_response.data['semantic_graph'], response.data['semantic_graph'])
+        self.assertEqual(owner_route_response.data['semantic'], response.data['semantic'])
 
         groups_by_key = {group['group_key']: group for group in response.data['semantic_groups']}
         self.assertEqual(set(groups_by_key), {'active-backend', 'stale-api'})
@@ -219,6 +237,24 @@ class OwnerSemanticGraphApiContractTests(APITestCase):
         self.assertEqual(response.data['semantic']['dry_run'], True)
         self.assertEqual(response.data['semantic']['semantic_group_count'], 0)
         self.assertEqual(response.data['semantic']['semantic_group_membership_count'], 0)
+        self.assertEqual(
+            response.data['semantic_graph'],
+            {
+                'schema_version': 1,
+                'mode': 'semantic',
+                'status': UserKnowledgeGraphSemanticState.Status.PENDING,
+                'reason_code': '',
+                'phase': '',
+                'enabled': False,
+                'available': False,
+                'visible_group_count': 0,
+                'visible_member_count': 0,
+                'semantic_edge_count': 0,
+                'lifecycle_counts': {'active': 0, 'stale': 0},
+                'supported_lifecycle_statuses': ['active', 'stale'],
+                'archived_groups_included': False,
+            },
+        )
         self.assertFalse(UserKnowledgeGraphSemanticState.objects.filter(user=self.owner).exists())
 
     def test_public_user_graph_omits_owner_semantic_diagnostics_and_lifecycle_data(self):
@@ -230,11 +266,34 @@ class OwnerSemanticGraphApiContractTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
         self.assertNotIn('semantic', response.data)
+        self.assertNotIn('semantic_graph', response.data)
+        self.assertNotIn('semantic_view', response.data)
         self.assertNotIn('semantic_groups', response.data)
         self.assertNotIn('semantic_edges', response.data)
         self.assert_no_private_semantic_internals(response.data)
         self.assertNotIn('active-backend', repr(response.data))
         self.assertNotIn('lifecycle_status', repr(response.data))
+
+    def test_anonymous_user_and_question_graphs_omit_semantic_view_metadata(self):
+        self._semantic_state()
+        self._group('active-backend', lifecycle_status='active', concept=self.django)
+        self.client.force_authenticate(user=None)
+
+        user_response = self.client.get(f'/knowledge-graph/users/{self.owner.pk}/')
+        question_response = self.client.get(f'/knowledge-graph/questions/{self.question.pk}/')
+
+        self.assertEqual(user_response.status_code, status.HTTP_200_OK, user_response.data)
+        self.assertEqual(question_response.status_code, status.HTTP_200_OK, question_response.data)
+        for payload in (user_response.data, question_response.data):
+            self.assertNotIn('semantic', payload)
+            self.assertNotIn('semantic_graph', payload)
+            self.assertNotIn('semantic_view', payload)
+            self.assertNotIn('semantic_groups', payload)
+            self.assertNotIn('semantic_edges', payload)
+            self.assertNotIn('semantic_state', repr(payload))
+            self.assertNotIn('reuse_evidence', repr(payload))
+            self.assertNotIn('lifecycle_status', repr(payload))
+            self.assert_no_private_semantic_internals(payload)
 
     def test_rebuild_response_serializer_omits_provider_model_internals_but_keeps_safe_counters(self):
         semantic = {

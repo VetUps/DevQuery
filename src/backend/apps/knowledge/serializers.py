@@ -105,6 +105,22 @@ class KnowledgeGraphSemanticGroupSerializer(serializers.Serializer):
     members = KnowledgeGraphSemanticGroupMemberSerializer(many=True)
 
 
+class UserGraphSemanticViewSerializer(serializers.Serializer):
+    schema_version = serializers.IntegerField(min_value=1)
+    mode = serializers.CharField()
+    status = serializers.CharField()
+    reason_code = serializers.CharField(allow_blank=True)
+    phase = serializers.CharField(allow_blank=True)
+    enabled = serializers.BooleanField()
+    available = serializers.BooleanField()
+    visible_group_count = serializers.IntegerField(min_value=0)
+    visible_member_count = serializers.IntegerField(min_value=0)
+    semantic_edge_count = serializers.IntegerField(min_value=0)
+    lifecycle_counts = serializers.DictField(child=serializers.IntegerField(min_value=0))
+    supported_lifecycle_statuses = serializers.ListField(child=serializers.CharField(), allow_empty=True)
+    archived_groups_included = serializers.BooleanField()
+
+
 class UserGraphSemanticDiagnosticsSerializer(serializers.Serializer):
     status = serializers.CharField()
     reason_code = serializers.CharField(allow_blank=True)
@@ -187,6 +203,7 @@ class UserGraphResponseSerializer(serializers.Serializer):
     layout = KnowledgeGraphLayoutSerializer(required=False)
     semantic_edges = KnowledgeGraphSemanticEdgeSerializer(many=True, required=False)
     semantic_groups = KnowledgeGraphSemanticGroupSerializer(many=True, required=False)
+    semantic_graph = UserGraphSemanticViewSerializer(required=False)
     semantic = UserGraphSemanticDiagnosticsSerializer(required=False)
 
 
