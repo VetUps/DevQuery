@@ -350,3 +350,55 @@ class SemanticGroupDeterministicClusteringContractTests(TestCase):
             changed_count=1,
             snapshot_count=1,
         )
+
+    def test_member_move_reuses_existing_groups_by_centroid_and_member_overlap(self):
+        initial_state = self._run_rebuild(
+            embedding_provider=DeterministicClusteringEmbeddingProvider(),
+            grouping_provider=DriftingGroupingProvider(),
+        )
+        self._assert_deterministic_state_counters(
+            initial_state,
+            group_count=2,
+            member_count=4,
+            created_count=2,
+            reused_count=0,
+            changed_count=4,
+            snapshot_count=4,
+        )
+        before_by_id = {signature['id']: signature for signature in self._active_group_signatures()}
+
+        orm_question = self.questions['orm']
+        orm_question.question_body = 'Public fixture body for topic:orm after moving into queue/cache cluster.'
+        orm_question.save(update_fields=['question_body'])
+
+        moved_provider = DeterministicClusteringEmbeddingProvider(moved=True)
+        moved_provider.MOVED_VECTORS = {
+            **DeterministicClusteringEmbeddingProvider.BASE_VECTORS,
+            'orm': [0.0, 0.97, 0.03],
+        }
+        moved_state = self._run_rebuild(
+            embedding_provider=moved_provider,
+            grouping_provider=DriftingGroupingProvider(),
+        )
+        after_signatures = self._active_group_signatures()
+
+        self.assertEqual({signature['id'] for signature in after_signatures}, set(before_by_id))
+        self.assertEqual({signature['group_key'] for signature in after_signatures}, {signature['group_key'] for signature in before_by_id.values()})
+        self.assertEqual(
+            sorted(signature['slugs'] for signature in after_signatures),
+            [('django-clustering',), ('redis-clustering', 'celery-clustering', 'orm-clustering')],
+        )
+        for group in UserKnowledgeGraphSemanticGroup.objects.filter(user=self.user):
+            self.assertEqual(group.lifecycle_status, UserKnowledgeGraphSemanticGroup.LifecycleStatus.ACTIVE)
+            self.assertEqual(group.reuse_evidence['deterministic_match'], 'centroid_member_overlap')
+            self.assertGreaterEqual(group.reuse_evidence['member_overlap'], 0.5)
+        self._assert_deterministic_state_counters(
+            moved_state,
+            group_count=2,
+            member_count=4,
+            created_count=0,
+            reused_count=2,
+            changed_count=1,
+            snapshot_count=1,
+        )
+        self.assertEqual(moved_state['semantic_group_changed_count'], 2)

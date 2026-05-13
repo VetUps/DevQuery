@@ -17,24 +17,64 @@ if [[ ! -x "$python_exe" ]]; then
   python_exe="python3"
 fi
 
+translate_test_label() {
+  local arg="$1"
+  local selector=""
+
+  if [[ "$arg" == *::* ]]; then
+    selector=".${arg#*::}"
+    selector="${selector//::/.}"
+    arg="${arg%%::*}"
+  fi
+
+  case "$arg" in
+    src/backend/*.py)
+      arg="${arg#src/backend/}"
+      ;;
+  esac
+
+  if [[ "$arg" == *.py ]]; then
+    arg="${arg%.py}"
+    arg="${arg//\//.}"
+  fi
+
+  printf '%s%s\n' "$arg" "$selector"
+}
+
 if [[ $# -gt 0 ]]; then
   translated_args=()
-  for arg in "$@"; do
+  while [[ $# -gt 0 ]]; do
+    arg="$1"
+    shift
     case "$arg" in
-      -q|--quiet|-s|--disable-warnings|--tb=*|--maxfail=*|--cov=*|--cov-report=*)
-        # Pytest-only reporting options are irrelevant for Django's test runner.
+      -q|--quiet|-s|--disable-warnings|--reuse-db|--create-db|--nomigrations|--migrations|--no-migrations|--cov|--cov-report)
+        # Pytest-only reporting/database options are irrelevant for Django's test runner.
         ;;
-      src/backend/*.py)
-        module_path="${arg#src/backend/}"
-        module_path="${module_path%.py}"
-        translated_args+=("${module_path//\//.}")
+      --tb=*|--maxfail=*|--cov=*|--cov-report=*|--ignore=*|--ignore-glob=*)
         ;;
-      apps/*.py)
-        module_path="${arg%.py}"
-        translated_args+=("${module_path//\//.}")
+      --ds=*)
+        translated_args+=("--settings=${arg#--ds=}")
+        ;;
+      --ds)
+        if [[ $# -gt 0 ]]; then
+          translated_args+=("--settings=$1")
+          shift
+        fi
+        ;;
+      --settings=*)
+        translated_args+=("$arg")
+        ;;
+      --settings)
+        if [[ $# -gt 0 ]]; then
+          translated_args+=("--settings=$1")
+          shift
+        fi
+        ;;
+      -* )
+        # Unknown pytest-only flags are intentionally ignored instead of failing Django's runner.
         ;;
       *)
-        translated_args+=("$arg")
+        translated_args+=("$(translate_test_label "$arg")")
         ;;
     esac
   done
