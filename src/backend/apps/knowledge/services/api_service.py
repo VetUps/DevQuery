@@ -16,6 +16,7 @@ from apps.knowledge.models import (
     UserConceptActivity,
     UserKnowledgeGraphLayout,
     UserKnowledgeGraphSemanticCandidate,
+    UserKnowledgeGraphSemanticGroup,
     UserKnowledgeGraphState,
 )
 from apps.knowledge.services.graph_state_service import UserKnowledgeGraphRebuildSummary, get_user_graph_state
@@ -189,6 +190,64 @@ def _semantic_candidate_edges_payload(
         semantic_edges,
         key=lambda edge: (-edge['similarity_score'], edge['rank'], edge['source_concept_id'], edge['target_concept_id']),
     )
+
+
+def _semantic_groups_payload(*, user, node_concept_ids: set[int]) -> list[dict[str, Any]]:
+    """Build owner-only semantic group DTOs from persisted rows.
+
+    Group rows include provider/model internals and may point at concepts outside
+    the currently visible owner graph. The API emits only whitelisted group text,
+    aggregate evidence, and memberships for concepts already present in nodes.
+    """
+
+    if not node_concept_ids:
+        return []
+
+    groups = (
+        UserKnowledgeGraphSemanticGroup.objects.filter(user=user)
+        .prefetch_related('memberships__concept')
+        .order_by('-generated_at', 'group_key', 'id')
+    )
+
+    payloads = []
+    for group in groups:
+        members = []
+        memberships = sorted(
+            group.memberships.all(),
+            key=lambda membership: (membership.rank, membership.concept.slug, membership.concept_id),
+        )
+        for membership in memberships:
+            concept = membership.concept
+            if concept.id not in node_concept_ids:
+                continue
+            members.append(
+                {
+                    'concept_id': concept.id,
+                    'slug': concept.slug,
+                    'name': concept.name,
+                    'rank': membership.rank,
+                    'confidence': membership.confidence,
+                    'evidence': membership.evidence,
+                }
+            )
+
+        if not members:
+            continue
+
+        payloads.append(
+            {
+                'group_key': group.group_key,
+                'label': group.label,
+                'description': group.description,
+                'rationale': group.rationale,
+                'confidence': group.confidence,
+                'generated_at': group.generated_at,
+                'evidence': group.evidence,
+                'members': members,
+            }
+        )
+
+    return payloads
 
 
 def _get_layout_for_user(user) -> UserKnowledgeGraphLayout | None:
@@ -416,6 +475,7 @@ def get_user_graph_payload(user, *, is_owner: bool) -> dict[str, Any]:
             node_concept_ids=node_concept_ids,
             concept_ids_by_question_id=concept_ids_by_question_id,
         )
+        payload['semantic_groups'] = _semantic_groups_payload(user=user, node_concept_ids=node_concept_ids)
 
     return payload
 

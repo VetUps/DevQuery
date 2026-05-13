@@ -179,7 +179,7 @@ class SemanticGroupingStorageContractTests(TestCase):
         self.assertFalse(hasattr(state, 'semantic_groups'))
         self.assertFalse(hasattr(state, 'semantic_group_memberships'))
 
-    def test_normal_graph_get_payloads_omit_semantic_groups_and_private_group_data(self):
+    def test_normal_public_graph_get_payloads_omit_private_group_data(self):
         group = self.create_group(label='Скрытая AI группа')
         UserKnowledgeGraphSemanticGroupMembership.objects.create(
             group=group,
@@ -193,10 +193,15 @@ class SemanticGroupingStorageContractTests(TestCase):
         own_response = self.client.get('/knowledge-graph/me/')
         self.client.force_authenticate(self.viewer)
         public_response = self.client.get(f'/knowledge-graph/users/{self.owner.pk}/')
+        question_response = self.client.get(f'/knowledge-graph/questions/{self.question.pk}/')
 
         self.assertEqual(own_response.status_code, status.HTTP_200_OK, own_response.data)
         self.assertEqual(public_response.status_code, status.HTTP_200_OK, public_response.data)
-        for payload in (own_response.data, public_response.data):
+        self.assertEqual(question_response.status_code, status.HTTP_200_OK, question_response.data)
+        self.assertIn('semantic_groups', own_response.data)
+        self.assertEqual(own_response.data['semantic_groups'][0]['label'], 'Скрытая AI группа')
+        self.assertNotIn('fake-deepseek', repr(own_response.data['semantic_groups']))
+        for payload in (public_response.data, question_response.data):
             rendered = repr(payload)
             self.assertNotIn('Скрытая AI группа', rendered)
             self.assertNotIn('backend-django', rendered)

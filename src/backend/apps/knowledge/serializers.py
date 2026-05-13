@@ -77,6 +77,26 @@ class KnowledgeGraphSemanticEdgeSerializer(serializers.Serializer):
     evidence = serializers.DictField()
 
 
+class KnowledgeGraphSemanticGroupMemberSerializer(serializers.Serializer):
+    concept_id = serializers.IntegerField()
+    slug = serializers.CharField()
+    name = serializers.CharField()
+    rank = serializers.IntegerField(min_value=1)
+    confidence = serializers.DecimalField(max_digits=5, decimal_places=4)
+    evidence = serializers.DictField()
+
+
+class KnowledgeGraphSemanticGroupSerializer(serializers.Serializer):
+    group_key = serializers.CharField()
+    label = serializers.CharField()
+    description = serializers.CharField(allow_blank=True)
+    rationale = serializers.CharField(allow_blank=True)
+    confidence = serializers.DecimalField(max_digits=5, decimal_places=4)
+    generated_at = serializers.DateTimeField()
+    evidence = serializers.DictField()
+    members = KnowledgeGraphSemanticGroupMemberSerializer(many=True)
+
+
 class KnowledgeGraphLayoutPositionSerializer(serializers.Serializer):
     x = serializers.FloatField()
     y = serializers.FloatField()
@@ -131,6 +151,7 @@ class UserGraphResponseSerializer(serializers.Serializer):
     edges = KnowledgeGraphEdgeSerializer(many=True)
     layout = KnowledgeGraphLayoutSerializer(required=False)
     semantic_edges = KnowledgeGraphSemanticEdgeSerializer(many=True, required=False)
+    semantic_groups = KnowledgeGraphSemanticGroupSerializer(many=True, required=False)
 
 
 class InsightsGraphStateSerializer(serializers.Serializer):
