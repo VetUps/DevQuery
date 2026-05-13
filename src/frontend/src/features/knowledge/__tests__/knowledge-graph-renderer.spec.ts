@@ -1,7 +1,12 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { KnowledgeGraphEdge, KnowledgeGraphNode } from '@/features/knowledge/api/knowledgeGraph'
+import type {
+  KnowledgeGraphEdge,
+  KnowledgeGraphNode,
+  KnowledgeGraphSemanticGraphMetadata,
+  KnowledgeGraphSemanticGroup,
+} from '@/features/knowledge/api/knowledgeGraph'
 import type { KnowledgeGraphConceptStateById } from '@/features/knowledge/components/knowledgeGraphStatePresentation'
 import KnowledgeGraphRenderer from '@/features/knowledge/components/KnowledgeGraphRenderer.vue'
 
@@ -243,8 +248,73 @@ function buildEdges(): KnowledgeGraphEdge[] {
       target_concept_id: 12,
       weight: '0.5000',
       shared_question_count: 0,
-      reason: 'shared_activity',
+      reason: 'shared_question',
       related_questions: [],
+    },
+  ]
+}
+
+function buildSemanticGraphMetadata(overrides: Partial<KnowledgeGraphSemanticGraphMetadata> = {}): KnowledgeGraphSemanticGraphMetadata {
+  return {
+    schema_version: 1,
+    mode: 'semantic',
+    status: 'degraded',
+    reason_code: 'provider_error',
+    phase: 'group_projection',
+    enabled: true,
+    available: true,
+    visible_group_count: 2,
+    visible_member_count: 3,
+    semantic_edge_count: 0,
+    lifecycle_counts: { active: 1, stale: 1 },
+    supported_lifecycle_statuses: ['active', 'stale'],
+    archived_groups_included: false,
+    ...overrides,
+  }
+}
+
+function buildSemanticGroups(): KnowledgeGraphSemanticGroup[] {
+  return [
+    {
+      group_key: 'frontend-patterns',
+      label: 'Frontend patterns',
+      description: 'UI and state management concepts.',
+      rationale: 'safe aggregate rationale',
+      confidence: '0.9200',
+      generated_at: '2026-05-13T12:00:00Z',
+      evidence: { member_count: 2 },
+      members: [
+        { concept_id: 10, slug: 'vue', name: 'Vue', rank: 1, confidence: '0.9500', evidence: { score: 1 } },
+        { concept_id: 11, slug: 'django', name: 'Django', rank: 2, confidence: '0.8000', evidence: { score: 2 } },
+      ],
+      lifecycle_status: 'active',
+      lifecycle_reason_code: 'current',
+      reuse_evidence: { reused: false },
+      member_count: 2,
+      first_seen_at: '2026-05-13T12:00:00Z',
+      last_seen_at: '2026-05-13T12:00:00Z',
+      stale_at: null,
+      archived_at: null,
+    },
+    {
+      group_key: 'backend-legacy',
+      label: 'Backend legacy',
+      description: 'Server-side concepts that may need refresh.',
+      rationale: 'safe aggregate rationale',
+      confidence: '0.6200',
+      generated_at: '2026-05-13T12:00:00Z',
+      evidence: { member_count: 1 },
+      members: [
+        { concept_id: 12, slug: 'python', name: 'Python', rank: 1, confidence: '0.7000', evidence: { score: 3 } },
+      ],
+      lifecycle_status: 'stale',
+      lifecycle_reason_code: 'stale_snapshot',
+      reuse_evidence: { reused: true },
+      member_count: 1,
+      first_seen_at: '2026-05-13T12:00:00Z',
+      last_seen_at: '2026-05-13T12:00:00Z',
+      stale_at: '2026-05-13T12:00:00Z',
+      archived_at: null,
     },
   ]
 }
@@ -259,6 +329,99 @@ describe('KnowledgeGraphRenderer', () => {
   beforeEach(() => {
     cytoscapeMock.constructor.mockClear()
     cytoscapeMock.instances.length = 0
+  })
+
+  it('defaults to structural projection without rendering semantic projection chrome', async () => {
+    const wrapper = mount(KnowledgeGraphRenderer, {
+      props: {
+        nodes: buildNodes(),
+        edges: buildEdges(),
+        semanticGroups: buildSemanticGroups(),
+        semanticGraph: buildSemanticGraphMetadata(),
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="knowledge-graph-semantic-projection"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="knowledge-graph-concept-selector"]').text()).toContain('Vue')
+    expect(cytoscapeMock.constructor).toHaveBeenCalledOnce()
+  })
+
+  it('renders owner semantic groups as accessible projection areas with lifecycle counts', async () => {
+    const wrapper = mount(KnowledgeGraphRenderer, {
+      props: {
+        projectionMode: 'semantic',
+        nodes: buildNodes(),
+        edges: buildEdges(),
+        semanticGroups: buildSemanticGroups(),
+        semanticGraph: buildSemanticGraphMetadata(),
+        isOwner: true,
+      },
+    })
+    await flushPromises()
+
+    const projection = wrapper.get('[data-testid="knowledge-graph-semantic-projection"]')
+    expect(projection.attributes('data-mode')).toBe('semantic')
+    expect(projection.attributes('data-state')).toBe('degraded')
+    expect(wrapper.get('[data-testid="knowledge-graph-semantic-mode"]').text()).toBe('semantic')
+    expect(wrapper.get('[data-testid="knowledge-graph-semantic-group-count"]').text()).toContain('2 групп')
+    expect(wrapper.get('[data-testid="knowledge-graph-semantic-member-count"]').text()).toContain('3 участников')
+    expect(wrapper.get('[data-testid="knowledge-graph-semantic-lifecycle-counts"]').text()).toContain('active 1 · stale 1')
+
+    const activeArea = wrapper.get('[data-testid="knowledge-graph-semantic-area-frontend-patterns"]')
+    expect(activeArea.attributes('role')).toBe('listitem')
+    expect(activeArea.attributes('aria-label')).toContain('Frontend patterns')
+    expect(activeArea.attributes('data-lifecycle')).toBe('active')
+    expect(activeArea.text()).toContain('Vue')
+    expect(activeArea.text()).toContain('Django')
+    expect(wrapper.get('[data-testid="knowledge-graph-semantic-area-lifecycle-backend-legacy"]').text()).toContain('Устаревшая')
+    expect(wrapper.text()).not.toContain('provider_error raw')
+  })
+
+  it('renders safe unavailable semantic projection copy and keeps structural controls reachable', async () => {
+    const wrapper = mount(KnowledgeGraphRenderer, {
+      props: {
+        projectionMode: 'semantic',
+        nodes: buildNodes(),
+        edges: buildEdges(),
+        semanticGroups: [],
+        semanticGraph: buildSemanticGraphMetadata({
+          status: 'pending',
+          reason_code: '',
+          phase: '',
+          available: false,
+          visible_group_count: 0,
+          visible_member_count: 0,
+          lifecycle_counts: { active: 0, stale: 0 },
+        }),
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="knowledge-graph-semantic-projection"]').attributes('data-state')).toBe('unavailable')
+    expect(wrapper.get('[data-testid="knowledge-graph-semantic-state"]').text()).toContain('Семантическая проекция пока недоступна')
+    expect(wrapper.get('[data-testid="knowledge-graph-concept-selector"]').text()).toContain('Vue')
+    expect(wrapper.get('[data-testid="knowledge-graph-viewport-toolbar"]').text()).toContain('Сбросить масштаб')
+  })
+
+  it('marks semantic members filtered out of current nodes without exposing private internals', async () => {
+    const wrapper = mount(KnowledgeGraphRenderer, {
+      props: {
+        projectionMode: 'semantic',
+        nodes: buildNodes().slice(0, 1),
+        edges: [],
+        semanticGroups: buildSemanticGroups().slice(0, 1),
+        semanticGraph: buildSemanticGraphMetadata({ visible_group_count: 1, visible_member_count: 1, lifecycle_counts: { active: 1, stale: 0 } }),
+      },
+    })
+    await flushPromises()
+
+    const area = wrapper.get('[data-testid="knowledge-graph-semantic-area-frontend-patterns"]')
+    expect(area.text()).toContain('1 из 2 видимых концептов')
+    expect(area.text()).toContain('1 скрыто фильтрами')
+    expect(area.text()).toContain('скрыт фильтрами')
+    expect(area.text()).not.toContain('safe aggregate rationale')
+    expect(area.text()).not.toContain('reused')
   })
 
   it('maps parsed concepts and shared-question edges into safe Cytoscape elements', async () => {
