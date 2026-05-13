@@ -217,11 +217,32 @@ class UserGraphInsightsSummarySerializer(serializers.Serializer):
     states = serializers.DictField(child=serializers.IntegerField(min_value=0))
 
 
+class InsightRecommendationTargetSerializer(serializers.Serializer):
+    concept = serializers.DictField()
+    discovery = serializers.DictField()
+    group = serializers.DictField(required=False)
+    neighbours = serializers.ListField(child=serializers.DictField(), required=False)
+
+
+class InsightTopLevelRecommendationSerializer(serializers.Serializer):
+    rank = serializers.IntegerField(min_value=1)
+    id = serializers.CharField()
+    score = serializers.DecimalField(max_digits=5, decimal_places=4)
+    confidence = serializers.DecimalField(max_digits=5, decimal_places=4)
+    priority = serializers.CharField()
+    label = serializers.CharField()
+    reason_code = serializers.CharField()
+    target = InsightRecommendationTargetSerializer()
+    action = InsightActionSerializer()
+    evidence = InsightEvidenceSerializer(many=True)
+
+
 class UserGraphInsightsResponseSerializer(serializers.Serializer):
     user_id = serializers.UUIDField()
     viewer = ViewerSerializer()
     state = InsightsGraphStateSerializer()
     summary = UserGraphInsightsSummarySerializer()
+    recommendations = InsightTopLevelRecommendationSerializer(many=True)
     concepts = UserGraphInsightConceptSerializer(many=True)
 
 
