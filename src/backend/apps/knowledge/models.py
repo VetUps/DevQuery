@@ -3,10 +3,62 @@ from decimal import Decimal
 from django.conf import settings
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
+from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
 from apps.qa.models import Question, Tag
+
+
+SEMANTIC_GROUP_FORBIDDEN_EVIDENCE_KEYS = {
+    'body',
+    'content_hash',
+    'email',
+    'hash',
+    'html',
+    'idempotency_key',
+    'raw',
+    'raw_output',
+    'raw_text',
+    'secret',
+    'source_id',
+    'source_object_id',
+    'source_text',
+    'text',
+    'token',
+    'vector',
+    'vector_payload',
+}
+SEMANTIC_GROUP_FORBIDDEN_VALUE_MARKERS = ('<', '>', 'sk_', '@', 'source_id', 'content_hash', 'vector_payload')
+
+
+def validate_semantic_group_safe_json(value):
+    """Reject owner-private semantic-group evidence that looks like raw source/provider data."""
+
+    def visit(item, path='evidence'):
+        if isinstance(item, dict):
+            for key, child in item.items():
+                normalized_key = str(key).lower().replace('-', '_')
+                if normalized_key in SEMANTIC_GROUP_FORBIDDEN_EVIDENCE_KEYS:
+                    raise ValidationError(f'Semantic group evidence contains unsafe key: {path}.{key}')
+                visit(child, f'{path}.{key}')
+        elif isinstance(item, list):
+            for index, child in enumerate(item):
+                visit(child, f'{path}[{index}]')
+        elif isinstance(item, str):
+            normalized_value = item.lower()
+            if any(marker in normalized_value for marker in SEMANTIC_GROUP_FORBIDDEN_VALUE_MARKERS):
+                raise ValidationError(f'Semantic group evidence contains unsafe value at {path}')
+
+    visit(value)
+
+
+def validate_semantic_group_safe_text(value):
+    if not value:
+        return
+    normalized_value = str(value).lower()
+    if any(marker in normalized_value for marker in SEMANTIC_GROUP_FORBIDDEN_VALUE_MARKERS):
+        raise ValidationError('Semantic group text contains unsafe source/provider marker.')
 
 
 class KnowledgeConcept(models.Model):
@@ -210,6 +262,8 @@ class UserKnowledgeGraphSemanticState(models.Model):
     reused_snapshot_count = models.PositiveIntegerField(default=0)
     snapshot_item_count = models.PositiveIntegerField(default=0)
     neighbor_candidate_count = models.PositiveIntegerField(default=0)
+    semantic_group_count = models.PositiveIntegerField(default=0)
+    semantic_group_membership_count = models.PositiveIntegerField(default=0)
     estimated_token_count = models.PositiveIntegerField(default=0)
     estimated_cost = models.DecimalField(max_digits=12, decimal_places=6, default=Decimal('0.000000'))
     budget_cap = models.DecimalField(max_digits=12, decimal_places=6, default=Decimal('0.000000'))
@@ -305,6 +359,77 @@ class UserKnowledgeGraphSemanticCandidate(models.Model):
 
     def __str__(self):
         return f'{self.user_id} semantic candidate {self.rank}'
+
+
+class UserKnowledgeGraphSemanticGroup(models.Model):
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='knowledge_graph_semantic_groups',
+    )
+    provider = models.CharField(max_length=128)
+    model = models.CharField(max_length=128)
+    group_key = models.CharField(max_length=160)
+    label = models.CharField(max_length=160, validators=[validate_semantic_group_safe_text])
+    description = models.TextField(blank=True, default='', validators=[validate_semantic_group_safe_text])
+    rationale = models.TextField(blank=True, default='', validators=[validate_semantic_group_safe_text])
+    confidence = models.DecimalField(
+        max_digits=5,
+        decimal_places=4,
+        validators=[MinValueValidator(Decimal('0.0000')), MaxValueValidator(Decimal('1.0000'))],
+    )
+    evidence = models.JSONField(default=dict, blank=True, validators=[validate_semantic_group_safe_json])
+    generated_at = models.DateTimeField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'user_knowledge_graph_semantic_groups'
+        constraints = [
+            models.UniqueConstraint(fields=['user', 'provider', 'model', 'group_key'], name='unique_ukg_semantic_group'),
+        ]
+        indexes = [
+            models.Index(fields=['user', 'provider', 'model'], name='ukgsg_user_provider_idx'),
+            models.Index(fields=['user', 'generated_at'], name='ukgsg_user_generated_idx'),
+        ]
+
+    def __str__(self):
+        return f'{self.user_id} semantic group {self.group_key}'
+
+
+class UserKnowledgeGraphSemanticGroupMembership(models.Model):
+    group = models.ForeignKey(
+        UserKnowledgeGraphSemanticGroup,
+        on_delete=models.CASCADE,
+        related_name='memberships',
+    )
+    concept = models.ForeignKey(
+        KnowledgeConcept,
+        on_delete=models.PROTECT,
+        related_name='semantic_group_memberships',
+    )
+    rank = models.PositiveIntegerField()
+    confidence = models.DecimalField(
+        max_digits=5,
+        decimal_places=4,
+        validators=[MinValueValidator(Decimal('0.0000')), MaxValueValidator(Decimal('1.0000'))],
+    )
+    evidence = models.JSONField(default=dict, blank=True, validators=[validate_semantic_group_safe_json])
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'user_knowledge_graph_semantic_group_memberships'
+        constraints = [
+            models.UniqueConstraint(fields=['group', 'concept'], name='unique_ukg_semantic_group_concept'),
+        ]
+        indexes = [
+            models.Index(fields=['group', 'rank'], name='ukgsgm_group_rank_idx'),
+            models.Index(fields=['concept'], name='ukgsgm_concept_idx'),
+        ]
+
+    def __str__(self):
+        return f'{self.group_id} semantic group member {self.concept_id}'
 
 
 class UserConceptActivity(models.Model):

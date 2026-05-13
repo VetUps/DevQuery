@@ -67,6 +67,8 @@ class DeferredKnowledgeGraphScopeContractTests(SimpleTestCase):
             'UserKnowledgeGraphEmbeddingSnapshot',
             'UserKnowledgeGraphLayout',
             'UserKnowledgeGraphSemanticCandidate',
+            'UserKnowledgeGraphSemanticGroup',
+            'UserKnowledgeGraphSemanticGroupMembership',
             'UserKnowledgeGraphSemanticState',
             'UserKnowledgeGraphState',
         }
