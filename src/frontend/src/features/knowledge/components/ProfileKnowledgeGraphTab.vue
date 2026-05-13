@@ -698,6 +698,17 @@ function handleNodeSelected(conceptId: number) {
   selectedConceptId.value = existsInTopology ? conceptId : null
 }
 
+function handleSemanticMemberSelected(conceptId: number): void {
+  const existsInTopology = filteredNodes.value.some((node) => node.concept_id === conceptId)
+
+  if (!existsInTopology) {
+    return
+  }
+
+  selectedConceptId.value = conceptId
+  viewMode.value = 'graph'
+}
+
 watch(
   () => `${graph.value?.user_id ?? ''}:${graph.value?.layout?.updated_at ?? ''}:${Object.keys(graph.value?.layout?.positions ?? {}).join('|')}`,
   () => {
@@ -973,6 +984,7 @@ watch(
           :visible-concept-ids="visibleNodeIds"
           :graph-status="normalizedStatus"
           :has-query-error="isStaleQueryError"
+          @member-selected="handleSemanticMemberSelected"
         />
       </SurfacePanel>
 

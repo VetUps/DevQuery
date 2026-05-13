@@ -27,6 +27,10 @@ const props = withDefaults(defineProps<{
   hasQueryError: false,
 })
 
+const emit = defineEmits<{
+  memberSelected: [conceptId: number]
+}>()
+
 const selectedGroupKey = shallowRef<string>('')
 
 const conceptLookup = computed(() => {
@@ -45,7 +49,7 @@ const visibleGroups = computed<VisibleSemanticGroup[]>(() => {
       group,
       members: group.members.filter((member) => props.visibleConceptIds.has(member.concept_id)),
     }))
-    .filter((entry) => entry.members.length > 0 && entry.members.length === entry.group.members.length)
+    .filter((entry) => entry.members.length > 0)
 })
 
 const hasGroups = computed(() => visibleGroups.value.length > 0)
@@ -81,6 +85,18 @@ const statusCopy = computed(() => {
 
 function selectGroup(groupKey: string): void {
   selectedGroupKey.value = groupKey
+}
+
+function selectMember(conceptId: number): void {
+  if (!props.visibleConceptIds.has(conceptId)) {
+    return
+  }
+
+  emit('memberSelected', conceptId)
+}
+
+function hiddenMemberCount(entry: VisibleSemanticGroup): number {
+  return Math.max(entry.group.members.length - entry.members.length, 0)
 }
 
 function formatDecimal(value: string): string {
@@ -207,7 +223,7 @@ watch(
         >
           <span class="semantic-groups__card-title">{{ entry.group.label || 'Группа без названия' }}</span>
           <span class="semantic-groups__card-meta">
-            {{ entry.members.length }} концепта · уверенность {{ formatDecimal(entry.group.confidence) }}
+            {{ entry.members.length }} из {{ entry.group.members.length }} концептов · уверенность {{ formatDecimal(entry.group.confidence) }}
           </span>
           <span class="semantic-groups__card-description">
             {{ entry.group.description || entry.group.rationale || 'Описание группы пока недоступно.' }}
@@ -242,12 +258,27 @@ watch(
 
         <ul class="semantic-groups__members" data-testid="knowledge-semantic-group-members" aria-label="Концепты выбранной семантической группы">
           <li v-for="member in selectedGroup.members" :key="member.concept_id" class="semantic-groups__member">
-            <span class="semantic-groups__member-name">{{ memberLabel(member) }}</span>
+            <button
+              type="button"
+              class="semantic-groups__member-button"
+              :data-testid="`knowledge-semantic-group-member-${member.concept_id}`"
+              @click="selectMember(member.concept_id)"
+            >
+              <span class="semantic-groups__member-name">{{ memberLabel(member) }}</span>
+              <span>Открыть детали концепта</span>
+            </button>
             <span>ранг {{ member.rank }}</span>
             <span>уверенность {{ formatDecimal(member.confidence) }}</span>
             <span>{{ evidenceSummary(member.evidence) }}</span>
           </li>
         </ul>
+        <p
+          v-if="hiddenMemberCount(selectedGroup) > 0"
+          class="semantic-groups__hidden-members"
+          data-testid="knowledge-semantic-group-hidden-members"
+        >
+          Скрыто фильтрами: {{ hiddenMemberCount(selectedGroup) }}. Эти концепты не доступны для выбора в текущей топологии.
+        </p>
       </article>
     </div>
   </section>
@@ -275,6 +306,7 @@ watch(
 .semantic-groups__eyebrow,
 .semantic-groups__status,
 .semantic-groups__empty,
+.semantic-groups__hidden-members,
 .semantic-groups__details h4,
 .semantic-groups__details p,
 .semantic-groups__facts,
@@ -305,6 +337,7 @@ watch(
 .semantic-groups__empty,
 .semantic-groups__card-meta,
 .semantic-groups__card-description,
+.semantic-groups__hidden-members,
 .semantic-groups__member {
   color: var(--color-muted);
 }
@@ -340,6 +373,28 @@ watch(
 .semantic-groups__member-name {
   color: var(--color-text);
   font-weight: 800;
+}
+
+.semantic-groups__member-button {
+  display: inline-grid;
+  gap: 2px;
+  min-height: 40px;
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid rgb(14 116 144 / 0.2);
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.78);
+  color: var(--color-muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+}
+
+.semantic-groups__member-button:hover,
+.semantic-groups__member-button:focus-visible {
+  border-color: rgb(14 116 144 / 0.55);
+  outline: 3px solid rgb(14 116 144 / 0.18);
+  outline-offset: 2px;
 }
 
 .semantic-groups__card-meta,
