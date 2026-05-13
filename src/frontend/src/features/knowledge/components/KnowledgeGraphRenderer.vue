@@ -3,6 +3,7 @@ import { computed, shallowRef, useTemplateRef } from 'vue'
 
 import type {
   KnowledgeGraphEdge,
+  KnowledgeGraphSemanticDiagnostics,
   KnowledgeGraphLayoutPosition,
   KnowledgeGraphSemanticEdge,
   KnowledgeGraphSemanticGraphMetadata,
@@ -31,6 +32,7 @@ const props = withDefaults(defineProps<{
   semanticEdges?: KnowledgeGraphSemanticEdge[]
   semanticGroups?: KnowledgeGraphSemanticGroup[]
   semanticGraph?: KnowledgeGraphSemanticGraphMetadata
+  semanticDiagnostics?: KnowledgeGraphSemanticDiagnostics
   showSemanticEdges?: boolean
   selectedConceptId?: number | null
   neighbourConceptIds?: number[]
