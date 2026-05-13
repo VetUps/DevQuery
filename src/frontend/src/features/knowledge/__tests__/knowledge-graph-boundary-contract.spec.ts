@@ -273,6 +273,8 @@ function buildGraph(overrides: Partial<UserKnowledgeGraphResponse> = {}): UserKn
     ...base,
     nodes,
     edges,
+    semantic_edges: overrides.semantic_edges ?? [],
+    semantic_groups: overrides.semantic_groups ?? [],
   }
 }
 

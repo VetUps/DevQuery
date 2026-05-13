@@ -50,6 +50,48 @@ export interface KnowledgeGraphEdge {
   related_questions: KnowledgeGraphRelatedQuestion[]
 }
 
+export type KnowledgeGraphSafeEvidenceValue =
+  | string
+  | number
+  | boolean
+  | null
+  | KnowledgeGraphSafeEvidenceValue[]
+  | { [key: string]: KnowledgeGraphSafeEvidenceValue }
+
+export type KnowledgeGraphSafeEvidencePayload = Record<string, KnowledgeGraphSafeEvidenceValue>
+
+export interface KnowledgeGraphSemanticEdge {
+  id: string
+  source_concept_id: number
+  target_concept_id: number
+  weight: string
+  similarity_score: string
+  confidence: string
+  rank: number
+  reason: 'semantic_neighbour'
+  evidence: KnowledgeGraphSafeEvidencePayload
+}
+
+export interface KnowledgeGraphSemanticGroupMember {
+  concept_id: number
+  slug: string
+  name: string
+  rank: number
+  confidence: string
+  evidence: KnowledgeGraphSafeEvidencePayload
+}
+
+export interface KnowledgeGraphSemanticGroup {
+  group_key: string
+  label: string
+  description: string
+  rationale: string
+  confidence: string
+  generated_at: string
+  evidence: KnowledgeGraphSafeEvidencePayload
+  members: KnowledgeGraphSemanticGroupMember[]
+}
+
 export interface KnowledgeGraphLayoutPosition {
   x: number
   y: number
@@ -75,6 +117,8 @@ export interface UserKnowledgeGraphResponse {
   concepts: KnowledgeGraphConceptEntry[]
   nodes: KnowledgeGraphNode[]
   edges: KnowledgeGraphEdge[]
+  semantic_edges: KnowledgeGraphSemanticEdge[]
+  semantic_groups: KnowledgeGraphSemanticGroup[]
   layout?: KnowledgeGraphLayout
 }
 
@@ -166,6 +210,17 @@ export class MalformedKnowledgeGraphResponseError extends Error {
 
 const DECIMAL_STRING_PATTERN = /^-?\d+(?:\.\d+)?$/
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+const FORBIDDEN_SEMANTIC_EVIDENCE_TERMS = [
+  `vec${'tor'}`,
+  `embed${'ding'}`,
+  'provider',
+  'model',
+  'source_id',
+  'content_hash',
+  'raw_output',
+  'secret',
+  'stack',
+] as const
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -373,6 +428,140 @@ function parseEdges(value: unknown, path: string): KnowledgeGraphEdge[] {
   return assertArray(value, path).map((entry, index) => parseEdge(entry, `${path}[${index}]`))
 }
 
+function assertSemanticNeighbourReason(value: unknown, path: string): 'semantic_neighbour' {
+  const parsed = assertString(value, path)
+
+  if (parsed !== 'semantic_neighbour') {
+    throw new MalformedKnowledgeGraphResponseError(path, "'semantic_neighbour'")
+  }
+
+  return parsed
+}
+
+function evidenceContainerPath(path: string): string {
+  const evidenceIndex = path.indexOf('.evidence')
+
+  return evidenceIndex === -1 ? path : path.slice(0, evidenceIndex + '.evidence'.length)
+}
+
+function assertSafeEvidenceKey(key: string, path: string): void {
+  const normalized = key.toLowerCase()
+
+  if (FORBIDDEN_SEMANTIC_EVIDENCE_TERMS.some((term) => normalized.includes(term))) {
+    throw new MalformedKnowledgeGraphResponseError(evidenceContainerPath(path), 'safe aggregate evidence')
+  }
+}
+
+function assertSafeEvidenceString(value: string, path: string): string {
+  const normalized = value.toLowerCase()
+
+  if (FORBIDDEN_SEMANTIC_EVIDENCE_TERMS.some((term) => normalized.includes(term))) {
+    throw new MalformedKnowledgeGraphResponseError(evidenceContainerPath(path), 'safe aggregate evidence')
+  }
+
+  return value
+}
+
+function parseSafeEvidenceValue(value: unknown, path: string): KnowledgeGraphSafeEvidenceValue {
+  if (value === null || typeof value === 'boolean') {
+    return value
+  }
+
+  if (typeof value === 'string') {
+    return assertSafeEvidenceString(value, path)
+  }
+
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) {
+      throw new MalformedKnowledgeGraphResponseError(path, 'safe aggregate evidence')
+    }
+
+    return value
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((entry, index) => parseSafeEvidenceValue(entry, `${path}[${index}]`))
+  }
+
+  const record = assertRecord(value, path)
+  const parsed: KnowledgeGraphSafeEvidencePayload = {}
+
+  Object.entries(record).forEach(([key, entryValue]) => {
+    assertSafeEvidenceKey(key, `${path}.${key}`)
+    parsed[key] = parseSafeEvidenceValue(entryValue, `${path}.${key}`)
+  })
+
+  return parsed
+}
+
+function parseSafeEvidencePayload(value: unknown, path: string): KnowledgeGraphSafeEvidencePayload {
+  const parsed = parseSafeEvidenceValue(value, path)
+
+  if (!isRecord(parsed)) {
+    throw new MalformedKnowledgeGraphResponseError(path, 'safe aggregate evidence object')
+  }
+
+  return parsed
+}
+
+function parseSemanticEdge(value: unknown, path: string): KnowledgeGraphSemanticEdge {
+  const record = assertRecord(value, path)
+
+  return {
+    id: assertNonEmptyString(record.id, `${path}.id`),
+    source_concept_id: assertNonNegativeInteger(record.source_concept_id, `${path}.source_concept_id`),
+    target_concept_id: assertNonNegativeInteger(record.target_concept_id, `${path}.target_concept_id`),
+    weight: assertDecimalString(record.weight, `${path}.weight`),
+    similarity_score: assertDecimalString(record.similarity_score, `${path}.similarity_score`),
+    confidence: assertDecimalString(record.confidence, `${path}.confidence`),
+    rank: assertNonNegativeInteger(record.rank, `${path}.rank`),
+    reason: assertSemanticNeighbourReason(record.reason, `${path}.reason`),
+    evidence: parseSafeEvidencePayload(record.evidence, `${path}.evidence`),
+  }
+}
+
+function parseSemanticEdges(value: unknown, path: string): KnowledgeGraphSemanticEdge[] {
+  return assertArray(value, path).map((entry, index) => parseSemanticEdge(entry, `${path}[${index}]`))
+}
+
+function parseSemanticGroupMember(value: unknown, path: string): KnowledgeGraphSemanticGroupMember {
+  const record = assertRecord(value, path)
+
+  return {
+    concept_id: assertNonNegativeInteger(record.concept_id, `${path}.concept_id`),
+    slug: assertNonEmptyString(record.slug, `${path}.slug`),
+    name: assertString(record.name, `${path}.name`),
+    rank: assertNonNegativeInteger(record.rank, `${path}.rank`),
+    confidence: assertDecimalString(record.confidence, `${path}.confidence`),
+    evidence: parseSafeEvidencePayload(record.evidence, `${path}.evidence`),
+  }
+}
+
+function parseSemanticGroupMembers(value: unknown, path: string): KnowledgeGraphSemanticGroupMember[] {
+  return assertArray(value, path)
+    .map((entry, index) => parseSemanticGroupMember(entry, `${path}[${index}]`))
+    .sort((left, right) => left.rank - right.rank || left.concept_id - right.concept_id)
+}
+
+function parseSemanticGroup(value: unknown, path: string): KnowledgeGraphSemanticGroup {
+  const record = assertRecord(value, path)
+
+  return {
+    group_key: assertNonEmptyString(record.group_key, `${path}.group_key`),
+    label: assertString(record.label, `${path}.label`),
+    description: assertString(record.description, `${path}.description`),
+    rationale: assertString(record.rationale, `${path}.rationale`),
+    confidence: assertDecimalString(record.confidence, `${path}.confidence`),
+    generated_at: assertNonEmptyString(record.generated_at, `${path}.generated_at`),
+    evidence: parseSafeEvidencePayload(record.evidence, `${path}.evidence`),
+    members: parseSemanticGroupMembers(record.members, `${path}.members`),
+  }
+}
+
+function parseSemanticGroups(value: unknown, path: string): KnowledgeGraphSemanticGroup[] {
+  return assertArray(value, path).map((entry, index) => parseSemanticGroup(entry, `${path}[${index}]`))
+}
+
 function assertLayoutSchemaVersion(value: unknown, path: string): 1 {
   const parsed = assertNonNegativeInteger(value, path)
 
@@ -448,6 +637,69 @@ function validateEdgeEndpoints(edges: KnowledgeGraphEdge[], nodes: KnowledgeGrap
       )
     }
   })
+}
+
+function validateSemanticReferences(
+  semanticEdges: KnowledgeGraphSemanticEdge[],
+  semanticGroups: KnowledgeGraphSemanticGroup[],
+  nodes: KnowledgeGraphNode[],
+): void {
+  const nodeIds = new Set(nodes.map((node) => node.concept_id))
+
+  semanticEdges.forEach((edge, index) => {
+    if (!nodeIds.has(edge.source_concept_id)) {
+      throw new MalformedKnowledgeGraphResponseError(
+        `semantic_edges[${index}].source_concept_id`,
+        'a concept_id from nodes',
+      )
+    }
+
+    if (!nodeIds.has(edge.target_concept_id)) {
+      throw new MalformedKnowledgeGraphResponseError(
+        `semantic_edges[${index}].target_concept_id`,
+        'a concept_id from nodes',
+      )
+    }
+  })
+
+  semanticGroups.forEach((group, groupIndex) => {
+    group.members.forEach((member, memberIndex) => {
+      if (!nodeIds.has(member.concept_id)) {
+        throw new MalformedKnowledgeGraphResponseError(
+          `semantic_groups[${groupIndex}].members[${memberIndex}].concept_id`,
+          'a concept_id from nodes',
+        )
+      }
+    })
+  })
+}
+
+function parseOwnerSemanticEdges(record: Record<string, unknown>, viewer: KnowledgeGraphViewer): KnowledgeGraphSemanticEdge[] {
+  if (!('semantic_edges' in record)) {
+    return []
+  }
+
+  const semanticEdges = parseSemanticEdges(record.semantic_edges, 'semantic_edges')
+
+  if (!viewer.is_owner && semanticEdges.length > 0) {
+    throw new MalformedKnowledgeGraphResponseError('semantic_edges', 'absent from public graph responses')
+  }
+
+  return viewer.is_owner ? semanticEdges : []
+}
+
+function parseOwnerSemanticGroups(record: Record<string, unknown>, viewer: KnowledgeGraphViewer): KnowledgeGraphSemanticGroup[] {
+  if (!('semantic_groups' in record)) {
+    return []
+  }
+
+  const semanticGroups = parseSemanticGroups(record.semantic_groups, 'semantic_groups')
+
+  if (!viewer.is_owner && semanticGroups.length > 0) {
+    throw new MalformedKnowledgeGraphResponseError('semantic_groups', 'absent from public graph responses')
+  }
+
+  return viewer.is_owner ? semanticGroups : []
 }
 
 function parseRebuildSummary(value: unknown, path: string): KnowledgeGraphRebuildSummary {
@@ -542,20 +794,26 @@ function parseInsightConcepts(value: unknown, path: string): KnowledgeGraphInsig
 
 export function parseUserKnowledgeGraphResponse(value: unknown): UserKnowledgeGraphResponse {
   const record = assertRecord(value, 'root')
+  const viewer = parseViewer(record.viewer, 'viewer')
   const nodes = parseNodes(record.nodes, 'nodes')
   const edges = parseEdges(record.edges, 'edges')
+  const semanticEdges = parseOwnerSemanticEdges(record, viewer)
+  const semanticGroups = parseOwnerSemanticGroups(record, viewer)
 
   validateEdgeEndpoints(edges, nodes)
+  validateSemanticReferences(semanticEdges, semanticGroups, nodes)
 
   const parsed: UserKnowledgeGraphResponse = {
     user_id: assertUuidString(record.user_id, 'user_id'),
-    viewer: parseViewer(record.viewer, 'viewer'),
+    viewer,
     state: parseGraphState(record.state, 'state'),
     total_weight: assertDecimalString(record.total_weight, 'total_weight'),
     activity_breakdown: parseActivityBreakdown(record.activity_breakdown, 'activity_breakdown'),
     concepts: parseConcepts(record.concepts, 'concepts'),
     nodes,
     edges,
+    semantic_edges: semanticEdges,
+    semantic_groups: semanticGroups,
   }
 
   if ('layout' in record) {
