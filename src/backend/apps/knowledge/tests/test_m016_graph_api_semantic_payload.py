@@ -183,6 +183,14 @@ class OwnerGraphSemanticPayloadTests(APITestCase):
                     'confidence': '0.9200',
                     'generated_at': response.data['semantic_groups'][0]['generated_at'],
                     'evidence': {'signals': [{'concept_slug': 'django', 'score': '0.91'}]},
+                    'reuse_evidence': {},
+                    'member_count': 2,
+                    'lifecycle_status': 'active',
+                    'lifecycle_reason_code': '',
+                    'first_seen_at': None,
+                    'last_seen_at': None,
+                    'stale_at': None,
+                    'archived_at': None,
                     'members': [
                         {
                             'concept_id': self.django.pk,
