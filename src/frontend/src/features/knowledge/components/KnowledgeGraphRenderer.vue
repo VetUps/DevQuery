@@ -5,12 +5,16 @@ import type {
   KnowledgeGraphEdge,
   KnowledgeGraphLayoutPosition,
   KnowledgeGraphSemanticEdge,
+  KnowledgeGraphSemanticGraphMetadata,
+  KnowledgeGraphSemanticGroup,
   KnowledgeGraphNode,
 } from '@/features/knowledge/api/knowledgeGraph'
 import KnowledgeGraphCanvas from './KnowledgeGraphCanvas.vue'
 import KnowledgeGraphSemanticLegend from './KnowledgeGraphSemanticLegend.vue'
 import type { KnowledgeGraphConceptStateById } from './knowledgeGraphStatePresentation'
 import { getKnowledgeGraphConceptState } from './knowledgeGraphStatePresentation'
+import type { KnowledgeGraphProjectionMode } from './knowledgeGraphSemanticProjection'
+import { buildKnowledgeGraphSemanticProjection } from './knowledgeGraphSemanticProjection'
 
 interface Emits {
   'node-selected': [conceptId: number]
@@ -21,9 +25,12 @@ interface Emits {
 }
 
 const props = withDefaults(defineProps<{
+  projectionMode?: KnowledgeGraphProjectionMode
   nodes: KnowledgeGraphNode[]
   edges: KnowledgeGraphEdge[]
   semanticEdges?: KnowledgeGraphSemanticEdge[]
+  semanticGroups?: KnowledgeGraphSemanticGroup[]
+  semanticGraph?: KnowledgeGraphSemanticGraphMetadata
   showSemanticEdges?: boolean
   selectedConceptId?: number | null
   neighbourConceptIds?: number[]
@@ -35,10 +42,12 @@ const props = withDefaults(defineProps<{
   isLayoutResetting?: boolean
   conceptStates?: KnowledgeGraphConceptStateById
 }>(), {
+  projectionMode: 'structural',
   selectedConceptId: null,
   neighbourConceptIds: () => [],
   neighbourEdgeIds: () => [],
   semanticEdges: () => [],
+  semanticGroups: () => [],
   showSemanticEdges: false,
   layoutPositions: () => ({}),
   isOwner: false,
@@ -54,14 +63,23 @@ const graphCanvasRef = useTemplateRef<InstanceType<typeof KnowledgeGraphCanvas>>
 const isFullscreenOpen = shallowRef(false)
 
 const hasNodes = computed(() => props.nodes.length > 0)
+const semanticProjection = computed(() => buildKnowledgeGraphSemanticProjection(
+  props.semanticGroups,
+  props.nodes,
+  props.semanticGraph,
+))
+const isSemanticProjectionMode = computed(() => props.projectionMode === 'semantic')
 const hasOwnerSemanticEdges = computed(() => props.isOwner && props.semanticEdges.length > 0)
 const canShowSemanticOverlay = computed(() => hasOwnerSemanticEdges.value && props.showSemanticEdges)
 const graphSummary = computed(() => {
+  const semanticModeCopy = isSemanticProjectionMode.value
+    ? ` · семантическая проекция: ${semanticProjection.value.visibleGroupCount} групп`
+    : ''
   const semanticCopy = hasOwnerSemanticEdges.value
     ? ` · ${props.semanticEdges.length} семантических соседей${canShowSemanticOverlay.value ? '' : ' скрыто'}`
     : ''
 
-  return `${props.nodes.length} концептов · ${props.edges.length} связей${semanticCopy}`
+  return `${props.nodes.length} концептов · ${props.edges.length} связей${semanticCopy}${semanticModeCopy}`
 })
 const isLayoutActionDisabled = computed(() => !props.isLayoutDirty || props.isLayoutSaving || props.isLayoutResetting)
 
@@ -249,6 +267,87 @@ function emitSemanticVisibilityChanged(visible: boolean): void {
         </button>
       </div>
     </div>
+
+    <section
+      v-if="isSemanticProjectionMode"
+      class="knowledge-graph-renderer__semantic-projection"
+      data-testid="knowledge-graph-semantic-projection"
+      :data-mode="props.projectionMode"
+      :data-state="semanticProjection.state"
+      aria-labelledby="knowledge-graph-semantic-projection-title"
+    >
+      <header class="knowledge-graph-renderer__semantic-header">
+        <div>
+          <p class="knowledge-graph-renderer__eyebrow">Семантическая проекция</p>
+          <h4 id="knowledge-graph-semantic-projection-title" class="knowledge-graph-renderer__semantic-title">
+            Группы знаний как области графа
+          </h4>
+        </div>
+        <div class="knowledge-graph-renderer__semantic-stats" aria-label="Сводка семантической проекции">
+          <span data-testid="knowledge-graph-semantic-mode">{{ props.projectionMode }}</span>
+          <span data-testid="knowledge-graph-semantic-group-count">{{ semanticProjection.visibleGroupCount }} групп</span>
+          <span data-testid="knowledge-graph-semantic-member-count">{{ semanticProjection.visibleMemberCount }} участников</span>
+          <span data-testid="knowledge-graph-semantic-lifecycle-counts">
+            active {{ semanticProjection.lifecycleCounts.active }} · stale {{ semanticProjection.lifecycleCounts.stale }}
+          </span>
+        </div>
+      </header>
+
+      <p
+        class="knowledge-graph-renderer__semantic-state"
+        data-testid="knowledge-graph-semantic-state"
+        :data-status="semanticProjection.status"
+        :data-reason="semanticProjection.reasonCode"
+        :data-phase="semanticProjection.phase"
+      >
+        {{ semanticProjection.stateCopy }}
+      </p>
+
+      <div
+        v-if="semanticProjection.areas.length > 0"
+        class="knowledge-graph-renderer__semantic-areas"
+        data-testid="knowledge-graph-semantic-areas"
+        role="list"
+        aria-label="Семантические области графа знаний"
+      >
+        <article
+          v-for="area in semanticProjection.areas"
+          :key="area.key"
+          class="knowledge-graph-renderer__semantic-area"
+          :class="`knowledge-graph-renderer__semantic-area--${area.lifecycleStatus}`"
+          :data-testid="`knowledge-graph-semantic-area-${area.key}`"
+          :data-lifecycle="area.lifecycleStatus"
+          role="listitem"
+          :aria-label="area.ariaLabel"
+        >
+          <div class="knowledge-graph-renderer__semantic-area-header">
+            <h5>{{ area.label }}</h5>
+            <span
+              class="knowledge-graph-renderer__semantic-badge"
+              :data-testid="`knowledge-graph-semantic-area-lifecycle-${area.key}`"
+            >
+              {{ area.lifecycleLabel }}
+            </span>
+          </div>
+          <p>{{ area.description }}</p>
+          <p class="knowledge-graph-renderer__semantic-meta">
+            {{ area.visibleMemberCount }} из {{ area.memberCount }} видимых концептов
+            <span v-if="area.hiddenMemberCount > 0"> · {{ area.hiddenMemberCount }} скрыто фильтрами</span>
+          </p>
+          <ul class="knowledge-graph-renderer__semantic-members" :data-testid="`knowledge-graph-semantic-area-members-${area.key}`">
+            <li
+              v-for="member in area.members"
+              :key="member.conceptId"
+              :class="{ 'knowledge-graph-renderer__semantic-member--hidden': !member.visible }"
+            >
+              <span>#{{ member.rank }}</span>
+              <span>{{ member.label }}</span>
+              <small>{{ member.visible ? 'видим' : 'скрыт фильтрами' }}</small>
+            </li>
+          </ul>
+        </article>
+      </div>
+    </section>
 
     <KnowledgeGraphCanvas
       ref="graphCanvas"
@@ -596,6 +695,105 @@ function emitSemanticVisibilityChanged(visible: boolean): void {
 .knowledge-graph-renderer__concept-state--unknown {
   border-style: dashed;
   color: var(--color-muted);
+}
+
+.knowledge-graph-renderer__semantic-projection {
+  display: grid;
+  gap: var(--space-md);
+  padding: var(--space-md);
+  border: 1px solid rgb(124 58 237 / 0.18);
+  border-radius: var(--radius-lg);
+  background: linear-gradient(135deg, rgb(245 243 255 / 0.78), rgb(255 255 255 / 0.76));
+  box-shadow: 0 14px 34px rgb(15 23 42 / 0.07);
+}
+
+.knowledge-graph-renderer__semantic-header,
+.knowledge-graph-renderer__semantic-area-header,
+.knowledge-graph-renderer__semantic-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  align-items: center;
+  justify-content: space-between;
+}
+
+.knowledge-graph-renderer__semantic-title,
+.knowledge-graph-renderer__semantic-area h5,
+.knowledge-graph-renderer__semantic-area p,
+.knowledge-graph-renderer__semantic-state {
+  margin: 0;
+}
+
+.knowledge-graph-renderer__semantic-stats span,
+.knowledge-graph-renderer__semantic-badge {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  padding: 0 var(--space-sm);
+  border: 1px solid rgb(124 58 237 / 0.22);
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.82);
+  color: rgb(91 33 182);
+  font-size: 12px;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+}
+
+.knowledge-graph-renderer__semantic-state,
+.knowledge-graph-renderer__semantic-meta {
+  color: var(--color-muted);
+}
+
+.knowledge-graph-renderer__semantic-areas {
+  display: grid;
+  gap: var(--space-sm);
+}
+
+.knowledge-graph-renderer__semantic-area {
+  display: grid;
+  gap: var(--space-sm);
+  padding: var(--space-md);
+  border: 1px solid rgb(100 116 139 / 0.18);
+  border-radius: var(--radius-lg);
+  background: rgb(255 255 255 / 0.78);
+}
+
+.knowledge-graph-renderer__semantic-area--active {
+  border-color: rgb(15 118 110 / 0.28);
+}
+
+.knowledge-graph-renderer__semantic-area--stale {
+  border-style: dashed;
+  border-color: rgb(217 119 6 / 0.34);
+}
+
+.knowledge-graph-renderer__semantic-members {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.knowledge-graph-renderer__semantic-members li {
+  display: inline-flex;
+  gap: var(--space-xs);
+  align-items: center;
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: 999px;
+  background: rgb(248 250 252 / 0.92);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.knowledge-graph-renderer__semantic-members small {
+  color: var(--color-muted);
+  font-weight: 700;
+}
+
+.knowledge-graph-renderer__semantic-member--hidden {
+  opacity: 0.62;
 }
 
 .knowledge-graph-renderer__modal-backdrop {

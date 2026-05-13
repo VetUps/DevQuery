@@ -965,6 +965,8 @@ watch(
             :nodes="filteredNodes"
             :edges="filteredEdges"
             :semantic-edges="visibleSemanticEdges"
+            :semantic-groups="ownerSemanticGroups"
+            :semantic-graph="graph.semantic_graph"
             :show-semantic-edges="effectiveShowSemanticEdges"
             :selected-concept-id="selectedConceptId"
             :neighbour-concept-ids="neighbourConceptIds"
