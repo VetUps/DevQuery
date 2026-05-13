@@ -6,6 +6,7 @@ from drf_spectacular.utils import extend_schema
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.throttling import UserRateThrottle
 from rest_framework.views import APIView
 
 from apps.knowledge.serializers import (
@@ -32,6 +33,10 @@ from apps.knowledge.services.insights_service import get_insights_error_payload,
 from apps.qa.models import Question
 
 logger = logging.getLogger(__name__)
+
+
+class KnowledgeGraphRebuildThrottle(UserRateThrottle):
+    scope = 'knowledge_graph_rebuild'
 
 
 class OwnUserGraphView(APIView):
@@ -118,6 +123,7 @@ class OwnUserGraphLayoutView(APIView):
 
 class OwnUserGraphRebuildView(APIView):
     permission_classes = [IsAuthenticated]
+    throttle_classes = [KnowledgeGraphRebuildThrottle]
 
     @extend_schema(
         request=None,

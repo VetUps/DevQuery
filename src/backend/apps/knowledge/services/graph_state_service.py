@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass
 from typing import Any
@@ -29,6 +30,7 @@ _SUPPORTED_STRUCTURAL_LEDGER_REASONS = {
     ReputationTransaction.TransactionReason.SOLUTION_UPVOTED,
     ReputationTransaction.TransactionReason.APPROVED_EDIT,
 }
+logger = logging.getLogger(__name__)
 
 
 class UserKnowledgeGraphRebuildError(Exception):
@@ -304,12 +306,29 @@ def rebuild_user_knowledge_graph(user_or_id) -> UserKnowledgeGraphRebuildSummary
         raise UserKnowledgeGraphRebuildError('User knowledge graph rebuild requires a user')
 
     mark_user_graph_rebuilding(user, phase='owner_rebuild')
+    logger.info(
+        'knowledge graph owner rebuild started',
+        extra={
+            'event': 'knowledge_graph_owner_rebuild_started',
+            'user_id': str(user.pk),
+            'phase': 'owner_rebuild',
+        },
+    )
 
     try:
         from apps.knowledge.services.activity_service import rebuild_user_concept_activity
         from apps.knowledge.services.lifecycle_service import rebuild_structural_graph
 
         structural_summary = rebuild_structural_graph(get_user_structural_question_queryset(user))
+        logger.info(
+            'knowledge graph owner structural rebuild completed',
+            extra={
+                'event': 'knowledge_graph_owner_structural_rebuild_completed',
+                'user_id': str(user.pk),
+                'phase': 'structural_rebuild',
+                **{f'structural_{name}': value for name, value in structural_summary.as_stdout_fields().items()},
+            },
+        )
     except (DatabaseError, Exception) as exc:
         mark_user_graph_failed(
             user,
@@ -317,16 +336,45 @@ def rebuild_user_knowledge_graph(user_or_id) -> UserKnowledgeGraphRebuildSummary
             phase='structural_rebuild',
             error=exc,
         )
+        logger.warning(
+            'knowledge graph owner structural rebuild failed safely',
+            extra={
+                'event': 'knowledge_graph_owner_rebuild_failed',
+                'user_id': str(user.pk),
+                'phase': 'structural_rebuild',
+                'reason': UserKnowledgeGraphState.StaleReason.ACTIVITY_REBUILD_FAILED,
+                'error_type': exc.__class__.__name__,
+            },
+        )
         raise _safe_rebuild_failure(phase='structural_rebuild', exc=exc) from exc
 
     try:
         activity_summary = rebuild_user_concept_activity(user_id=user.pk)
+        logger.info(
+            'knowledge graph owner activity rebuild completed',
+            extra={
+                'event': 'knowledge_graph_owner_activity_rebuild_completed',
+                'user_id': str(user.pk),
+                'phase': 'activity_rebuild',
+                **{f'activity_{name}': value for name, value in activity_summary.as_stdout_fields().items()},
+            },
+        )
     except (DatabaseError, Exception) as exc:
         mark_user_graph_failed(
             user,
             reason=UserKnowledgeGraphState.StaleReason.ACTIVITY_REBUILD_FAILED,
             phase='activity_rebuild',
             error=exc,
+        )
+        logger.warning(
+            'knowledge graph owner activity rebuild failed safely',
+            extra={
+                'event': 'knowledge_graph_owner_rebuild_failed',
+                'user_id': str(user.pk),
+                'phase': 'activity_rebuild',
+                'reason': UserKnowledgeGraphState.StaleReason.ACTIVITY_REBUILD_FAILED,
+                'error_type': exc.__class__.__name__,
+            },
         )
         raise _safe_rebuild_failure(phase='activity_rebuild', exc=exc) from exc
 
@@ -337,13 +385,53 @@ def rebuild_user_knowledge_graph(user_or_id) -> UserKnowledgeGraphRebuildSummary
         from apps.knowledge.services.semantic_rebuild_service import run_owner_semantic_boundary
 
         semantic = run_owner_semantic_boundary(user)
-    except Exception:
+        logger.info(
+            'knowledge graph owner semantic rebuild completed',
+            extra={
+                'event': 'knowledge_graph_owner_semantic_rebuild_completed',
+                'user_id': str(user.pk),
+                'phase': 'semantic_rebuild',
+                'semantic_status': semantic.get('status') if semantic else None,
+                'semantic_reason_code': semantic.get('reason_code') if semantic else None,
+                'semantic_group_count': semantic.get('semantic_group_count') if semantic else None,
+                'neighbour_candidate_count': semantic.get('neighbour_candidate_count') if semantic else None,
+            },
+        )
+    except Exception as exc:
         # Semantic enrichment is an additive M016 boundary check.  It must never
         # roll back or degrade the already-fresh structural/activity graph; the
         # semantic service is responsible for normal provider/config/budget
         # diagnostics, and this catch preserves base rebuild success if an
         # unexpected semantic seam regression escapes that service.
         semantic = _mark_semantic_boundary_unavailable(user)
+        logger.warning(
+            'knowledge graph owner semantic rebuild hit unexpected safe fallback: semantic_status=%s reason_code=%s error_type=%s',
+            semantic.get('status'),
+            semantic.get('reason_code'),
+            exc.__class__.__name__,
+            extra={
+                'event': 'knowledge_graph_owner_semantic_rebuild_unexpected_failure',
+                'user_id': str(user.pk),
+                'phase': 'semantic_rebuild',
+                'semantic_status': semantic.get('status'),
+                'semantic_reason_code': semantic.get('reason_code'),
+                'error_type': exc.__class__.__name__,
+            },
+        )
+
+    logger.info(
+        'knowledge graph owner rebuild completed',
+        extra={
+            'event': 'knowledge_graph_owner_rebuild_completed',
+            'user_id': str(user.pk),
+            'phase': 'owner_rebuild',
+            **{f'structural_{name}': value for name, value in structural_summary.as_stdout_fields().items()},
+            **{f'activity_{name}': value for name, value in activity_summary.as_stdout_fields().items()},
+            'graph_status': state.status,
+            'semantic_status': semantic.get('status') if semantic else None,
+            'semantic_reason_code': semantic.get('reason_code') if semantic else None,
+        },
+    )
 
     return UserKnowledgeGraphRebuildSummary(
         user_id=user.pk,

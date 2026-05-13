@@ -1123,8 +1123,12 @@ export async function fetchOwnKnowledgeGraphInsights(): Promise<UserKnowledgeGra
   return parseUserKnowledgeGraphInsightsResponse(response.data)
 }
 
+export const KNOWLEDGE_GRAPH_REBUILD_REQUEST_TIMEOUT_MS = 120_000
+
 export async function rebuildOwnKnowledgeGraph(): Promise<KnowledgeGraphRebuildResponse> {
-  const response = await http.post<unknown>('/knowledge-graph/me/rebuild/')
+  const response = await http.post<unknown>('/knowledge-graph/me/rebuild/', undefined, {
+    timeout: KNOWLEDGE_GRAPH_REBUILD_REQUEST_TIMEOUT_MS,
+  })
 
   return parseKnowledgeGraphRebuildResponse(response.data)
 }

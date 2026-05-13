@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, replace
 import hashlib
 import math
@@ -21,8 +22,10 @@ from apps.knowledge.models import (
     UserKnowledgeGraphSemanticState,
 )
 from apps.knowledge.semantic_providers import (
+    DeepSeekKnowledgeGraphGroupingProvider,
     FakeKnowledgeGraphEmbeddingProvider,
     FakeKnowledgeGraphGroupingProvider,
+    GigaChatKnowledgeGraphEmbeddingProvider,
     KnowledgeGraphEmbeddingConfig,
     KnowledgeGraphEmbeddingProvider,
     KnowledgeGraphEmbeddingRequest,
@@ -52,6 +55,7 @@ SAFE_ERROR_MESSAGES = {
     'malformed_response': 'Knowledge graph semantic provider returned malformed output.',
     'provider_error': 'Knowledge graph semantic provider request failed.',
 }
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -70,15 +74,25 @@ class OwnerSemanticRebuildEstimate:
 
 
 def create_source_provider(config: KnowledgeGraphEmbeddingConfig) -> KnowledgeGraphEmbeddingProvider:
-    """Factory seam for future live embedding providers; currently safe-local for S01."""
+    """Factory seam for live or explicit-fake embedding providers."""
 
-    return FakeKnowledgeGraphEmbeddingProvider(dimensions=config.dimensions, model=config.model or 'fake-embedding-v1')
+    provider = (config.provider or '').strip().lower()
+    if provider in {'fake', 'local', 'test', 'fake-knowledge-graph-embedding'}:
+        return FakeKnowledgeGraphEmbeddingProvider(dimensions=config.dimensions, model=config.model or 'fake-embedding-v1')
+    if provider == 'gigachat':
+        return GigaChatKnowledgeGraphEmbeddingProvider(config)
+    raise KnowledgeGraphProviderConfigurationError('Knowledge graph embedding provider is not supported.')
 
 
 def create_grouping_provider(config: KnowledgeGraphGroupingConfig) -> KnowledgeGraphGroupingProvider:
-    """Factory seam for future live grouping providers; currently safe-local for S01."""
+    """Factory seam for live or explicit-fake grouping providers."""
 
-    return FakeKnowledgeGraphGroupingProvider(model=config.model or 'fake-grouping-v1')
+    provider = (config.provider or '').strip().lower()
+    if provider in {'fake', 'local', 'test', 'fake-knowledge-graph-grouping'}:
+        return FakeKnowledgeGraphGroupingProvider(model=config.model or 'fake-grouping-v1')
+    if provider == 'deepseek':
+        return DeepSeekKnowledgeGraphGroupingProvider(config)
+    raise KnowledgeGraphProviderConfigurationError('Knowledge graph grouping provider is not supported.')
 
 
 def _decimal_cost(value: float | Decimal) -> Decimal:
@@ -180,22 +194,30 @@ def estimate_owner_semantic_rebuild(
     )
 
 
-_SECRET_TOKEN_RE = re.compile(r'\bsk_[A-Za-z0-9_\-]+\b')
+_SECRET_TOKEN_RE = re.compile(r'\bsk[_-][A-Za-z0-9_\-]{8,}\b')
+_BEARER_TOKEN_RE = re.compile(r'\bBearer\s+[A-Za-z0-9._~+/=\-]{20,}\b', re.IGNORECASE)
+_AWS_ACCESS_KEY_RE = re.compile(r'\bAKIA[0-9A-Z]{16}\b')
+_JWT_LIKE_RE = re.compile(r'\b[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b')
+_CONNECTION_URL_RE = re.compile(r'\b(?:postgres|postgresql|mysql|redis|mongodb)://[^\s]+', re.IGNORECASE)
 _EMAIL_RE = re.compile(r'\b[^\s@]+@[^\s@]+\.[^\s@]+\b')
+_PROVIDER_TEXT_MAX_CHARS = 2000
 
 
 def _redact_source_text(value: str) -> str:
-    value = _SECRET_TOKEN_RE.sub('[redacted-token]', value or '')
+    value = value or ''
+    for pattern in (_SECRET_TOKEN_RE, _BEARER_TOKEN_RE, _AWS_ACCESS_KEY_RE, _JWT_LIKE_RE, _CONNECTION_URL_RE):
+        value = pattern.sub('[redacted-secret]', value)
     value = _EMAIL_RE.sub('[redacted-email]', value)
-    return ' '.join(value.split())
+    return ' '.join(value.split())[:_PROVIDER_TEXT_MAX_CHARS]
 
 
 def _canonical_question_source_text(question, tag_names: list[str]) -> str:
+    safe_tag_names = [_redact_source_text(tag_name) for tag_name in tag_names]
     return '\n'.join(
         [
             'source_type:question',
             f'title:{_redact_source_text(question.question_title)}',
-            f'tags:{", ".join(tag_names)}',
+            f'tags:{", ".join(safe_tag_names)}',
             f'body:{_redact_source_text(question.question_body)}',
         ]
     )
@@ -440,7 +462,16 @@ def _assert_safe_group_text(value: str, *, field: str) -> str:
     normalized = ' '.join((value or '').split()).strip()
     if not normalized:
         raise KnowledgeGraphProviderMalformedResponse('Knowledge graph grouping provider returned blank safe text.', phase='grouping')
-    if _CONTROL_OR_HTML_RE.search(normalized) or _SECRET_TOKEN_RE.search(normalized) or _EMAIL_RE.search(normalized) or _SOURCE_ID_LIKE_RE.search(normalized):
+    secret_patterns = (
+        _SECRET_TOKEN_RE,
+        _BEARER_TOKEN_RE,
+        _AWS_ACCESS_KEY_RE,
+        _JWT_LIKE_RE,
+        _CONNECTION_URL_RE,
+        _EMAIL_RE,
+        _SOURCE_ID_LIKE_RE,
+    )
+    if _CONTROL_OR_HTML_RE.search(normalized) or any(pattern.search(normalized) for pattern in secret_patterns):
         raise KnowledgeGraphProviderMalformedResponse('Knowledge graph grouping provider returned unsafe safe text.', phase='grouping')
     return normalized[:1000] if field == 'rationale' else normalized[:160]
 
@@ -589,6 +620,23 @@ def run_owner_semantic_boundary(
         embedding_config=embedding_config,
         grouping_config=grouping_config,
     )
+    logger.info(
+        'knowledge graph semantic rebuild estimated',
+        extra={
+            'event': 'knowledge_graph_semantic_rebuild_estimated',
+            'user_id': str(user.pk),
+            'enabled': semantic_config.enabled,
+            'dry_run': semantic_config.dry_run,
+            'source_item_count': estimate.source_item_count,
+            'estimated_token_count': estimate.estimated_token_count,
+            'estimated_cost': str(estimate.estimated_cost),
+            'budget_cap': str(estimate.budget_cap),
+            'source_provider': estimate.source_provider,
+            'source_model': estimate.source_model,
+            'grouping_provider': estimate.grouping_provider,
+            'grouping_model': estimate.grouping_model,
+        },
+    )
     diagnostic_estimate = estimate
     changed_source_item_count = 0
     reused_snapshot_count = 0
@@ -602,6 +650,16 @@ def run_owner_semantic_boundary(
         grouping_config.validate(enabled=semantic_config.enabled)
 
         if not semantic_config.enabled:
+            logger.info(
+                'knowledge graph semantic rebuild skipped because AI is disabled',
+                extra={
+                    'event': 'knowledge_graph_semantic_rebuild_skipped',
+                    'user_id': str(user.pk),
+                    'reason_code': 'ai_disabled',
+                    'phase': 'configuration',
+                    'source_item_count': estimate.source_item_count,
+                },
+            )
             state = _persist_state(
                 user,
                 estimate=estimate,
@@ -614,6 +672,16 @@ def run_owner_semantic_boundary(
             return _state_payload(state)
 
         if estimate.source_item_count == 0:
+            logger.info(
+                'knowledge graph semantic rebuild skipped because owner graph is empty',
+                extra={
+                    'event': 'knowledge_graph_semantic_rebuild_skipped',
+                    'user_id': str(user.pk),
+                    'reason_code': 'empty_owner_graph',
+                    'phase': 'estimation',
+                    'source_item_count': 0,
+                },
+            )
             state = _persist_state(
                 user,
                 estimate=estimate,
@@ -636,9 +704,33 @@ def run_owner_semantic_boundary(
         diagnostic_estimate = changed_estimate
         changed_source_item_count = len(missing_indexes)
         reused_snapshot_count = len(reusable_snapshots)
+        logger.info(
+            'knowledge graph semantic rebuild change set calculated',
+            extra={
+                'event': 'knowledge_graph_semantic_rebuild_change_set_calculated',
+                'user_id': str(user.pk),
+                'changed_source_count': changed_source_item_count,
+                'reused_snapshot_count': reused_snapshot_count,
+                'estimated_token_count': changed_estimate.estimated_token_count,
+                'estimated_cost': str(changed_estimate.estimated_cost),
+                'budget_cap': str(changed_estimate.budget_cap),
+            },
+        )
         semantic_config.validate_budget(float(changed_estimate.estimated_cost))
 
         if semantic_config.dry_run:
+            logger.info(
+                'knowledge graph semantic rebuild stopped after dry run estimate',
+                extra={
+                    'event': 'knowledge_graph_semantic_rebuild_dry_run_completed',
+                    'user_id': str(user.pk),
+                    'changed_source_count': changed_source_item_count,
+                    'reused_snapshot_count': reused_snapshot_count,
+                    'estimated_token_count': changed_estimate.estimated_token_count,
+                    'estimated_cost': str(changed_estimate.estimated_cost),
+                    'budget_cap': str(changed_estimate.budget_cap),
+                },
+            )
             state = _persist_state(
                 user,
                 estimate=changed_estimate,
@@ -656,6 +748,18 @@ def run_owner_semantic_boundary(
         provider_metadata = None
         generated_at = timezone.now()
         if missing_indexes:
+            logger.info(
+                'knowledge graph semantic embedding snapshots missing; calling provider',
+                extra={
+                    'event': 'knowledge_graph_semantic_embedding_provider_call_planned',
+                    'user_id': str(user.pk),
+                    'changed_source_count': len(missing_indexes),
+                    'reused_snapshot_count': reused_snapshot_count,
+                    'source_provider': embedding_config.metadata.provider,
+                    'source_model': embedding_config.metadata.model,
+                    'dimensions': embedding_config.dimensions,
+                },
+            )
             source_provider = source_provider_factory(embedding_config)
             result = source_provider.embed(
                 KnowledgeGraphEmbeddingRequest(texts=[estimate.source_texts[index] for index in missing_indexes])
@@ -672,15 +776,58 @@ def run_owner_semantic_boundary(
             )
             with transaction.atomic():
                 persisted_snapshots = _persist_snapshots(user, estimate, provider_metadata, missing_indexes, vectors, generated_at)
+            logger.info(
+                'knowledge graph semantic embedding snapshots persisted',
+                extra={
+                    'event': 'knowledge_graph_semantic_embedding_snapshots_persisted',
+                    'user_id': str(user.pk),
+                    'persisted_snapshot_count': len(persisted_snapshots),
+                    'source_provider': provider_metadata.provider,
+                    'source_model': provider_metadata.model,
+                    'dimensions': dimensions,
+                },
+            )
         snapshots_by_index = {**reusable_snapshots, **persisted_snapshots}
         snapshot_item_count = len(persisted_snapshots)
         neighbor_candidate_count = _replace_semantic_candidates(user, snapshots_by_index, generated_at)
+        logger.info(
+            'knowledge graph semantic candidates rebuilt',
+            extra={
+                'event': 'knowledge_graph_semantic_candidates_rebuilt',
+                'user_id': str(user.pk),
+                'snapshot_count': len(snapshots_by_index),
+                'persisted_snapshot_count': snapshot_item_count,
+                'reused_snapshot_count': reused_snapshot_count,
+                'neighbour_candidate_count': neighbor_candidate_count,
+            },
+        )
         concept_summaries = _build_grouping_concept_summaries(user) if neighbor_candidate_count else []
         if concept_summaries:
+            logger.info(
+                'knowledge graph semantic grouping provider call planned',
+                extra={
+                    'event': 'knowledge_graph_semantic_grouping_provider_call_planned',
+                    'user_id': str(user.pk),
+                    'concept_summary_count': len(concept_summaries),
+                    'grouping_provider': grouping_config.metadata.provider,
+                    'grouping_model': grouping_config.metadata.model,
+                },
+            )
             grouping_provider = grouping_provider_factory(grouping_config)
             grouping_result = grouping_provider.group(KnowledgeGraphGroupingRequest(concepts=concept_summaries))
             semantic_group_count, semantic_group_membership_count = _replace_semantic_groups(
                 user, grouping_result, concept_summaries, generated_at
+            )
+            logger.info(
+                'knowledge graph semantic groups persisted',
+                extra={
+                    'event': 'knowledge_graph_semantic_groups_persisted',
+                    'user_id': str(user.pk),
+                    'semantic_group_count': semantic_group_count,
+                    'semantic_group_membership_count': semantic_group_membership_count,
+                    'grouping_provider': grouping_result.metadata.provider,
+                    'grouping_model': grouping_result.metadata.model,
+                },
             )
 
         grouping_ran = bool(concept_summaries)
@@ -698,6 +845,22 @@ def run_owner_semantic_boundary(
             neighbor_candidate_count=neighbor_candidate_count,
             semantic_group_count=semantic_group_count,
             semantic_group_membership_count=semantic_group_membership_count,
+        )
+        logger.info(
+            'knowledge graph semantic rebuild completed',
+            extra={
+                'event': 'knowledge_graph_semantic_rebuild_completed',
+                'user_id': str(user.pk),
+                'status': state.status,
+                'reason_code': state.reason_code,
+                'phase': state.phase,
+                'changed_source_count': changed_source_item_count,
+                'reused_snapshot_count': reused_snapshot_count,
+                'persisted_snapshot_count': snapshot_item_count,
+                'neighbour_candidate_count': neighbor_candidate_count,
+                'semantic_group_count': semantic_group_count,
+                'semantic_group_membership_count': semantic_group_membership_count,
+            },
         )
         return _state_payload(state)
     except (KnowledgeGraphProviderConfigurationError, KnowledgeGraphProviderBudgetExceeded, KnowledgeGraphProviderTimeout, KnowledgeGraphProviderMalformedResponse, KnowledgeGraphProviderError) as exc:
@@ -718,6 +881,29 @@ def run_owner_semantic_boundary(
             semantic_group_count=semantic_group_count,
             semantic_group_membership_count=semantic_group_membership_count,
         )
+        logger.warning(
+            'knowledge graph semantic rebuild failed safely: status=%s reason_code=%s phase=%s provider=%s model=%s',
+            status,
+            code,
+            phase,
+            provider,
+            model,
+            extra={
+                'event': 'knowledge_graph_semantic_rebuild_failed',
+                'user_id': str(user.pk),
+                'status': status,
+                'reason_code': code,
+                'phase': phase,
+                'source_provider': provider,
+                'source_model': model,
+                'changed_source_count': changed_source_item_count if code in {'timeout', 'provider_error', 'malformed_response'} else 0,
+                'reused_snapshot_count': reused_snapshot_count,
+                'persisted_snapshot_count': snapshot_item_count,
+                'neighbour_candidate_count': neighbor_candidate_count,
+                'semantic_group_count': semantic_group_count,
+                'semantic_group_membership_count': semantic_group_membership_count,
+            },
+        )
         return _state_payload(state)
     except Exception as exc:
         status, code, phase, provider, model, message = _safe_error_payload(exc)
@@ -736,5 +922,26 @@ def run_owner_semantic_boundary(
             neighbor_candidate_count=neighbor_candidate_count,
             semantic_group_count=semantic_group_count,
             semantic_group_membership_count=semantic_group_membership_count,
+        )
+        logger.warning(
+            'knowledge graph semantic rebuild hit unexpected safe fallback: status=%s reason_code=%s phase=%s error_type=%s',
+            status,
+            code,
+            phase,
+            exc.__class__.__name__,
+            extra={
+                'event': 'knowledge_graph_semantic_rebuild_unexpected_failure',
+                'user_id': str(user.pk),
+                'status': status,
+                'reason_code': code,
+                'phase': phase,
+                'changed_source_count': changed_source_item_count,
+                'reused_snapshot_count': reused_snapshot_count,
+                'persisted_snapshot_count': snapshot_item_count,
+                'neighbour_candidate_count': neighbor_candidate_count,
+                'semantic_group_count': semantic_group_count,
+                'semantic_group_membership_count': semantic_group_membership_count,
+                'error_type': exc.__class__.__name__,
+            },
         )
         return _state_payload(state)

@@ -7,6 +7,7 @@ import { computed, nextTick } from 'vue'
 import {
   fetchOwnKnowledgeGraph,
   fetchPublicUserKnowledgeGraph,
+  KNOWLEDGE_GRAPH_REBUILD_REQUEST_TIMEOUT_MS,
   rebuildOwnKnowledgeGraph,
   resetOwnKnowledgeGraphLayout,
   saveOwnKnowledgeGraphLayout,
@@ -381,7 +382,9 @@ describe('knowledge graph frontend boundary contract', () => {
 
     expect(httpMock.get).toHaveBeenNthCalledWith(1, '/knowledge-graph/me/')
     expect(httpMock.get).toHaveBeenNthCalledWith(2, `/knowledge-graph/users/${PUBLIC_USER_ID}/`)
-    expect(httpMock.post).toHaveBeenCalledExactlyOnceWith('/knowledge-graph/me/rebuild/')
+    expect(httpMock.post).toHaveBeenCalledExactlyOnceWith('/knowledge-graph/me/rebuild/', undefined, {
+      timeout: KNOWLEDGE_GRAPH_REBUILD_REQUEST_TIMEOUT_MS,
+    })
     expect(httpMock.put).toHaveBeenCalledExactlyOnceWith('/knowledge-graph/me/layout/', {
       schema_version: 1,
       positions: { 10: { x: 1, y: 2 } },

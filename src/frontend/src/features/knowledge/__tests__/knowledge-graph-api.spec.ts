@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { queryClient } from '@/app/query-client'
 import { http } from '@/shared/api/http'
 import {
+  KNOWLEDGE_GRAPH_REBUILD_REQUEST_TIMEOUT_MS,
   KNOWLEDGE_GRAPH_RECOMMENDATION_ACTION_TYPES,
   MalformedKnowledgeGraphResponseError,
   fetchOwnKnowledgeGraph,
@@ -771,7 +772,9 @@ describe('knowledge graph API contract', () => {
 
     mockedHttp.post.mockResolvedValue({ data: rebuildPayload() })
     await expect(rebuildOwnKnowledgeGraph()).resolves.toMatchObject({ processed_questions: 3 })
-    expect(mockedHttp.post).toHaveBeenCalledWith('/knowledge-graph/me/rebuild/')
+    expect(mockedHttp.post).toHaveBeenCalledWith('/knowledge-graph/me/rebuild/', undefined, {
+      timeout: KNOWLEDGE_GRAPH_REBUILD_REQUEST_TIMEOUT_MS,
+    })
   })
 
   it('exposes spoof-resistant rebuild mutation and invalidates all graph query variants on success', async () => {
@@ -783,7 +786,9 @@ describe('knowledge graph API contract', () => {
     await expect(mutationOptions.mutationFn()).resolves.toMatchObject({ processed_questions: 3 })
     await mutationOptions.onSuccess()
 
-    expect(mockedHttp.post).toHaveBeenCalledWith('/knowledge-graph/me/rebuild/')
+    expect(mockedHttp.post).toHaveBeenCalledWith('/knowledge-graph/me/rebuild/', undefined, {
+      timeout: KNOWLEDGE_GRAPH_REBUILD_REQUEST_TIMEOUT_MS,
+    })
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: knowledgeGraphQueryKeys.all })
   })
 
