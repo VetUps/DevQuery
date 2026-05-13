@@ -922,6 +922,59 @@ describe('ProfileKnowledgeGraphTab', () => {
     expect(rendererHarness.props.at(-1)?.edges).toBe(graph.edges)
   })
 
+  it('renders owner semantic groups with safe details and keeps filtered-out groups hidden', async () => {
+    const graph = buildGraph({
+      semantic_groups: [
+        {
+          group_key: 'frameworks',
+          label: 'Web frameworks',
+          description: 'Long safe description for related framework concepts that remains readable in the details surface.',
+          rationale: 'Grouped from aggregate activity patterns without private source details.',
+          confidence: '0.9100',
+          generated_at: '2026-05-11T10:00:00Z',
+          evidence: { signal_count: 3, shared_activity_types: ['answers', 'questions'] },
+          members: [
+            { concept_id: 10, slug: 'django', name: 'Django', rank: 1, confidence: '0.9300', evidence: { signal_count: 2 } },
+            { concept_id: 11, slug: 'vue', name: 'Vue', rank: 2, confidence: '0.8200', evidence: { signal_count: 1 } },
+          ],
+        },
+      ],
+    })
+    setQueryState({ data: graph })
+
+    const wrapper = await mountTab()
+
+    expect(wrapper.get('[data-testid="knowledge-semantic-groups-panel"]').text()).toContain('Как темы связаны по смыслу')
+    expect(wrapper.get('[data-testid="knowledge-semantic-groups-status"]').text()).toContain('Доступно групп: 1')
+    expect(wrapper.get('[data-testid="knowledge-semantic-group-card-frameworks"]').attributes('aria-pressed')).toBe('true')
+    expect(wrapper.get('[data-testid="knowledge-semantic-group-selected-details"]').text()).toContain('Web frameworks')
+    expect(wrapper.get('[data-testid="knowledge-semantic-group-selected-details"]').text()).toContain('Long safe description')
+    expect(wrapper.get('[data-testid="knowledge-semantic-group-members"]').text()).toContain('Django')
+    expect(wrapper.get('[data-testid="knowledge-semantic-group-members"]').text()).toContain('ранг 1')
+    expect(wrapper.get('[data-testid="knowledge-semantic-group-members"]').text()).toContain('уверенность 0,93')
+    expect(wrapper.text()).not.toContain('signal_count')
+    expect(wrapper.text()).not.toContain('raw_output')
+    expect(wrapper.text()).not.toContain('provider')
+
+    await wrapper.get('[data-testid="knowledge-insights-search"]').setValue('django')
+    await nextTick()
+
+    expect(wrapper.get('[data-testid="knowledge-semantic-groups-empty"]').text()).toContain('Семантические группы появятся')
+    expect(wrapper.find('[data-testid="knowledge-semantic-group-card-frameworks"]').exists()).toBe(false)
+    expect(rendererHarness.props.at(-1)?.edges).toBe(graph.edges)
+  })
+
+  it('shows owner-safe semantic group empty and degraded copy without hiding base controls', async () => {
+    setQueryState({ data: buildGraph({ semantic_groups: [] }), isError: true })
+
+    const wrapper = await mountTab()
+
+    expect(wrapper.get('[data-testid="knowledge-semantic-groups-panel"]').text()).toContain('Семантические группы')
+    expect(wrapper.get('[data-testid="knowledge-semantic-groups-status"]').text()).toContain('временно недоступно')
+    expect(wrapper.get('[data-testid="knowledge-semantic-groups-empty"]').text()).toContain('после достаточного количества')
+    expect(wrapper.get('[data-testid="knowledge-graph-mode"]').text()).toContain('2 nodes / 1 edges')
+    expect(wrapper.find('[data-testid="knowledge-rebuild-button"]').exists()).toBe(true)
+  })
   it('hides owner-only semantic surfaces for public graphs and tolerates empty semantic arrays', async () => {
     const graph = buildGraph({
       viewer: { is_owner: false },
@@ -934,7 +987,7 @@ describe('ProfileKnowledgeGraphTab', () => {
 
     expect(wrapper.get('[data-testid="renderer-is-owner"]').text()).toBe('readonly')
     expect(wrapper.get('[data-testid="renderer-semantic-count"]').text()).toBe('0')
-    expect(wrapper.get('[data-testid="renderer-semantic-visible"]').text()).toBe('semantic-off')
+    expect(wrapper.find('[data-testid="knowledge-semantic-groups-panel"]').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('semantic_neighbour')
     expect(wrapper.text()).not.toContain('raw_output')
   })

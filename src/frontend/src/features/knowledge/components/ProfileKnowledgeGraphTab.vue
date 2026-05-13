@@ -13,6 +13,7 @@ import type {
   KnowledgeGraphLayoutPosition,
   KnowledgeGraphRelatedQuestion,
   KnowledgeGraphSemanticEdge,
+  KnowledgeGraphSemanticGroup,
   UserKnowledgeGraphResponse,
 } from '@/features/knowledge/api/knowledgeGraph'
 import { useSaveKnowledgeGraphLayoutMutation, useResetKnowledgeGraphLayoutMutation } from '@/features/knowledge/mutations/useKnowledgeGraphLayoutMutation'
@@ -20,6 +21,7 @@ import AppButton from '@/shared/ui/AppButton.vue'
 import InlineFeedbackPanel from '@/shared/ui/InlineFeedbackPanel.vue'
 import SurfacePanel from '@/shared/ui/SurfacePanel.vue'
 import KnowledgeGraphRenderer from './KnowledgeGraphRenderer.vue'
+import KnowledgeGraphSemanticGroupsPanel from './KnowledgeGraphSemanticGroupsPanel.vue'
 import KnowledgeGraphConceptDetails from './KnowledgeGraphConceptDetails.vue'
 import {
   buildConceptQuestionDiscoveryRoute,
@@ -277,7 +279,12 @@ const filteredEdges = computed(() => {
     visibleNodeIds.value.has(edge.source_concept_id) && visibleNodeIds.value.has(edge.target_concept_id)
   ))
 })
-const ownerSemanticEdges = computed<KnowledgeGraphSemanticEdge[]>(() => (isOwner.value ? graph.value?.semantic_edges ?? [] : []))
+const ownerSemanticEdges = computed<KnowledgeGraphSemanticEdge[]>(() => (
+  canShowInsights.value ? graph.value?.semantic_edges ?? [] : []
+))
+const ownerSemanticGroups = computed<KnowledgeGraphSemanticGroup[]>(() => (
+  canShowInsights.value ? graph.value?.semantic_groups ?? [] : []
+))
 const visibleSemanticEdges = computed(() => ownerSemanticEdges.value.filter((edge) => (
   visibleNodeIds.value.has(edge.source_concept_id) && visibleNodeIds.value.has(edge.target_concept_id)
 )))
@@ -455,10 +462,15 @@ function activityLabel(activityType: string): string {
 }
 
 function sourceLabel(concept: KnowledgeGraphConceptEntry): string {
-  const source = concept.source || 'aggregate'
-  const provider = concept.provider || 'unknown'
+  if (concept.source === 'tag') {
+    return 'Агрегированный тег'
+  }
 
-  return `${source} · ${provider}`
+  if (concept.source === 'aggregate') {
+    return 'Агрегированная активность'
+  }
+
+  return 'Агрегированный сигнал'
 }
 
 function relatedQuestionHref(question: KnowledgeGraphRelatedQuestion): string {
@@ -760,6 +772,19 @@ watch(
         </ul>
       </SurfacePanel>
 
+      <SurfacePanel
+        v-if="canShowInsights && hasConcepts"
+        class="knowledge-tab__semantic-groups"
+        padding="lg"
+      >
+        <KnowledgeGraphSemanticGroupsPanel
+          :groups="ownerSemanticGroups"
+          :concepts="graph.concepts"
+          :visible-concept-ids="visibleNodeIds"
+          :graph-status="normalizedStatus"
+          :has-query-error="isStaleQueryError"
+        />
+      </SurfacePanel>
 
       <SurfacePanel
         v-if="canShowInsights && hasConcepts"
