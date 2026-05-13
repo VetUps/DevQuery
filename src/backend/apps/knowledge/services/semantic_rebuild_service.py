@@ -539,30 +539,75 @@ def _normalize_grouping_result(user, result, concept_summaries: list[dict[str, A
     return normalized_groups
 
 
-def _replace_semantic_groups(user, result, concept_summaries: list[dict[str, Any]], generated_at) -> tuple[int, int]:
+def _reconcile_semantic_groups(user, result, concept_summaries: list[dict[str, Any]], generated_at) -> tuple[int, int]:
     normalized_groups = _normalize_grouping_result(user, result, concept_summaries)
     provider = result.metadata.provider
     model = result.metadata.model
-    group_count = len(normalized_groups)
+    returned_group_keys = {group['group_key'] for group in normalized_groups}
     membership_count = sum(len(group['memberships']) for group in normalized_groups)
+
     with transaction.atomic():
-        UserKnowledgeGraphSemanticGroup.objects.filter(user=user, provider=provider, model=model).delete()
-        for group_data in normalized_groups:
-            memberships = group_data.pop('memberships')
-            group = UserKnowledgeGraphSemanticGroup(
+        existing_groups = {
+            group.group_key: group
+            for group in UserKnowledgeGraphSemanticGroup.objects.select_for_update().filter(
                 user=user,
                 provider=provider,
                 model=model,
-                generated_at=generated_at,
-                **group_data,
             )
+        }
+        for group_data in normalized_groups:
+            memberships = group_data['memberships']
+            group_defaults = {key: value for key, value in group_data.items() if key != 'memberships'}
+            group = existing_groups.get(group_data['group_key'])
+            if group is None:
+                group = UserKnowledgeGraphSemanticGroup(
+                    user=user,
+                    provider=provider,
+                    model=model,
+                    generated_at=generated_at,
+                    first_seen_at=generated_at,
+                    last_seen_at=generated_at,
+                    lifecycle_status=UserKnowledgeGraphSemanticGroup.LifecycleStatus.ACTIVE,
+                    lifecycle_reason_code='',
+                    stale_at=None,
+                    archived_at=None,
+                    **group_defaults,
+                )
+            else:
+                for field, value in group_defaults.items():
+                    setattr(group, field, value)
+                if group.first_seen_at is None:
+                    group.first_seen_at = generated_at
+                group.generated_at = generated_at
+                group.last_seen_at = generated_at
+                group.lifecycle_status = UserKnowledgeGraphSemanticGroup.LifecycleStatus.ACTIVE
+                group.lifecycle_reason_code = ''
+                group.stale_at = None
+                group.archived_at = None
             group.full_clean()
             group.save()
+
+            UserKnowledgeGraphSemanticGroupMembership.objects.filter(group=group).delete()
             for membership_data in memberships:
                 membership = UserKnowledgeGraphSemanticGroupMembership(group=group, **membership_data)
                 membership.full_clean()
                 membership.save()
-    return group_count, membership_count
+
+        stale_candidates = [
+            group
+            for group_key, group in existing_groups.items()
+            if group_key not in returned_group_keys
+            and group.lifecycle_status == UserKnowledgeGraphSemanticGroup.LifecycleStatus.ACTIVE
+        ]
+        for group in stale_candidates:
+            group.lifecycle_status = UserKnowledgeGraphSemanticGroup.LifecycleStatus.STALE
+            group.lifecycle_reason_code = 'provider_missed_group'
+            group.stale_at = generated_at
+            group.last_seen_at = group.last_seen_at or group.generated_at
+            group.full_clean()
+            group.save(update_fields=['lifecycle_status', 'lifecycle_reason_code', 'stale_at', 'last_seen_at', 'updated_at'])
+
+    return len(normalized_groups), membership_count
 
 def _replace_semantic_candidates(user, snapshots_by_index: dict[int, UserKnowledgeGraphEmbeddingSnapshot], generated_at, limit: int = 10) -> int:
     snapshots = [snapshots_by_index[index] for index in sorted(snapshots_by_index)]
@@ -815,7 +860,7 @@ def run_owner_semantic_boundary(
             )
             grouping_provider = grouping_provider_factory(grouping_config)
             grouping_result = grouping_provider.group(KnowledgeGraphGroupingRequest(concepts=concept_summaries))
-            semantic_group_count, semantic_group_membership_count = _replace_semantic_groups(
+            semantic_group_count, semantic_group_membership_count = _reconcile_semantic_groups(
                 user, grouping_result, concept_summaries, generated_at
             )
             logger.info(
