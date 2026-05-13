@@ -8,6 +8,8 @@ from django.test import TestCase, override_settings
 from apps.knowledge.models import KnowledgeConcept, UserConceptActivity, UserKnowledgeGraphSemanticState, UserKnowledgeGraphState
 from apps.knowledge.semantic_providers import (
     KnowledgeGraphEmbeddingResult,
+    KnowledgeGraphGroup,
+    KnowledgeGraphGroupingResult,
     KnowledgeGraphProviderMalformedResponse,
     KnowledgeGraphProviderMetadata,
     KnowledgeGraphProviderTimeout,
@@ -30,7 +32,7 @@ class RecordingEmbeddingProvider:
     def embed(self, request):
         self.requests.append(request)
         return KnowledgeGraphEmbeddingResult(
-            vectors=[[0.1, 0.2] for _ in request.texts],
+            vectors=[[1.0, index / 10.0] for index, _text in enumerate(request.texts)],
             metadata=self.metadata,
             estimated_tokens=7,
         )
@@ -44,7 +46,17 @@ class RecordingGroupingProvider:
 
     def group(self, request):
         self.requests.append(request)
-        return Mock(groups=[], metadata=self.metadata, estimated_tokens=3)
+        slugs = sorted({concept['slug'] for concept in request.concepts})
+        groups = [
+            KnowledgeGraphGroup(
+                group_key='boundary-group',
+                label='Связанные темы',
+                concept_slugs=slugs,
+                rationale='Темы связаны по агрегированным кандидатам графа.',
+                confidence=0.9,
+            )
+        ] if slugs else []
+        return KnowledgeGraphGroupingResult(groups=groups, metadata=self.metadata, estimated_tokens=3)
 
 
 class MalformedGroupingProvider(RecordingGroupingProvider):
@@ -87,7 +99,15 @@ class SemanticRebuildBoundaryTests(TestCase):
         )
         self.question_content_type = ContentType.objects.get_for_model(Question)
 
-    def add_activity(self, slug='django', name='Django'):
+    def add_activity(self, slug='django', name='Django', *, question=None, title=None):
+        if question is None:
+            question = self.question
+            if title:
+                question = Question.objects.create(
+                    user=self.user,
+                    question_title=title,
+                    question_body='Second private question body with sk_live_secret should never be copied to semantic state.',
+                )
         concept = KnowledgeConcept.objects.create(slug=slug, name=name)
         return UserConceptActivity.objects.create(
             user=self.user,
@@ -96,9 +116,9 @@ class SemanticRebuildBoundaryTests(TestCase):
             weight_delta=Decimal('1.5000'),
             source=UserConceptActivity.Source.QUESTION,
             source_content_type=self.question_content_type,
-            source_object_id=self.question.pk,
-            related_question=self.question,
-            idempotency_key=f'test:{slug}',
+            source_object_id=question.pk,
+            related_question=question,
+            idempotency_key=f'test:{slug}:{question.pk}',
         )
 
     def assert_state_is_redacted(self, state):
@@ -268,6 +288,7 @@ class SemanticRebuildBoundaryTests(TestCase):
     )
     def test_exact_budget_success_invokes_fakeable_providers_and_persists_only_aggregate_state(self):
         self.add_activity()
+        self.add_activity(slug='python-boundary', name='Python Boundary', title='How do Python graph tokens work?')
         estimate = estimate_owner_semantic_rebuild(self.user)
         with self.settings(KNOWLEDGE_GRAPH_REBUILD_BUDGET_CAP=float(estimate.estimated_cost)):
             source_provider = RecordingEmbeddingProvider()
@@ -279,6 +300,10 @@ class SemanticRebuildBoundaryTests(TestCase):
             )
 
         self.assertEqual(state['status'], UserKnowledgeGraphSemanticState.Status.SUCCEEDED)
+        self.assertEqual(state['reason_code'], 'semantic_groups_persisted')
+        self.assertEqual(state['phase'], 'grouping')
+        self.assertEqual(state['semantic_group_count'], 1)
+        self.assertEqual(state['semantic_group_membership_count'], 2)
         self.assertEqual(state['budget_cap'], estimate.estimated_cost)
         self.assertEqual(len(source_provider.requests), 1)
         self.assertEqual(len(grouping_provider.requests), 1)
@@ -297,6 +322,7 @@ class SemanticRebuildBoundaryTests(TestCase):
     )
     def test_provider_timeout_error_and_malformed_output_are_status_mapped_and_redacted(self):
         self.add_activity()
+        self.add_activity(slug='python-timeout', name='Python Timeout', title='How do Python timeout graph tokens work?')
         cases = [
             (Mock(return_value=TimeoutEmbeddingProvider()), Mock(return_value=RecordingGroupingProvider()), 'timeout'),
             (Mock(return_value=UnsafeEmbeddingProvider()), Mock(return_value=RecordingGroupingProvider()), 'provider_error'),
