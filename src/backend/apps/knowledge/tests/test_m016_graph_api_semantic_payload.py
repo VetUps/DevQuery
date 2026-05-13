@@ -12,6 +12,8 @@ from apps.knowledge.models import (
     UserConceptActivity,
     UserKnowledgeGraphEmbeddingSnapshot,
     UserKnowledgeGraphSemanticCandidate,
+    UserKnowledgeGraphSemanticGroup,
+    UserKnowledgeGraphSemanticGroupMembership,
 )
 from apps.qa.models import Question
 from apps.user.models import CustomUser
@@ -97,6 +99,29 @@ class OwnerGraphSemanticPayloadTests(APITestCase):
             generated_at=timezone.now(),
         )
 
+    def _group(self, group_key='backend-django', generated_at=None):
+        return UserKnowledgeGraphSemanticGroup.objects.create(
+            user=self.owner,
+            provider='grouping-provider',
+            model='grouping-model',
+            group_key=group_key,
+            label='Django backend cluster',
+            description='Aggregated safe group description.',
+            rationale='Concepts are often practiced together.',
+            confidence=Decimal('0.9200'),
+            evidence={'signals': [{'concept_slug': 'django', 'score': '0.91'}]},
+            generated_at=generated_at or timezone.now(),
+        )
+
+    def _membership(self, group, concept, rank=1, confidence='0.8800'):
+        return UserKnowledgeGraphSemanticGroupMembership.objects.create(
+            group=group,
+            concept=concept,
+            rank=rank,
+            confidence=Decimal(confidence),
+            evidence={'signals': [{'concept_slug': concept.slug, 'candidate_count': 2}]},
+        )
+
     def assert_semantic_edges_are_aggregate_safe(self, semantic_edges):
         rendered = repr(semantic_edges)
         for forbidden in [
@@ -114,6 +139,73 @@ class OwnerGraphSemanticPayloadTests(APITestCase):
             str(self.q_hidden.pk),
         ]:
             self.assertNotIn(forbidden, rendered)
+
+    def assert_semantic_groups_are_owner_safe(self, semantic_groups):
+        rendered = repr(semantic_groups)
+        for forbidden in [
+            'source_id',
+            'content_hash',
+            'vector_payload',
+            'grouping-provider',
+            'grouping-model',
+            'embedding-provider',
+            'embedding-model',
+            'semantic-owner@example.com',
+            'sk_live_secret',
+            'Private body',
+            str(self.q_django.pk),
+            str(self.q_rest.pk),
+            str(self.q_vue.pk),
+            str(self.q_hidden.pk),
+        ]:
+            self.assertNotIn(forbidden, rendered)
+
+    def test_owner_graph_exposes_semantic_groups_with_visible_safe_memberships(self):
+        group = self._group()
+        self._membership(group, self.rest, rank=2, confidence='0.8400')
+        self._membership(group, self.django, rank=1, confidence='0.8800')
+        self._membership(group, self.hidden, rank=3, confidence='0.7700')
+        empty_group = self._group(group_key='hidden-only')
+        self._membership(empty_group, self.hidden, rank=1, confidence='0.9100')
+        self.client.force_authenticate(self.owner)
+
+        response = self.client.get('/knowledge-graph/me/')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual(
+            response.data['semantic_groups'],
+            [
+                {
+                    'group_key': 'backend-django',
+                    'label': 'Django backend cluster',
+                    'description': 'Aggregated safe group description.',
+                    'rationale': 'Concepts are often practiced together.',
+                    'confidence': '0.9200',
+                    'generated_at': response.data['semantic_groups'][0]['generated_at'],
+                    'evidence': {'signals': [{'concept_slug': 'django', 'score': '0.91'}]},
+                    'members': [
+                        {
+                            'concept_id': self.django.pk,
+                            'slug': 'django',
+                            'name': 'Django',
+                            'rank': 1,
+                            'confidence': '0.8800',
+                            'evidence': {'signals': [{'concept_slug': 'django', 'candidate_count': 2}]},
+                        },
+                        {
+                            'concept_id': self.rest.pk,
+                            'slug': 'rest-api',
+                            'name': 'REST API',
+                            'rank': 2,
+                            'confidence': '0.8400',
+                            'evidence': {'signals': [{'concept_slug': 'rest-api', 'candidate_count': 2}]},
+                        },
+                    ],
+                }
+            ],
+        )
+        self.assert_semantic_groups_are_owner_safe(response.data['semantic_groups'])
+        self.assertNotIn(self.hidden.pk, {member['concept_id'] for group in response.data['semantic_groups'] for member in group['members']})
 
     def test_owner_graph_exposes_deduplicated_semantic_edges_without_changing_structural_edges(self):
         self._candidate(self.snap_django, self.snap_rest, '0.91000', 2)
@@ -194,17 +286,38 @@ class OwnerGraphSemanticPayloadTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
         self.assertIn('semantic_edges', response.data)
         self.assertEqual(response.data['semantic_edges'], [])
+        self.assertIn('semantic_groups', response.data)
+        self.assertEqual(response.data['semantic_groups'], [])
 
     def test_public_user_graph_suppresses_owner_semantic_edges(self):
         self._candidate(self.snap_django, self.snap_rest, '0.91000', 1)
+        group = self._group()
+        self._membership(group, self.django)
         self.client.force_authenticate(self.viewer)
 
         response = self.client.get(f'/knowledge-graph/users/{self.owner.pk}/')
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
         self.assertNotIn('semantic_edges', response.data)
+        self.assertNotIn('semantic_groups', response.data)
         self.assertNotIn('0.91000', repr(response.data))
         self.assertNotIn('semantic_neighbour', repr(response.data))
+        self.assertNotIn('Django backend cluster', repr(response.data))
+        self.assertNotIn('backend-django', repr(response.data))
+
+    def test_question_graph_suppresses_semantic_groups(self):
+        group = self._group()
+        self._membership(group, self.django)
+        self.client.force_authenticate(self.owner)
+
+        response = self.client.get(f'/knowledge-graph/questions/{self.q_django.pk}/')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertNotIn('semantic_groups', response.data)
+        self.assertNotIn('semantic_edges', response.data)
+        self.assertNotIn('Django backend cluster', repr(response.data))
+        self.assertNotIn('backend-django', repr(response.data))
+        self.assertNotIn('grouping-provider', repr(response.data))
 
     def test_graph_get_reads_semantic_candidates_without_provider_factories(self):
         self._candidate(self.snap_django, self.snap_rest, '0.91000', 1)
