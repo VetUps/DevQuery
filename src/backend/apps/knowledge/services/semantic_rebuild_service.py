@@ -8,13 +8,16 @@ from decimal import Decimal, ROUND_HALF_UP
 from typing import Any, Callable
 
 from django.db import transaction
-from django.db.models import Count, Q, Sum
+from django.db.models import Count, Q
 from django.utils import timezone
 
 from apps.knowledge.models import (
+    KnowledgeConcept,
     UserConceptActivity,
     UserKnowledgeGraphEmbeddingSnapshot,
     UserKnowledgeGraphSemanticCandidate,
+    UserKnowledgeGraphSemanticGroup,
+    UserKnowledgeGraphSemanticGroupMembership,
     UserKnowledgeGraphSemanticState,
 )
 from apps.knowledge.semantic_providers import (
@@ -37,6 +40,11 @@ from apps.knowledge.semantic_providers import (
 )
 
 SEMANTIC_SOURCE_LIMIT = 500
+SEMANTIC_GROUP_LIMIT = 50
+SEMANTIC_GROUP_MEMBERSHIP_LIMIT = 200
+_SAFE_GROUP_KEY_RE = re.compile(r'^[a-z0-9][a-z0-9_-]{0,119}$')
+_CONTROL_OR_HTML_RE = re.compile(r'[\x00-\x1f<>]')
+_SOURCE_ID_LIKE_RE = re.compile(r'\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b|\b[0-9a-f]{32,}\b', re.IGNORECASE)
 SAFE_ERROR_MESSAGES = {
     'configuration_error': 'Knowledge graph semantic provider configuration is incomplete.',
     'budget_exceeded': 'Knowledge graph semantic rebuild budget cap would be exceeded.',
@@ -222,6 +230,8 @@ def _persist_state(
     reused_snapshot_count: int = 0,
     snapshot_item_count: int = 0,
     neighbor_candidate_count: int = 0,
+    semantic_group_count: int = 0,
+    semantic_group_membership_count: int = 0,
 ) -> UserKnowledgeGraphSemanticState:
     now = timezone.now()
     with transaction.atomic():
@@ -240,6 +250,8 @@ def _persist_state(
         state.reused_snapshot_count = reused_snapshot_count
         state.snapshot_item_count = snapshot_item_count
         state.neighbor_candidate_count = neighbor_candidate_count
+        state.semantic_group_count = semantic_group_count
+        state.semantic_group_membership_count = semantic_group_membership_count
         state.estimated_token_count = estimate.estimated_token_count
         state.estimated_cost = estimate.estimated_cost
         state.budget_cap = estimate.budget_cap
@@ -351,6 +363,169 @@ def _vector_norm(vector: list[float]) -> float:
     return math.sqrt(sum(value * value for value in vector))
 
 
+
+def _semantic_candidate_source_ids(user) -> set[str]:
+    source_ids: set[str] = set()
+    candidates = UserKnowledgeGraphSemanticCandidate.objects.filter(user=user).select_related('source_snapshot', 'target_snapshot')
+    for candidate in candidates:
+        source_ids.add(str(candidate.source_snapshot.source_id))
+        source_ids.add(str(candidate.target_snapshot.source_id))
+    return source_ids
+
+
+def _build_grouping_concept_summaries(user) -> list[dict[str, Any]]:
+    """Build bounded provider input from owner-visible concepts touched by semantic candidates only."""
+
+    candidate_source_ids = _semantic_candidate_source_ids(user)
+    if not candidate_source_ids:
+        return []
+
+    candidate_stats: dict[str, dict[str, Decimal | int]] = {}
+    candidates = UserKnowledgeGraphSemanticCandidate.objects.filter(user=user).select_related('source_snapshot', 'target_snapshot')
+    for candidate in candidates:
+        for source_id in {str(candidate.source_snapshot.source_id), str(candidate.target_snapshot.source_id)}:
+            stats = candidate_stats.setdefault(source_id, {'candidate_count': 0, 'max_similarity': Decimal('0.00000')})
+            stats['candidate_count'] = int(stats['candidate_count']) + 1
+            if candidate.similarity_score > stats['max_similarity']:
+                stats['max_similarity'] = candidate.similarity_score
+
+    rows = (
+        UserConceptActivity.objects.filter(user=user, related_question_id__in=candidate_source_ids)
+        .values('concept__slug', 'concept__name')
+        .annotate(activity_count=Count('id'), related_question_count=Count('related_question_id', distinct=True))
+        .order_by('concept__slug')[:SEMANTIC_GROUP_MEMBERSHIP_LIMIT]
+    )
+    summaries: list[dict[str, Any]] = []
+    for row in rows:
+        slug = row['concept__slug']
+        activities = UserConceptActivity.objects.filter(
+            user=user,
+            concept__slug=slug,
+            related_question_id__in=candidate_source_ids,
+        ).values_list('related_question_id', flat=True)
+        candidate_count = 0
+        max_similarity = Decimal('0.00000')
+        for question_id in activities:
+            stats = candidate_stats.get(str(question_id))
+            if not stats:
+                continue
+            candidate_count += int(stats['candidate_count'])
+            if stats['max_similarity'] > max_similarity:
+                max_similarity = stats['max_similarity']
+        summaries.append(
+            {
+                'slug': slug,
+                'name': row['concept__name'],
+                'activity_count': int(row['activity_count']),
+                'candidate_count': candidate_count,
+                'max_similarity': str(max_similarity.quantize(Decimal('0.00001'), rounding=ROUND_HALF_UP)),
+                'evidence': {
+                    'activity_count': int(row['activity_count']),
+                    'candidate_count': candidate_count,
+                    'max_similarity': str(max_similarity.quantize(Decimal('0.00001'), rounding=ROUND_HALF_UP)),
+                },
+            }
+        )
+    return summaries
+
+
+def _assert_safe_group_text(value: str, *, field: str) -> str:
+    normalized = ' '.join((value or '').split()).strip()
+    if not normalized:
+        raise KnowledgeGraphProviderMalformedResponse('Knowledge graph grouping provider returned blank safe text.', phase='grouping')
+    if _CONTROL_OR_HTML_RE.search(normalized) or _SECRET_TOKEN_RE.search(normalized) or _EMAIL_RE.search(normalized) or _SOURCE_ID_LIKE_RE.search(normalized):
+        raise KnowledgeGraphProviderMalformedResponse('Knowledge graph grouping provider returned unsafe safe text.', phase='grouping')
+    return normalized[:1000] if field == 'rationale' else normalized[:160]
+
+
+def _normalize_grouping_result(user, result, concept_summaries: list[dict[str, Any]]):
+    known_slugs = {summary['slug'] for summary in concept_summaries}
+    concepts_by_slug = {concept.slug: concept for concept in KnowledgeConcept.objects.filter(slug__in=known_slugs)}
+    if not known_slugs or not result.groups:
+        return []
+    if len(result.groups) > SEMANTIC_GROUP_LIMIT:
+        raise KnowledgeGraphProviderMalformedResponse('Knowledge graph grouping provider returned too many groups.', phase='grouping')
+
+    seen_group_keys: set[str] = set()
+    normalized_groups = []
+    for group_index, group in enumerate(result.groups, start=1):
+        group_key = (group.group_key or '').strip().lower()
+        if not _SAFE_GROUP_KEY_RE.match(group_key):
+            raise KnowledgeGraphProviderMalformedResponse('Knowledge graph grouping provider returned an unsafe group key.', phase='grouping')
+        if group_key in seen_group_keys:
+            raise KnowledgeGraphProviderMalformedResponse('Knowledge graph grouping provider returned duplicate groups.', phase='grouping')
+        seen_group_keys.add(group_key)
+        if not (0 <= float(group.confidence) <= 1):
+            raise KnowledgeGraphProviderMalformedResponse('Knowledge graph grouping provider returned invalid confidence.', phase='grouping')
+        label = _assert_safe_group_text(group.label, field='label')
+        rationale = _assert_safe_group_text(group.rationale, field='rationale')
+        slugs = [slug.strip() for slug in group.concept_slugs]
+        if not slugs:
+            raise KnowledgeGraphProviderMalformedResponse('Knowledge graph grouping provider returned an empty group.', phase='grouping')
+        if len(slugs) != len(set(slugs)):
+            raise KnowledgeGraphProviderMalformedResponse('Knowledge graph grouping provider returned duplicate memberships.', phase='grouping')
+        unknown_slugs = sorted(set(slugs) - known_slugs)
+        if unknown_slugs:
+            raise KnowledgeGraphProviderMalformedResponse('Knowledge graph grouping provider returned unknown concept slugs.', phase='grouping')
+        memberships = []
+        for rank, slug in enumerate(slugs, start=1):
+            summary = next(item for item in concept_summaries if item['slug'] == slug)
+            memberships.append(
+                {
+                    'concept': concepts_by_slug[slug],
+                    'rank': rank,
+                    'confidence': Decimal(str(group.confidence)).quantize(Decimal('0.0001'), rounding=ROUND_HALF_UP),
+                    'evidence': {
+                        'signals': [
+                            {
+                                'concept_slug': slug,
+                                'activity_count': summary['activity_count'],
+                                'candidate_count': summary['candidate_count'],
+                                'max_similarity': summary['max_similarity'],
+                            }
+                        ]
+                    },
+                }
+            )
+        normalized_groups.append(
+            {
+                'group_key': group_key,
+                'label': label,
+                'description': 'Безопасная AI-группа по агрегированным семантическим сигналам.',
+                'rationale': rationale,
+                'confidence': Decimal(str(group.confidence)).quantize(Decimal('0.0001'), rounding=ROUND_HALF_UP),
+                'evidence': {'signals': [{'group_index': group_index, 'member_count': len(memberships)}]},
+                'memberships': memberships,
+            }
+        )
+    return normalized_groups
+
+
+def _replace_semantic_groups(user, result, concept_summaries: list[dict[str, Any]], generated_at) -> tuple[int, int]:
+    normalized_groups = _normalize_grouping_result(user, result, concept_summaries)
+    provider = result.metadata.provider
+    model = result.metadata.model
+    group_count = len(normalized_groups)
+    membership_count = sum(len(group['memberships']) for group in normalized_groups)
+    with transaction.atomic():
+        UserKnowledgeGraphSemanticGroup.objects.filter(user=user, provider=provider, model=model).delete()
+        for group_data in normalized_groups:
+            memberships = group_data.pop('memberships')
+            group = UserKnowledgeGraphSemanticGroup(
+                user=user,
+                provider=provider,
+                model=model,
+                generated_at=generated_at,
+                **group_data,
+            )
+            group.full_clean()
+            group.save()
+            for membership_data in memberships:
+                membership = UserKnowledgeGraphSemanticGroupMembership(group=group, **membership_data)
+                membership.full_clean()
+                membership.save()
+    return group_count, membership_count
+
 def _replace_semantic_candidates(user, snapshots_by_index: dict[int, UserKnowledgeGraphEmbeddingSnapshot], generated_at, limit: int = 10) -> int:
     snapshots = [snapshots_by_index[index] for index in sorted(snapshots_by_index)]
     if snapshots:
@@ -395,7 +570,6 @@ def run_owner_semantic_boundary(
 ) -> dict[str, Any]:
     """Run the M016 S03 owner semantic boundary and persist portable snapshots/candidates."""
 
-    explicit_grouping_provider_factory = grouping_provider_factory is not None
     source_provider_factory = source_provider_factory or create_source_provider
     grouping_provider_factory = grouping_provider_factory or create_grouping_provider
     started_at = timezone.now()
@@ -476,9 +650,6 @@ def run_owner_semantic_boundary(
             provider_metadata = result.metadata
             dimensions = provider_metadata.dimensions or embedding_config.dimensions
             vectors = _validate_embedding_vectors(result.vectors, len(missing_indexes), dimensions)
-            if explicit_grouping_provider_factory:
-                grouping_provider = grouping_provider_factory(grouping_config)
-                grouping_provider.group(KnowledgeGraphGroupingRequest(concepts=estimate.source_summaries))
             provider_metadata = KnowledgeGraphProviderMetadata(
                 provider=provider_metadata.provider,
                 model=provider_metadata.model,
@@ -490,6 +661,15 @@ def run_owner_semantic_boundary(
                 persisted_snapshots = _persist_snapshots(user, estimate, provider_metadata, missing_indexes, vectors, generated_at)
         snapshots_by_index = {**reusable_snapshots, **persisted_snapshots}
         candidate_count = _replace_semantic_candidates(user, snapshots_by_index, generated_at)
+        semantic_group_count = 0
+        semantic_group_membership_count = 0
+        concept_summaries = _build_grouping_concept_summaries(user) if candidate_count else []
+        if concept_summaries:
+            grouping_provider = grouping_provider_factory(grouping_config)
+            grouping_result = grouping_provider.group(KnowledgeGraphGroupingRequest(concepts=concept_summaries))
+            semantic_group_count, semantic_group_membership_count = _replace_semantic_groups(
+                user, grouping_result, concept_summaries, generated_at
+            )
 
         state = _persist_state(
             user,
@@ -503,6 +683,8 @@ def run_owner_semantic_boundary(
             reused_snapshot_count=len(reusable_snapshots),
             snapshot_item_count=len(persisted_snapshots),
             neighbor_candidate_count=candidate_count,
+            semantic_group_count=semantic_group_count,
+            semantic_group_membership_count=semantic_group_membership_count,
         )
         return _state_payload(state)
     except (KnowledgeGraphProviderConfigurationError, KnowledgeGraphProviderBudgetExceeded, KnowledgeGraphProviderTimeout, KnowledgeGraphProviderMalformedResponse, KnowledgeGraphProviderError) as exc:
