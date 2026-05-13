@@ -17,6 +17,7 @@ from apps.knowledge.models import (
     UserKnowledgeGraphLayout,
     UserKnowledgeGraphSemanticCandidate,
     UserKnowledgeGraphSemanticGroup,
+    UserKnowledgeGraphSemanticState,
     UserKnowledgeGraphState,
 )
 from apps.knowledge.services.graph_state_service import UserKnowledgeGraphRebuildSummary, get_user_graph_state
@@ -28,6 +29,28 @@ LAYOUT_SCHEMA_VERSION = 1
 MAX_LAYOUT_POSITIONS = 500
 MAX_LAYOUT_CONCEPT_ID_LENGTH = 20
 MAX_LAYOUT_COORDINATE_ABS = 100000
+SEMANTIC_VISIBLE_LIFECYCLE_STATUSES = (
+    UserKnowledgeGraphSemanticGroup.LifecycleStatus.ACTIVE,
+    UserKnowledgeGraphSemanticGroup.LifecycleStatus.STALE,
+)
+SEMANTIC_REDACTED_ERROR_MESSAGE = 'Knowledge graph semantic diagnostics unavailable.'
+SEMANTIC_UNSAFE_ERROR_MARKERS = (
+    '@',
+    '<',
+    '>',
+    'body=',
+    'content_hash',
+    'private source text',
+    'provider.py',
+    'raw',
+    'secret',
+    'sk_',
+    'source_id',
+    'stack',
+    'traceback',
+    'token=',
+    'vector',
+)
 
 
 def _safe_decimal(value: Decimal | None) -> Decimal:
@@ -42,6 +65,87 @@ def _state_payload(state: UserKnowledgeGraphState, *, include_private_diagnostic
         'last_failed_phase': state.last_failed_phase if include_private_diagnostics else '',
         'last_rebuild_started_at': state.last_rebuild_started_at if include_private_diagnostics else None,
         'last_rebuild_finished_at': state.last_rebuild_finished_at if include_private_diagnostics else None,
+    }
+
+
+def _safe_semantic_error_message(message: str) -> str:
+    if not message:
+        return ''
+    normalized = message.lower()
+    if any(marker in normalized for marker in SEMANTIC_UNSAFE_ERROR_MARKERS):
+        return SEMANTIC_REDACTED_ERROR_MESSAGE
+    return message[:255]
+
+
+def _semantic_diagnostics_payload(user) -> dict[str, Any]:
+    """Build owner-only semantic graph diagnostics from persisted state only.
+
+    Missing state is reported as a pending disabled boundary without creating rows
+    or touching semantic providers. Provider/model internals are intentionally not
+    part of this API contract.
+    """
+
+    try:
+        state = user.knowledge_graph_semantic_state
+    except UserKnowledgeGraphSemanticState.DoesNotExist:
+        return {
+            'status': UserKnowledgeGraphSemanticState.Status.PENDING,
+            'reason_code': '',
+            'phase': '',
+            'enabled': False,
+            'dry_run': True,
+            'source_item_count': 0,
+            'total_source_count': 0,
+            'changed_source_count': 0,
+            'provider_called_source_count': 0,
+            'reused_snapshot_count': 0,
+            'persisted_snapshot_count': 0,
+            'neighbour_candidate_count': 0,
+            'semantic_group_count': 0,
+            'semantic_group_membership_count': 0,
+            'semantic_group_reused_count': 0,
+            'semantic_group_created_count': 0,
+            'semantic_group_changed_count': 0,
+            'semantic_group_stale_count': 0,
+            'semantic_group_archived_count': 0,
+            'last_error_message': '',
+            'started_at': None,
+            'finished_at': None,
+            'view': {
+                'mode': 'semantic',
+                'visible_lifecycle_statuses': [status.value for status in SEMANTIC_VISIBLE_LIFECYCLE_STATUSES],
+                'archived_groups_included': False,
+            },
+        }
+
+    return {
+        'status': state.status,
+        'reason_code': state.reason_code,
+        'phase': state.phase,
+        'enabled': state.enabled,
+        'dry_run': state.dry_run,
+        'source_item_count': state.source_item_count,
+        'total_source_count': state.source_item_count,
+        'changed_source_count': state.changed_source_item_count,
+        'provider_called_source_count': state.changed_source_item_count,
+        'reused_snapshot_count': state.reused_snapshot_count,
+        'persisted_snapshot_count': state.snapshot_item_count,
+        'neighbour_candidate_count': state.neighbor_candidate_count,
+        'semantic_group_count': state.semantic_group_count,
+        'semantic_group_membership_count': state.semantic_group_membership_count,
+        'semantic_group_reused_count': state.semantic_group_reused_count,
+        'semantic_group_created_count': state.semantic_group_created_count,
+        'semantic_group_changed_count': state.semantic_group_changed_count,
+        'semantic_group_stale_count': state.semantic_group_stale_count,
+        'semantic_group_archived_count': state.semantic_group_archived_count,
+        'last_error_message': _safe_semantic_error_message(state.last_error_message),
+        'started_at': state.started_at,
+        'finished_at': state.finished_at,
+        'view': {
+            'mode': 'semantic',
+            'visible_lifecycle_statuses': [status.value for status in SEMANTIC_VISIBLE_LIFECYCLE_STATUSES],
+            'archived_groups_included': False,
+        },
     }
 
 
@@ -204,7 +308,10 @@ def _semantic_groups_payload(*, user, node_concept_ids: set[int]) -> list[dict[s
         return []
 
     groups = (
-        UserKnowledgeGraphSemanticGroup.objects.filter(user=user)
+        UserKnowledgeGraphSemanticGroup.objects.filter(
+            user=user,
+            lifecycle_status__in=SEMANTIC_VISIBLE_LIFECYCLE_STATUSES,
+        )
         .prefetch_related('memberships__concept')
         .order_by('-generated_at', 'group_key', 'id')
     )
@@ -243,6 +350,14 @@ def _semantic_groups_payload(*, user, node_concept_ids: set[int]) -> list[dict[s
                 'confidence': group.confidence,
                 'generated_at': group.generated_at,
                 'evidence': group.evidence,
+                'reuse_evidence': group.reuse_evidence,
+                'member_count': len(members),
+                'lifecycle_status': group.lifecycle_status,
+                'lifecycle_reason_code': group.lifecycle_reason_code,
+                'first_seen_at': group.first_seen_at,
+                'last_seen_at': group.last_seen_at,
+                'stale_at': group.stale_at,
+                'archived_at': group.archived_at,
                 'members': members,
             }
         )
@@ -476,6 +591,7 @@ def get_user_graph_payload(user, *, is_owner: bool) -> dict[str, Any]:
             concept_ids_by_question_id=concept_ids_by_question_id,
         )
         payload['semantic_groups'] = _semantic_groups_payload(user=user, node_concept_ids=node_concept_ids)
+        payload['semantic'] = _semantic_diagnostics_payload(user)
 
     return payload
 
