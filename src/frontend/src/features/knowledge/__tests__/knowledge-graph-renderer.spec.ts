@@ -343,8 +343,9 @@ describe('KnowledgeGraphRenderer', () => {
     await flushPromises()
 
     expect(wrapper.find('[data-testid="knowledge-graph-semantic-projection"]').exists()).toBe(false)
-    expect(wrapper.get('[data-testid="knowledge-graph-concept-selector"]').text()).toContain('Vue')
     expect(cytoscapeMock.constructor).toHaveBeenCalledOnce()
+    const options = cytoscapeMock.constructor.mock.calls[0][0] as CytoscapeOptions
+    expect(options.elements?.some((element) => element.data?.id === 'semantic-cluster-frontend-patterns')).toBe(false)
   })
 
   it('renders owner semantic groups as accessible projection areas with lifecycle counts', async () => {
@@ -367,6 +368,45 @@ describe('KnowledgeGraphRenderer', () => {
     expect(wrapper.get('[data-testid="knowledge-graph-semantic-group-count"]').text()).toContain('2 групп')
     expect(wrapper.get('[data-testid="knowledge-graph-semantic-member-count"]').text()).toContain('3 участников')
     expect(wrapper.get('[data-testid="knowledge-graph-semantic-lifecycle-counts"]').text()).toContain('active 1 · stale 1')
+
+    const options = cytoscapeMock.constructor.mock.calls[0][0] as CytoscapeOptions
+    const semanticClusterStyle = options.style?.find((style) => (style as { selector?: string }).selector === '.knowledge-semantic-cluster') as { style?: Record<string, unknown> } | undefined
+    expect(semanticClusterStyle?.style).toMatchObject({
+      'text-valign': 'top',
+      'text-margin-y': -34,
+      'text-background-opacity': 0.88,
+      'text-background-padding': 5,
+    })
+    expect(options.elements).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        group: 'nodes',
+        data: expect.objectContaining({
+          id: 'semantic-cluster-frontend-patterns',
+          isSemanticCluster: true,
+          label: 'Frontend patterns',
+          visibleMemberCount: 2,
+        }),
+        classes: expect.stringContaining('knowledge-semantic-cluster--active'),
+      }),
+      expect.objectContaining({
+        group: 'nodes',
+        data: expect.objectContaining({
+          id: 'semantic-cluster-backend-legacy',
+          isSemanticCluster: true,
+          label: 'Backend legacy',
+          visibleMemberCount: 1,
+        }),
+        classes: expect.stringContaining('knowledge-semantic-cluster--stale'),
+      }),
+      expect.objectContaining({
+        group: 'nodes',
+        data: expect.objectContaining({ id: 'concept-10', parent: 'semantic-cluster-frontend-patterns' }),
+      }),
+      expect.objectContaining({
+        group: 'nodes',
+        data: expect.objectContaining({ id: 'concept-12', parent: 'semantic-cluster-backend-legacy' }),
+      }),
+    ]))
 
     const activeArea = wrapper.get('[data-testid="knowledge-graph-semantic-area-frontend-patterns"]')
     const activeToggle = wrapper.get('[data-testid="knowledge-graph-semantic-area-toggle-frontend-patterns"]')
@@ -647,6 +687,9 @@ describe('KnowledgeGraphRenderer', () => {
     expect(unknownBadge.text()).toContain('Без оценки')
     expect(missingBadge.attributes('data-state')).toBe('unknown')
     expect(wrapper.get('[data-testid="knowledge-graph-concept-option-10"]').attributes('aria-label')).toContain('Состояние: Растёт')
+    expect(wrapper.get('[data-testid="knowledge-graph-concept-option-10"]').attributes('aria-label')).toContain('Выбрать концепт')
+    await wrapper.setProps({ selectedConceptId: 10 })
+    expect(wrapper.get('[data-testid="knowledge-graph-concept-option-10"]').attributes('aria-label')).toContain('Снять выделение')
     expect(wrapper.text()).not.toContain('private-provider-token')
   })
 

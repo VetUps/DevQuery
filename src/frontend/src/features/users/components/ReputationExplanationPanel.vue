@@ -65,9 +65,6 @@ const levelThresholds = computed(() => {
     <header class="reputation-explanation-panel__header">
       <p class="reputation-explanation-panel__eyebrow">Как работает репутация</p>
       <h2 class="reputation-explanation-panel__title">Репутация растёт за полезный вклад в сообщество</h2>
-      <p class="reputation-explanation-panel__copy">
-        Счёт показывает доверие к участнику: чем полезнее вклад, тем выше уровень и заметнее история участия.
-      </p>
     </header>
 
     <div class="reputation-explanation-panel__columns">

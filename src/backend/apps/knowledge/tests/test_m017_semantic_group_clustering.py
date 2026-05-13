@@ -64,6 +64,16 @@ class DeterministicClusteringEmbeddingProvider:
         )
 
 
+class ConnectedClusteringEmbeddingProvider(DeterministicClusteringEmbeddingProvider):
+    BASE_VECTORS = {
+        'django': [1.0, 0.0, 0.0],
+        'orm': [0.99, 0.01, 0.0],
+        'redis': [0.98, 0.02, 0.0],
+        'celery': [0.97, 0.03, 0.0],
+    }
+    MOVED_VECTORS = BASE_VECTORS
+
+
 class DriftingGroupingProvider:
     """Provider that deliberately drifts keys, order, and memberships between rebuilds.
 
@@ -116,6 +126,30 @@ class DriftingGroupingProvider:
                 ),
             ]
         return KnowledgeGraphGroupingResult(groups=groups, metadata=self.metadata, estimated_tokens=5)
+
+
+class ExactSemanticEnrichmentGroupingProvider:
+    metadata = KnowledgeGraphProviderMetadata(provider='deepseek-test-grouping', model='grouping-v1')
+
+    def group(self, request):
+        slugs = {concept['slug'] for concept in request.concepts}
+        groups = [
+            KnowledgeGraphGroup(
+                group_key='provider-backend-data',
+                label='Backend persistence patterns',
+                concept_slugs=[slug for slug in ['django-clustering', 'orm-clustering'] if slug in slugs],
+                rationale='Django and ORM activity cluster around database-backed backend implementation patterns.',
+                confidence=0.88,
+            ),
+            KnowledgeGraphGroup(
+                group_key='provider-async-cache',
+                label='Async cache workflows',
+                concept_slugs=[slug for slug in ['redis-clustering', 'celery-clustering'] if slug in slugs],
+                rationale='Redis and Celery activity cluster around asynchronous queues and cache-backed workflows.',
+                confidence=0.86,
+            ),
+        ]
+        return KnowledgeGraphGroupingResult(groups=groups, metadata=self.metadata, estimated_tokens=7)
 
 
 @override_settings(
@@ -252,6 +286,70 @@ class SemanticGroupDeterministicClusteringContractTests(TestCase):
         group.centroid_payload = {'raw': 'unsafe provider payload'}
         with self.assertRaises(ValidationError):
             group.full_clean()
+
+    def test_deterministic_groups_keep_deepseek_safe_label_and_explanation_for_exact_cluster(self):
+        state = self._run_rebuild(
+            embedding_provider=DeterministicClusteringEmbeddingProvider(),
+            grouping_provider=ExactSemanticEnrichmentGroupingProvider(),
+        )
+
+        self._assert_deterministic_state_counters(
+            state,
+            group_count=2,
+            member_count=4,
+            created_count=2,
+            reused_count=0,
+            changed_count=4,
+            snapshot_count=4,
+        )
+        groups = (
+            UserKnowledgeGraphSemanticGroup.objects.filter(user=self.user)
+            .prefetch_related('memberships__concept')
+            .order_by('label')
+        )
+        groups_by_members = {
+            tuple(group.memberships.order_by('rank').values_list('concept__slug', flat=True)): group
+            for group in groups
+        }
+
+        backend_group = groups_by_members[('django-clustering', 'orm-clustering')]
+        cache_group = groups_by_members[('redis-clustering', 'celery-clustering')]
+        self.assertTrue(backend_group.group_key.startswith('semantic-cluster-'))
+        self.assertEqual(backend_group.label, 'Backend persistence patterns')
+        self.assertIn('database-backed backend implementation patterns', backend_group.description)
+        self.assertIn('database-backed backend implementation patterns', backend_group.rationale)
+        self.assertTrue(cache_group.group_key.startswith('semantic-cluster-'))
+        self.assertEqual(cache_group.label, 'Async cache workflows')
+        self.assertIn('asynchronous queues', cache_group.description)
+        self.assertIn('asynchronous queues', cache_group.rationale)
+
+    def test_deterministic_groups_compose_deepseek_subgroup_labels_for_larger_cluster(self):
+        state = self._run_rebuild(
+            embedding_provider=ConnectedClusteringEmbeddingProvider(),
+            grouping_provider=ExactSemanticEnrichmentGroupingProvider(),
+        )
+
+        self._assert_deterministic_state_counters(
+            state,
+            group_count=1,
+            member_count=4,
+            created_count=1,
+            reused_count=0,
+            changed_count=4,
+            snapshot_count=4,
+        )
+        [group] = UserKnowledgeGraphSemanticGroup.objects.filter(user=self.user).prefetch_related('memberships__concept')
+        self.assertTrue(group.group_key.startswith('semantic-cluster-'))
+        self.assertNotEqual(group.label, 'Semantic cluster 1')
+        self.assertIn('Backend persistence patterns', group.label)
+        self.assertIn('Async cache workflows', group.label)
+        self.assertIn('DeepSeek выделил внутри стабильного кластера темы', group.description)
+        self.assertIn('database-backed backend implementation patterns', group.rationale)
+        self.assertIn('asynchronous queues', group.rationale)
+        self.assertEqual(
+            tuple(group.memberships.order_by('rank').values_list('concept__slug', flat=True)),
+            ('django-clustering', 'orm-clustering', 'redis-clustering', 'celery-clustering'),
+        )
 
     def test_unchanged_rebuild_reuses_group_identities_despite_provider_key_and_membership_drift(self):
         embedding_provider = DeterministicClusteringEmbeddingProvider()

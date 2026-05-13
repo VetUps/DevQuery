@@ -184,6 +184,9 @@ class OwnerSemanticGraphApiContractTests(APITestCase):
         self.assertEqual(response.data['semantic']['semantic_group_changed_count'], 3)
         self.assertEqual(response.data['semantic']['semantic_group_stale_count'], 4)
         self.assertEqual(response.data['semantic']['semantic_group_archived_count'], 5)
+        self.assertEqual(response.data['semantic']['estimated_token_count'], 11)
+        self.assertEqual(response.data['semantic']['estimated_cost'], '0.120000')
+        self.assertEqual(response.data['semantic']['budget_cap'], '1.500000')
         self.assertEqual(response.data['semantic']['last_error_message'], 'Knowledge graph semantic diagnostics unavailable.')
         self.assertEqual(
             response.data['semantic']['view'],
@@ -237,6 +240,9 @@ class OwnerSemanticGraphApiContractTests(APITestCase):
         self.assertEqual(response.data['semantic']['dry_run'], True)
         self.assertEqual(response.data['semantic']['semantic_group_count'], 0)
         self.assertEqual(response.data['semantic']['semantic_group_membership_count'], 0)
+        self.assertEqual(response.data['semantic']['estimated_token_count'], 0)
+        self.assertEqual(response.data['semantic']['estimated_cost'], '0.000000')
+        self.assertEqual(response.data['semantic']['budget_cap'], '0.000000')
         self.assertEqual(
             response.data['semantic_graph'],
             {

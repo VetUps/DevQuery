@@ -53,14 +53,6 @@ const visibleGroups = computed<VisibleSemanticGroup[]>(() => {
 })
 
 const hasGroups = computed(() => visibleGroups.value.length > 0)
-const selectedGroup = computed(() => {
-  if (!selectedGroupKey.value) {
-    return visibleGroups.value[0] ?? null
-  }
-
-  return visibleGroups.value.find((entry) => entry.group.group_key === selectedGroupKey.value) ?? visibleGroups.value[0] ?? null
-})
-
 const statusCopy = computed(() => {
   if (props.hasQueryError) {
     return 'Семантическое обогащение временно недоступно. Базовый граф, список и перестроение остаются доступными.'
@@ -84,7 +76,11 @@ const statusCopy = computed(() => {
 })
 
 function selectGroup(groupKey: string): void {
-  selectedGroupKey.value = groupKey
+  selectedGroupKey.value = selectedGroupKey.value === groupKey ? '' : groupKey
+}
+
+function isGroupExpanded(groupKey: string): boolean {
+  return selectedGroupKey.value === groupKey
 }
 
 function selectMember(conceptId: number): void {
@@ -180,8 +176,8 @@ watch(
       return
     }
 
-    if (!groups.some((entry) => entry.group.group_key === selectedGroupKey.value)) {
-      selectedGroupKey.value = groups[0].group.group_key
+    if (selectedGroupKey.value && !groups.some((entry) => entry.group.group_key === selectedGroupKey.value)) {
+      selectedGroupKey.value = ''
     }
   },
   { immediate: true },
@@ -210,76 +206,83 @@ watch(
 
     <div v-else class="semantic-groups__layout">
       <div class="semantic-groups__list" role="list" aria-label="Список семантических групп">
-        <button
+        <article
           v-for="entry in visibleGroups"
           :key="entry.group.group_key"
-          type="button"
-          class="semantic-groups__card"
-          :class="{ 'semantic-groups__card--selected': selectedGroup?.group.group_key === entry.group.group_key }"
-          :data-testid="`knowledge-semantic-group-card-${entry.group.group_key}`"
-          :aria-pressed="selectedGroup?.group.group_key === entry.group.group_key"
-          @click="selectGroup(entry.group.group_key)"
-          @focus="selectGroup(entry.group.group_key)"
+          class="semantic-groups__expander"
+          :class="{ 'semantic-groups__expander--open': isGroupExpanded(entry.group.group_key) }"
+          role="listitem"
         >
-          <span class="semantic-groups__card-title">{{ entry.group.label || 'Группа без названия' }}</span>
-          <span class="semantic-groups__card-meta">
-            {{ entry.members.length }} из {{ entry.group.members.length }} концептов · уверенность {{ formatDecimal(entry.group.confidence) }}
-          </span>
-          <span class="semantic-groups__card-description">
-            {{ entry.group.description || entry.group.rationale || 'Описание группы пока недоступно.' }}
-          </span>
-        </button>
-      </div>
+          <button
+            type="button"
+            class="semantic-groups__card"
+            :data-testid="`knowledge-semantic-group-card-${entry.group.group_key}`"
+            :aria-expanded="isGroupExpanded(entry.group.group_key)"
+            :aria-controls="`knowledge-semantic-group-details-${entry.group.group_key}`"
+            @click="selectGroup(entry.group.group_key)"
+          >
+            <span class="semantic-groups__card-title">{{ entry.group.label || 'Группа без названия' }}</span>
+            <span class="semantic-groups__card-meta">
+              {{ entry.members.length }} из {{ entry.group.members.length }} концептов · уверенность {{ formatDecimal(entry.group.confidence) }}
+            </span>
+            <span class="semantic-groups__card-description">
+              {{ entry.group.description || entry.group.rationale || 'Описание группы пока недоступно.' }}
+            </span>
+            <span class="semantic-groups__card-indicator" aria-hidden="true">{{ isGroupExpanded(entry.group.group_key) ? '−' : '+' }}</span>
+          </button>
 
-      <article
-        v-if="selectedGroup"
-        class="semantic-groups__details"
-        data-testid="knowledge-semantic-group-selected-details"
-        aria-live="polite"
-      >
-        <p class="semantic-groups__eyebrow">Выбранная группа</p>
-        <h4>{{ selectedGroup.group.label || 'Группа без названия' }}</h4>
-        <p>{{ selectedGroup.group.description || 'Описание группы пока недоступно.' }}</p>
-        <p>{{ selectedGroup.group.rationale || 'Объяснение будет доступно после следующего безопасного пересчёта.' }}</p>
-        <dl class="semantic-groups__facts">
-          <div>
-            <dt>Уверенность</dt>
-            <dd>{{ formatDecimal(selectedGroup.group.confidence) }}</dd>
-          </div>
-          <div>
-            <dt>Сформировано</dt>
-            <dd>{{ formatDateTime(selectedGroup.group.generated_at) }}</dd>
-          </div>
-          <div>
-            <dt>Подтверждения</dt>
-            <dd>{{ evidenceSummary(selectedGroup.group.evidence) }}</dd>
-          </div>
-        </dl>
+          <div
+            v-if="isGroupExpanded(entry.group.group_key)"
+            :id="`knowledge-semantic-group-details-${entry.group.group_key}`"
+            class="semantic-groups__details"
+            :data-testid="`knowledge-semantic-group-details-${entry.group.group_key}`"
+            aria-live="polite"
+          >
+            <p class="semantic-groups__eyebrow">Группа концептов</p>
+            <h4>{{ entry.group.label || 'Группа без названия' }}</h4>
+            <p>{{ entry.group.description || 'Описание группы пока недоступно.' }}</p>
+            <p>{{ entry.group.rationale || 'Объяснение будет доступно после следующего безопасного пересчёта.' }}</p>
+            <dl class="semantic-groups__facts">
+              <div>
+                <dt>Уверенность</dt>
+                <dd>{{ formatDecimal(entry.group.confidence) }}</dd>
+              </div>
+              <div>
+                <dt>Сформировано</dt>
+                <dd>{{ formatDateTime(entry.group.generated_at) }}</dd>
+              </div>
+              <div>
+                <dt>Подтверждения</dt>
+                <dd>{{ evidenceSummary(entry.group.evidence) }}</dd>
+              </div>
+            </dl>
 
-        <ul class="semantic-groups__members" data-testid="knowledge-semantic-group-members" aria-label="Концепты выбранной семантической группы">
-          <li v-for="member in selectedGroup.members" :key="member.concept_id" class="semantic-groups__member">
-            <button
-              type="button"
-              class="semantic-groups__member-button"
-              :data-testid="`knowledge-semantic-group-member-${member.concept_id}`"
-              @click="selectMember(member.concept_id)"
+            <ul class="semantic-groups__members" data-testid="knowledge-semantic-group-members" aria-label="Концепты выбранной семантической группы">
+              <li v-for="member in entry.members" :key="member.concept_id" class="semantic-groups__member">
+                <button
+                  type="button"
+                  class="semantic-groups__member-button"
+                  :data-testid="`knowledge-semantic-group-member-${member.concept_id}`"
+                  @click="selectMember(member.concept_id)"
+                >
+                  <span class="semantic-groups__member-name">{{ memberLabel(member) }}</span>
+                  <span>Открыть детали концепта</span>
+                </button>
+                <span>ранг {{ member.rank }}</span>
+                <span>уверенность {{ formatDecimal(member.confidence) }}</span>
+                <span>{{ evidenceSummary(member.evidence) }}</span>
+              </li>
+            </ul>
+            <p
+              v-if="hiddenMemberCount(entry) > 0"
+              class="semantic-groups__hidden-members"
+              data-testid="knowledge-semantic-group-hidden-members"
             >
-              <span class="semantic-groups__member-name">{{ memberLabel(member) }}</span>
-              <span>Открыть детали концепта</span>
-            </button>
-            <span>ранг {{ member.rank }}</span>
-            <span>уверенность {{ formatDecimal(member.confidence) }}</span>
-            <span>{{ evidenceSummary(member.evidence) }}</span>
-          </li>
-        </ul>
-        <p
-          v-if="hiddenMemberCount(selectedGroup) > 0"
-          class="semantic-groups__hidden-members"
-          data-testid="knowledge-semantic-group-hidden-members"
-        >
-          Скрыто фильтрами: {{ hiddenMemberCount(selectedGroup) }}. Эти концепты не доступны для выбора в текущей топологии.
-        </p>
-      </article>
+              Скрыто фильтрами: {{ hiddenMemberCount(entry) }}. Эти концепты не доступны для выбора в текущей топологии.
+            </p>
+          </div>
+        </article>
+      </div>
     </div>
   </section>
 </template>
@@ -344,29 +347,57 @@ watch(
 
 .semantic-groups__list {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: var(--space-sm);
+}
+
+.semantic-groups__expander {
+  overflow: hidden;
+  border: 1px solid rgb(14 116 144 / 0.12);
+  border-radius: calc(var(--radius-lg) + 4px);
+  background: rgb(255 255 255 / 0.56);
+  box-shadow: 0 12px 30px rgb(14 116 144 / 0.07);
 }
 
 .semantic-groups__card {
   display: grid;
-  gap: var(--space-xs);
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-xs) var(--space-md);
+  width: 100%;
+  min-height: 72px;
   padding: var(--space-md);
-  border: 1px solid rgb(14 116 144 / 0.18);
-  border-radius: var(--radius-lg);
+  border: 0;
   background: rgb(255 255 255 / 0.74);
   color: var(--color-text);
   cursor: pointer;
   font: inherit;
   text-align: left;
+  transition-property: background-color, transform;
+  transition-duration: 160ms;
+  transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
 }
 
 .semantic-groups__card:hover,
 .semantic-groups__card:focus-visible,
-.semantic-groups__card--selected {
-  border-color: rgb(14 116 144 / 0.55);
-  outline: 3px solid rgb(14 116 144 / 0.18);
-  outline-offset: 2px;
+.semantic-groups__expander--open .semantic-groups__card {
+  background: rgb(236 254 255 / 0.68);
+  outline: none;
+}
+
+.semantic-groups__card:active {
+  transform: scale(0.99);
+}
+
+.semantic-groups__card-indicator {
+  grid-row: 1 / span 3;
+  display: inline-grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  align-self: center;
+  border-radius: 999px;
+  background: rgb(14 116 144 / 0.1);
+  color: var(--color-accent);
+  font-weight: 900;
 }
 
 .semantic-groups__card-title,
@@ -403,10 +434,12 @@ watch(
 }
 
 .semantic-groups__details {
+  display: grid;
+  gap: var(--space-md);
   padding: var(--space-md);
-  border: 1px solid rgb(14 116 144 / 0.14);
-  border-radius: var(--radius-lg);
+  border-top: 1px solid rgb(14 116 144 / 0.12);
   background: linear-gradient(135deg, rgb(236 254 255 / 0.72), rgb(255 255 255 / 0.84));
+  animation: semantic-group-slide-in 180ms cubic-bezier(0.2, 0, 0, 1);
 }
 
 .semantic-groups__facts {
@@ -440,5 +473,17 @@ watch(
   padding: var(--space-sm) 0;
   border-top: 1px solid rgb(14 116 144 / 0.12);
   justify-content: flex-start;
+}
+
+@keyframes semantic-group-slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 </style>

@@ -809,6 +809,84 @@ def _deterministic_semantic_clusters(
     return clusters
 
 
+def _truncate_safe_text(value: str, max_length: int) -> str:
+    normalized = ' '.join((value or '').split()).strip()
+    if len(normalized) <= max_length:
+        return normalized
+    return normalized[: max_length - 1].rstrip() + '…'
+
+
+def _semantic_enrichment_by_membership(normalized_groups: list[dict[str, Any]]) -> tuple[dict[tuple[str, ...], dict[str, str]], list[dict[str, Any]]]:
+    """Index safe provider text without letting it define deterministic groups."""
+
+    exact: dict[tuple[str, ...], dict[str, str]] = {}
+    entries: list[dict[str, Any]] = []
+    for group in normalized_groups:
+        slugs = tuple(sorted(membership['concept'].slug for membership in group['memberships']))
+        if not slugs:
+            continue
+        rationale = str(group.get('rationale') or '').strip()
+        enrichment = {
+            'label': str(group.get('label') or '').strip(),
+            'description': rationale[:240] if rationale else str(group.get('description') or '').strip(),
+            'rationale': rationale,
+        }
+        entries.append({'slugs': set(slugs), 'sort_key': slugs, **enrichment})
+        exact.setdefault(slugs, enrichment)
+    return exact, entries
+
+
+def _semantic_enrichment_for_cluster(
+    cluster_slugs: list[str],
+    exact_enrichment: dict[tuple[str, ...], dict[str, str]],
+    provider_entries: list[dict[str, Any]],
+) -> dict[str, str]:
+    """Return safe provider text for a deterministic cluster.
+
+    Prefer exact member-set matches. When deterministic clustering produces a
+    larger stable cluster than the provider did, compose labels/rationales from
+    provider subgroups that are mostly inside the deterministic cluster. This
+    avoids the unhelpful "Semantic cluster N" fallback while still preventing
+    provider output from changing identity or membership.
+    """
+
+    cluster_key = tuple(sorted(cluster_slugs))
+    if cluster_key in exact_enrichment:
+        return exact_enrichment[cluster_key]
+
+    cluster_set = set(cluster_slugs)
+    matches = []
+    for entry in provider_entries:
+        entry_slugs = set(entry['slugs'])
+        overlap = cluster_set & entry_slugs
+        if not overlap:
+            continue
+        entry_coverage = len(overlap) / max(len(entry_slugs), 1)
+        cluster_coverage = len(overlap) / max(len(cluster_set), 1)
+        if entry_coverage >= 0.75 or cluster_coverage >= 0.5:
+            matches.append((len(overlap), entry_coverage, cluster_coverage, entry['sort_key'], entry))
+    if not matches:
+        return {}
+
+    matches.sort(key=lambda item: (-item[0], -item[1], -item[2], item[3]))
+    entries = [item[4] for item in matches[:3]]
+    labels = [entry['label'] for entry in entries if entry.get('label')]
+    rationales = [entry['rationale'] for entry in entries if entry.get('rationale')]
+    if not labels:
+        return {}
+    if len(labels) == 1:
+        label = labels[0]
+    else:
+        label = ' · '.join(labels)
+    description = 'DeepSeek выделил внутри стабильного кластера темы: ' + ', '.join(labels) + '.'
+    rationale = ' '.join(rationales) if rationales else description
+    return {
+        'label': _truncate_safe_text(label, 160),
+        'description': _truncate_safe_text(description, 500),
+        'rationale': _truncate_safe_text(rationale, 1000),
+    }
+
+
 def _reconcile_deterministic_semantic_groups(
     user,
     grouping_result,
@@ -816,9 +894,12 @@ def _reconcile_deterministic_semantic_groups(
     snapshots_by_index: dict[int, UserKnowledgeGraphEmbeddingSnapshot],
     generated_at,
 ) -> SemanticGroupPersistenceStats:
-    # Validate provider text/shape for S01 failure semantics, but do not let
-    # provider-owned keys or memberships define deterministic S02 identities.
-    _normalize_grouping_result(user, grouping_result, concept_summaries)
+    # Validate provider text/shape for S01 failure semantics. Deterministic
+    # clustering owns identity/membership; provider output can only enrich
+    # label/description/rationale for exact matching member sets.
+    exact_provider_enrichment, provider_enrichment_entries = _semantic_enrichment_by_membership(
+        _normalize_grouping_result(user, grouping_result, concept_summaries)
+    )
     concept_vectors = _concept_vectors_by_slug(user, snapshots_by_index)
     clusters = _deterministic_semantic_clusters(concept_summaries, concept_vectors)
     if not clusters:
@@ -874,9 +955,10 @@ def _reconcile_deterministic_semantic_groups(
                 if _centroid_changed(old_centroid, cluster['centroid_payload']) or old_member_signature != cluster['member_signature']:
                     changed_count += 1
 
-            group.label = f"Semantic cluster {index}"
-            group.description = 'Детерминированная группа по агрегированным embedding-сигналам.'
-            group.rationale = 'Идентичность группы сохраняется по сигнатуре участников и безопасному centroid evidence.'
+            enrichment = _semantic_enrichment_for_cluster(cluster['slugs'], exact_provider_enrichment, provider_enrichment_entries)
+            group.label = enrichment.get('label') or f"Semantic cluster {index}"
+            group.description = enrichment.get('description') or 'Детерминированная группа по агрегированным embedding-сигналам.'
+            group.rationale = enrichment.get('rationale') or 'Идентичность группы сохраняется по сигнатуре участников и безопасному centroid evidence.'
             group.confidence = Decimal('1.0000')
             group.evidence = cluster['evidence']
             group.centroid_payload = cluster['centroid_payload']

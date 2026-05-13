@@ -618,7 +618,9 @@ def _deepseek_grouping_messages(concepts: Sequence[Mapping[str, Any]]) -> list[d
             'role': 'system',
             'content': (
                 'You group knowledge graph concepts. Return only valid JSON matching the provided schema. '
-                'Use only supplied concept slugs. Do not include emails, source ids, hashes, vectors, raw text, HTML, secrets, or stack traces.'
+                'Use only supplied concept slugs. Write every user-facing label and rationale in Russian. '
+                'Do not transliterate English names when they are technology names, but explain the cluster in Russian. '
+                'Do not include emails, source ids, hashes, vectors, raw text, HTML, secrets, or stack traces.'
             ),
         },
         {

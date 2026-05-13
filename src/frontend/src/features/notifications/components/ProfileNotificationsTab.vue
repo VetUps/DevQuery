@@ -141,9 +141,6 @@ async function loadMoreNotifications() {
     <header class="profile-notifications__header">
       <p class="profile-notifications__eyebrow">Уведомления</p>
       <h2 class="profile-notifications__title">Приглашения и важные события</h2>
-      <p class="profile-notifications__description">
-        Здесь собраны персональные уведомления о вопросах, где ваш экспертный ответ особенно нужен.
-      </p>
     </header>
 
     <div class="profile-notifications__toolbar" data-testid="notifications-toolbar">

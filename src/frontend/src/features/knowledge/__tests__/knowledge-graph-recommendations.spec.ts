@@ -268,6 +268,22 @@ async function mountTab(props: { userId?: string } = {}) {
   return wrapper
 }
 
+async function openRecommendationsDialog(wrapper: VueWrapper) {
+  await wrapper.get('[data-testid="knowledge-recommendations-open"]').trigger('click')
+  await flushPromises()
+  await nextTick()
+}
+
+function getBodyByTestId(testId: string): HTMLElement {
+  const element = document.body.querySelector<HTMLElement>(`[data-testid="${testId}"]`)
+
+  if (!element) {
+    throw new Error(`Unable to get body element [data-testid="${testId}"]`)
+  }
+
+  return element
+}
+
 describe('knowledge graph recommendations', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -275,9 +291,8 @@ describe('knowledge graph recommendations', () => {
   })
 
   afterEach(() => {
-    while (mountedWrappers.length > 0) {
-      mountedWrappers.pop()?.unmount()
-    }
+    document.body.innerHTML = ''
+    document.body.style.overflow = ''
   })
 
   it('renders ranked recommendation-v2 cards with confidence, target, evidence, and safe discovery routes only', async () => {
@@ -330,50 +345,56 @@ describe('knowledge graph recommendations', () => {
 
     const wrapper = await mountTab()
 
-    expect(wrapper.findAll('[data-testid^="knowledge-recommendation-card-"]')).toHaveLength(2)
-    const firstCard = wrapper.get('[data-testid="knowledge-recommendation-card-rec-v2-django"]')
-    expect(firstCard.text()).toContain('Ранг 1')
-    expect(firstCard.text()).toContain('Оценка 0,92')
-    expect(firstCard.text()).toContain('Уверенность 0,86')
-    expect(firstCard.text()).toContain('Web frameworks')
-    expect(firstCard.text()).toContain('соседи: Vue')
-    expect(wrapper.get('[data-testid="knowledge-recommendation-evidence-rec-v2-django"]').text()).toContain('Слабые сигналы: 3')
-    expect(wrapper.get('[data-testid="knowledge-recommendation-evidence-rec-v2-django"]').text()).toContain('Семантический мост: Vue')
-    const action = wrapper.get('[data-testid="knowledge-recommendation-action-rec-v2-django"]')
-    expect(JSON.parse(action.attributes('data-route-query') ?? '{}')).toEqual({ search: 'django async', page: '2' })
-    expect(wrapper.find('[data-testid="knowledge-recommendation-action-rec-v2-vue-no-route"]').exists()).toBe(false)
-    expect(wrapper.get('[data-testid="knowledge-recommendation-action-unavailable-rec-v2-vue-no-route"]').text()).toContain('Безопасная ссылка')
-    expect(wrapper.text()).not.toContain('weak_signal_count')
-    expect(wrapper.text()).not.toContain('hidden-group-key')
+    expect(wrapper.find('[data-testid^="knowledge-recommendation-card-"]').exists()).toBe(false)
+    await openRecommendationsDialog(wrapper)
+
+    expect(document.body.querySelectorAll('[data-testid^="knowledge-recommendation-card-"]')).toHaveLength(2)
+    const firstCard = getBodyByTestId('knowledge-recommendation-card-rec-v2-django')
+    expect(firstCard.textContent).toContain('Ранг 1')
+    expect(firstCard.textContent).toContain('Оценка 0,92')
+    expect(firstCard.textContent).toContain('Уверенность 0,86')
+    expect(firstCard.textContent).toContain('Web frameworks')
+    expect(firstCard.textContent).toContain('соседи: Vue')
+    expect(getBodyByTestId('knowledge-recommendation-evidence-rec-v2-django').textContent).toContain('Слабые сигналы: 3')
+    expect(getBodyByTestId('knowledge-recommendation-evidence-rec-v2-django').textContent).toContain('Семантический мост: Vue')
+    const action = getBodyByTestId('knowledge-recommendation-action-rec-v2-django')
+    expect(JSON.parse(action.getAttribute('data-route-query') ?? '{}')).toEqual({ search: 'django async', page: '2' })
+    expect(document.body.querySelector('[data-testid="knowledge-recommendation-action-rec-v2-vue-no-route"]')).toBeNull()
+    expect(getBodyByTestId('knowledge-recommendation-action-unavailable-rec-v2-vue-no-route').textContent).toContain('Безопасная ссылка')
+    expect(document.body.textContent).not.toContain('weak_signal_count')
+    expect(document.body.textContent).not.toContain('hidden-group-key')
   })
 
   it('renders private owner recommendation cards with safe action and reason copy while preserving graph affordances', async () => {
     const wrapper = await mountTab()
 
     expect(wrapper.get('[data-testid="knowledge-recommendations-status"]').text()).toContain('2 рекомендации')
-    expect(wrapper.get('[data-testid="knowledge-recommendation-card-rec-django-practice"]').text()).toContain('Django')
-    expect(wrapper.get('[data-testid="knowledge-recommendation-card-rec-django-practice"]').text()).toContain('Слабый')
-    expect(wrapper.get('[data-testid="knowledge-recommendation-card-rec-django-practice"]').text()).toContain('Ответить на вопрос')
-    expect(wrapper.get('[data-testid="knowledge-recommendation-card-rec-django-practice"]').text()).toContain('Высокий приоритет')
-    expect(wrapper.get('[data-testid="knowledge-recommendation-card-rec-django-practice"]').text()).toContain('Тема выглядит слабой')
-    expect(wrapper.get('[data-testid="knowledge-recommendation-card-rec-vue-related"]').text()).toContain('Разобрать связанные вопросы')
-    const djangoAction = wrapper.get('[data-testid="knowledge-recommendation-action-rec-django-practice"]')
-    expect(djangoAction.text()).toContain('Открыть вопросы')
-    expect(djangoAction.attributes('data-route-name')).toBe('home')
-    expect(JSON.parse(djangoAction.attributes('data-route-query') ?? '{}')).toEqual({ tag: ['django'] })
-    const vueAction = wrapper.get('[data-testid="knowledge-recommendation-action-rec-vue-related"]')
-    expect(JSON.parse(vueAction.attributes('data-route-query') ?? '{}')).toEqual({ tag: ['vue'] })
+    expect(wrapper.find('[data-testid="knowledge-recommendation-card-rec-django-practice"]').exists()).toBe(false)
+    await openRecommendationsDialog(wrapper)
+
+    expect(getBodyByTestId('knowledge-recommendation-card-rec-django-practice').textContent).toContain('Django')
+    expect(getBodyByTestId('knowledge-recommendation-card-rec-django-practice').textContent).toContain('Слабый')
+    expect(getBodyByTestId('knowledge-recommendation-card-rec-django-practice').textContent).toContain('Ответить на вопрос')
+    expect(getBodyByTestId('knowledge-recommendation-card-rec-django-practice').textContent).toContain('Высокий приоритет')
+    expect(getBodyByTestId('knowledge-recommendation-card-rec-django-practice').textContent).toContain('Тема выглядит слабой')
+    expect(getBodyByTestId('knowledge-recommendation-card-rec-vue-related').textContent).toContain('Разобрать связанные вопросы')
+    const djangoAction = getBodyByTestId('knowledge-recommendation-action-rec-django-practice')
+    expect(djangoAction.textContent).toContain('Открыть вопросы')
+    expect(djangoAction.getAttribute('data-route-name')).toBe('home')
+    expect(JSON.parse(djangoAction.getAttribute('data-route-query') ?? '{}')).toEqual({ tag: ['django'] })
+    const vueAction = getBodyByTestId('knowledge-recommendation-action-rec-vue-related')
+    expect(JSON.parse(vueAction.getAttribute('data-route-query') ?? '{}')).toEqual({ tag: ['vue'] })
     expect(wrapper.get('[data-testid="knowledge-graph-renderer-stub"]').text()).toContain('graph renderer')
 
     await wrapper.get('[data-testid="select-concept-10"]').trigger('click')
     await nextTick()
 
     expect(wrapper.get('[data-testid="knowledge-graph-selected-details"]').text()).toContain('Django')
-    expect(wrapper.text()).not.toContain('raw-source-id-should-not-render')
-    expect(wrapper.text()).not.toContain('owner@example.com')
-    expect(wrapper.text()).not.toContain('secret-token')
-    expect(wrapper.text()).not.toContain('Traceback provider diagnostics')
-    expect(wrapper.text()).not.toContain('{')
+    expect(document.body.textContent).not.toContain('raw-source-id-should-not-render')
+    expect(document.body.textContent).not.toContain('owner@example.com')
+    expect(document.body.textContent).not.toContain('secret-token')
+    expect(document.body.textContent).not.toContain('Traceback provider diagnostics')
+    expect(document.body.textContent).not.toContain('{')
   })
 
   it('hides recommendation cards on public profiles and before owner insights are available', async () => {
@@ -420,7 +441,10 @@ describe('knowledge graph recommendations', () => {
     const wrapper = await mountTab()
 
     expect(wrapper.get('[data-testid="knowledge-recommendations-count"]').text()).toBe('0 рекомендаций')
-    expect(wrapper.get('[data-testid="knowledge-recommendations-empty"]').text()).toContain('Новых рекомендаций')
-    expect(wrapper.find('[data-testid^="knowledge-recommendation-card-"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="knowledge-recommendations-empty"]').exists()).toBe(false)
+    await openRecommendationsDialog(wrapper)
+
+    expect(getBodyByTestId('knowledge-recommendations-empty').textContent).toContain('Новых рекомендаций')
+    expect(document.body.querySelector('[data-testid^="knowledge-recommendation-card-"]')).toBeNull()
   })
 })

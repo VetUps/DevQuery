@@ -21,6 +21,7 @@ import type {
 } from '@/features/knowledge/api/knowledgeGraph'
 import { useSaveKnowledgeGraphLayoutMutation, useResetKnowledgeGraphLayoutMutation } from '@/features/knowledge/mutations/useKnowledgeGraphLayoutMutation'
 import AppButton from '@/shared/ui/AppButton.vue'
+import AppDialog from '@/shared/ui/AppDialog.vue'
 import InlineFeedbackPanel from '@/shared/ui/InlineFeedbackPanel.vue'
 import SurfacePanel from '@/shared/ui/SurfacePanel.vue'
 import KnowledgeGraphRenderer from './KnowledgeGraphRenderer.vue'
@@ -86,6 +87,8 @@ const insightSearchText = shallowRef('')
 const activeStateFilters = shallowRef<InsightFilterState[]>([])
 const showSemanticEdges = shallowRef(true)
 const graphProjectionMode = shallowRef<KnowledgeGraphProjectionMode>('structural')
+const isRecommendationsDialogOpen = shallowRef(false)
+const isSemanticGroupsDialogOpen = shallowRef(false)
 
 const graph = computed<UserKnowledgeGraphResponse | undefined>(() => graphQuery.data.value)
 const hasGraph = computed(() => Boolean(graph.value))
@@ -235,7 +238,7 @@ const rebuildButtonLabel = computed(() => (
 ))
 const modeHelpCopy = computed(() => (
   viewMode.value === 'graph'
-    ? 'Граф показывает связи между концептами. Список остаётся доступен как подробная fallback-панель.'
+    ? 'Граф показывает связи между концептами.'
     : 'Список показывает активность, концепты и связанные вопросы без интерактивного графа.'
 ))
 const isGraphMode = computed(() => viewMode.value === 'graph')
@@ -374,6 +377,19 @@ const recommendationCountCopy = computed(() => {
 
   return `${count} рекомендаций`
 })
+const semanticGroupCountCopy = computed(() => {
+  const count = visibleSemanticGroups.value.length
+
+  if (count === 1) {
+    return '1 группа'
+  }
+
+  if (count > 1 && count < 5) {
+    return `${count} группы`
+  }
+
+  return `${count} групп`
+})
 const recommendationsStatusCopy = computed(() => {
   if (insightsQuery.isError.value) {
     return 'Рекомендации временно недоступны. Граф и список остаются на экране.'
@@ -403,10 +419,10 @@ const insightsStatusCopy = computed(() => {
   }
 
   if (!hasKnowledgeRecommendations.value) {
-    return 'Состояния концептов загружены. Новых рекомендаций пока нет.'
+    return ''
   }
 
-  return `Состояния концептов загружены. ${recommendationCountCopy.value} готовы к просмотру.`
+  return ''
 })
 
 function buildRecommendationCard(
@@ -695,7 +711,12 @@ async function resetGraphLayout() {
 function handleNodeSelected(conceptId: number) {
   const existsInTopology = filteredNodes.value.some((node) => node.concept_id === conceptId)
 
-  selectedConceptId.value = existsInTopology ? conceptId : null
+  if (!existsInTopology) {
+    selectedConceptId.value = null
+    return
+  }
+
+  selectedConceptId.value = selectedConceptId.value === conceptId ? null : conceptId
 }
 
 function handleSemanticMemberSelected(conceptId: number): void {
@@ -705,8 +726,25 @@ function handleSemanticMemberSelected(conceptId: number): void {
     return
   }
 
-  selectedConceptId.value = conceptId
+  selectedConceptId.value = selectedConceptId.value === conceptId ? null : conceptId
   viewMode.value = 'graph'
+  isSemanticGroupsDialogOpen.value = false
+}
+
+function openRecommendationsDialog(): void {
+  isRecommendationsDialogOpen.value = true
+}
+
+function closeRecommendationsDialog(): void {
+  isRecommendationsDialogOpen.value = false
+}
+
+function openSemanticGroupsDialog(): void {
+  isSemanticGroupsDialogOpen.value = true
+}
+
+function closeSemanticGroupsDialog(): void {
+  isSemanticGroupsDialogOpen.value = false
 }
 
 watch(
@@ -780,9 +818,6 @@ watch(
           <div>
             <p class="knowledge-tab__eyebrow">Граф знаний</p>
             <h2 class="knowledge-tab__title">Карта ваших сильных тем</h2>
-            <p class="knowledge-tab__lead">
-              Показываем только агрегированные концепты, веса активности и безопасные связи с вопросами.
-            </p>
           </div>
 
           <div class="knowledge-tab__stats" aria-label="Сводка графа знаний">
@@ -919,7 +954,7 @@ watch(
           <p class="knowledge-tab__eyebrow">Состояния концептов</p>
           <h3>Фильтры и легенда</h3>
         </div>
-        <p class="knowledge-tab__insights-status" data-testid="knowledge-insights-status">
+        <p v-if="insightsStatusCopy" class="knowledge-tab__insights-status" data-testid="knowledge-insights-status">
           {{ insightsStatusCopy }}
         </p>
         <div class="knowledge-tab__filters">
@@ -973,116 +1008,54 @@ watch(
         </ul>
       </SurfacePanel>
 
-      <SurfacePanel
-        v-if="canShowInsights && hasConcepts"
-        class="knowledge-tab__semantic-groups"
-        padding="lg"
-      >
-        <KnowledgeGraphSemanticGroupsPanel
-          :groups="visibleSemanticGroups"
-          :concepts="graph.concepts"
-          :visible-concept-ids="visibleNodeIds"
-          :graph-status="normalizedStatus"
-          :has-query-error="isStaleQueryError"
-          @member-selected="handleSemanticMemberSelected"
-        />
-      </SurfacePanel>
-
-      <SurfacePanel
-        v-if="canShowInsights && hasConcepts"
-        class="knowledge-tab__recommendations"
-        padding="lg"
-        data-testid="knowledge-recommendations"
-      >
-        <div class="knowledge-tab__section-heading knowledge-tab__section-heading--dual">
-          <div>
-            <p class="knowledge-tab__eyebrow">Рекомендации развития</p>
-            <h3>Следующие безопасные шаги</h3>
-          </div>
-          <span class="knowledge-tab__recommendation-count" data-testid="knowledge-recommendations-count">
-            {{ recommendationCountCopy }}
-          </span>
-        </div>
-        <p class="knowledge-tab__recommendations-status" data-testid="knowledge-recommendations-status">
-          {{ recommendationsStatusCopy }}
-        </p>
-
-        <p
-          v-if="!hasKnowledgeRecommendations"
-          class="knowledge-concept__muted"
-          data-testid="knowledge-recommendations-empty"
-        >
-          {{ recommendationsStatusCopy }}
-        </p>
-
-        <ul v-else class="knowledge-tab__recommendation-list" aria-label="Приватные рекомендации по развитию графа знаний">
-          <li
-            v-for="card in knowledgeRecommendations"
-            :key="card.id"
-            class="knowledge-tab__recommendation-card"
-            :data-testid="`knowledge-recommendation-card-${card.id}`"
-            :aria-label="`${card.rankLabel}: ${card.conceptName}. ${card.presentation.priorityLabel}`"
-          >
-            <header class="knowledge-tab__recommendation-header">
-              <div>
-                <p class="knowledge-tab__recommendation-rank" :data-testid="`knowledge-recommendation-rank-${card.id}`">
-                  {{ card.rankLabel }} · {{ card.scoreLabel }} · {{ card.confidenceLabel }}
-                </p>
-                <p class="knowledge-tab__recommendation-concept">{{ card.conceptName }}</p>
-                <p
-                  class="knowledge-concept__state"
-                  :class="`knowledge-concept__state--${card.state.classSuffix}`"
-                >
-                  <span aria-hidden="true">{{ card.state.symbol }}</span>
-                  <strong>{{ card.state.label }}</strong>
-                  <span>{{ card.state.description }}</span>
-                </p>
-              </div>
-              <span class="knowledge-tab__recommendation-priority">{{ card.presentation.priorityLabel }}</span>
-            </header>
-
-            <div class="knowledge-tab__recommendation-body">
-              <p class="knowledge-tab__recommendation-action">{{ card.presentation.actionLabel }}</p>
-              <p>{{ card.recommendation.label }}</p>
-              <p>{{ card.presentation.reasonDescription }}</p>
-              <p class="knowledge-tab__recommendation-help">{{ card.presentation.actionDescription }}</p>
-              <p class="knowledge-tab__recommendation-target" :data-testid="`knowledge-recommendation-target-${card.id}`">
-                {{ card.targetSummary }}
-              </p>
-              <ul
-                v-if="card.evidenceSummaries.length > 0"
-                class="knowledge-tab__recommendation-evidence"
-                :data-testid="`knowledge-recommendation-evidence-${card.id}`"
-                aria-label="Агрегированные доказательства рекомендации"
-              >
-                <li v-for="summary in card.evidenceSummaries" :key="summary">{{ summary }}</li>
-              </ul>
-              <p
-                v-else
-                class="knowledge-tab__recommendation-help"
-                :data-testid="`knowledge-recommendation-evidence-empty-${card.id}`"
-              >
-                Агрегированные доказательства недоступны для этой рекомендации.
-              </p>
-              <RouterLink
-                v-if="card.discoveryRoute"
-                class="knowledge-tab__discovery-link"
-                :to="card.discoveryRoute"
-                :data-testid="`knowledge-recommendation-action-${card.id}`"
-              >
-                Открыть вопросы
-              </RouterLink>
-              <p
-                v-else
-                class="knowledge-tab__recommendation-help"
-                :data-testid="`knowledge-recommendation-action-unavailable-${card.id}`"
-              >
-                Безопасная ссылка на вопросы для этой рекомендации недоступна.
-              </p>
+      <div v-if="canShowInsights && hasConcepts" class="knowledge-tab__quick-actions" data-testid="knowledge-graph-quick-actions">
+        <SurfacePanel class="knowledge-tab__quick-action" padding="lg">
+          <div class="knowledge-tab__section-heading knowledge-tab__section-heading--dual">
+            <div>
+              <p class="knowledge-tab__eyebrow">Семантические группы</p>
+              <h3>Кластеры на графе</h3>
             </div>
-          </li>
-        </ul>
-      </SurfacePanel>
+            <span class="knowledge-tab__recommendation-count" data-testid="knowledge-semantic-groups-count-summary">
+              {{ semanticGroupCountCopy }}
+            </span>
+          </div>
+          <button
+            type="button"
+            class="knowledge-tab__dialog-action"
+            data-testid="knowledge-semantic-groups-open"
+            @click="openSemanticGroupsDialog"
+          >
+            Открыть список кластеров
+          </button>
+        </SurfacePanel>
+
+        <SurfacePanel
+          class="knowledge-tab__quick-action"
+          padding="lg"
+          data-testid="knowledge-recommendations"
+        >
+          <div class="knowledge-tab__section-heading knowledge-tab__section-heading--dual">
+            <div>
+              <p class="knowledge-tab__eyebrow">Рекомендации развития</p>
+              <h3>Следующие безопасные шаги</h3>
+            </div>
+            <span class="knowledge-tab__recommendation-count" data-testid="knowledge-recommendations-count">
+              {{ recommendationCountCopy }}
+            </span>
+          </div>
+          <p class="knowledge-tab__recommendations-status" data-testid="knowledge-recommendations-status">
+            {{ recommendationsStatusCopy }}
+          </p>
+          <button
+            type="button"
+            class="knowledge-tab__dialog-action"
+            data-testid="knowledge-recommendations-open"
+            @click="openRecommendationsDialog"
+          >
+            Открыть рекомендации
+          </button>
+        </SurfacePanel>
+      </div>
 
       <InlineFeedbackPanel
         v-if="!hasConcepts"
@@ -1223,15 +1196,178 @@ watch(
       description="Сервер не вернул граф знаний. Попробуйте обновить вкладку позже."
       tone="danger"
     />
+
+    <AppDialog
+      v-if="canShowInsights && hasConcepts && graph"
+      :open="isSemanticGroupsDialogOpen"
+      title="Семантические кластеры"
+      description="Список кластеров графа. Откройте группу, чтобы увидеть входящие концепты и перейти к деталям."
+      size="wide"
+      data-testid="knowledge-semantic-groups-dialog"
+      @close="closeSemanticGroupsDialog"
+    >
+      <KnowledgeGraphSemanticGroupsPanel
+        :groups="visibleSemanticGroups"
+        :concepts="graph.concepts"
+        :visible-concept-ids="visibleNodeIds"
+        :graph-status="normalizedStatus"
+        :has-query-error="isStaleQueryError"
+        @member-selected="handleSemanticMemberSelected"
+      />
+    </AppDialog>
+
+    <AppDialog
+      v-if="canShowInsights && hasConcepts"
+      :open="isRecommendationsDialogOpen"
+      title="Рекомендации развития"
+      description="Приватные безопасные шаги по развитию графа знаний. Технические и провайдерские детали не отображаются."
+      size="wide"
+      data-testid="knowledge-recommendations-dialog"
+      @close="closeRecommendationsDialog"
+    >
+      <section class="knowledge-tab__recommendations-modal" aria-label="Приватные рекомендации по развитию графа знаний">
+        <div class="knowledge-tab__section-heading knowledge-tab__section-heading--dual">
+          <div>
+            <p class="knowledge-tab__eyebrow">Следующие безопасные шаги</p>
+            <h3>Что улучшить в графе знаний</h3>
+          </div>
+          <span class="knowledge-tab__recommendation-count" data-testid="knowledge-recommendations-dialog-count">
+            {{ recommendationCountCopy }}
+          </span>
+        </div>
+        <p class="knowledge-tab__recommendations-status" data-testid="knowledge-recommendations-dialog-status">
+          {{ recommendationsStatusCopy }}
+        </p>
+
+        <p
+          v-if="!hasKnowledgeRecommendations"
+          class="knowledge-concept__muted"
+          data-testid="knowledge-recommendations-empty"
+        >
+          {{ recommendationsStatusCopy }}
+        </p>
+
+        <ul v-else class="knowledge-tab__recommendation-list" aria-label="Приватные рекомендации по развитию графа знаний">
+          <li
+            v-for="card in knowledgeRecommendations"
+            :key="card.id"
+            class="knowledge-tab__recommendation-card"
+            :data-testid="`knowledge-recommendation-card-${card.id}`"
+            :aria-label="`${card.rankLabel}: ${card.conceptName}. ${card.presentation.priorityLabel}`"
+          >
+            <header class="knowledge-tab__recommendation-header">
+              <div>
+                <p class="knowledge-tab__recommendation-rank" :data-testid="`knowledge-recommendation-rank-${card.id}`">
+                  {{ card.rankLabel }} · {{ card.scoreLabel }} · {{ card.confidenceLabel }}
+                </p>
+                <p class="knowledge-tab__recommendation-concept">{{ card.conceptName }}</p>
+                <p
+                  class="knowledge-concept__state"
+                  :class="`knowledge-concept__state--${card.state.classSuffix}`"
+                >
+                  <span aria-hidden="true">{{ card.state.symbol }}</span>
+                  <strong>{{ card.state.label }}</strong>
+                  <span>{{ card.state.description }}</span>
+                </p>
+              </div>
+              <span class="knowledge-tab__recommendation-priority">{{ card.presentation.priorityLabel }}</span>
+            </header>
+
+            <div class="knowledge-tab__recommendation-body">
+              <p class="knowledge-tab__recommendation-action">{{ card.presentation.actionLabel }}</p>
+              <p>{{ card.recommendation.label }}</p>
+              <p>{{ card.presentation.reasonDescription }}</p>
+              <p class="knowledge-tab__recommendation-help">{{ card.presentation.actionDescription }}</p>
+              <p class="knowledge-tab__recommendation-target" :data-testid="`knowledge-recommendation-target-${card.id}`">
+                {{ card.targetSummary }}
+              </p>
+              <ul
+                v-if="card.evidenceSummaries.length > 0"
+                class="knowledge-tab__recommendation-evidence"
+                :data-testid="`knowledge-recommendation-evidence-${card.id}`"
+                aria-label="Агрегированные доказательства рекомендации"
+              >
+                <li v-for="summary in card.evidenceSummaries" :key="summary">{{ summary }}</li>
+              </ul>
+              <p
+                v-else
+                class="knowledge-tab__recommendation-help"
+                :data-testid="`knowledge-recommendation-evidence-empty-${card.id}`"
+              >
+                Агрегированные доказательства недоступны для этой рекомендации.
+              </p>
+              <RouterLink
+                v-if="card.discoveryRoute"
+                class="knowledge-tab__discovery-link"
+                :to="card.discoveryRoute"
+                :data-testid="`knowledge-recommendation-action-${card.id}`"
+              >
+                Открыть вопросы
+              </RouterLink>
+              <p
+                v-else
+                class="knowledge-tab__recommendation-help"
+                :data-testid="`knowledge-recommendation-action-unavailable-${card.id}`"
+              >
+                Безопасная ссылка на вопросы для этой рекомендации недоступна.
+              </p>
+            </div>
+          </li>
+        </ul>
+      </section>
+    </AppDialog>
   </section>
 </template>
 
 <style scoped>
 .knowledge-tab,
 .knowledge-tab__content,
-.knowledge-tab__mode-panel {
+.knowledge-tab__mode-panel,
+.knowledge-tab__recommendations-modal {
   display: grid;
   gap: var(--space-xl);
+}
+
+.knowledge-tab__quick-actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: var(--space-md);
+}
+
+.knowledge-tab__quick-action {
+  min-width: 0;
+  box-shadow: 0 16px 36px rgb(14 116 144 / 0.08);
+}
+
+.knowledge-tab__dialog-action {
+  display: inline-flex;
+  width: max-content;
+  min-height: 42px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 var(--space-md);
+  border: 1px solid rgb(14 116 144 / 0.22);
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.82);
+  color: var(--color-accent);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 800;
+  transition-property: transform, border-color, box-shadow, background-color;
+  transition-duration: 160ms;
+  transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+}
+
+.knowledge-tab__dialog-action:hover,
+.knowledge-tab__dialog-action:focus-visible {
+  border-color: rgb(14 116 144 / 0.55);
+  background: rgb(236 254 255 / 0.78);
+  box-shadow: 0 10px 24px rgb(14 116 144 / 0.13);
+  outline: none;
+}
+
+.knowledge-tab__dialog-action:active {
+  transform: scale(0.96);
 }
 
 

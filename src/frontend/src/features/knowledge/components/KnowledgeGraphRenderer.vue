@@ -74,6 +74,7 @@ const semanticProjection = computed(() => buildKnowledgeGraphSemanticProjection(
 const isSemanticProjectionMode = computed(() => props.projectionMode === 'semantic')
 const hasOwnerSemanticEdges = computed(() => props.isOwner && props.semanticEdges.length > 0)
 const canShowSemanticOverlay = computed(() => hasOwnerSemanticEdges.value && props.showSemanticEdges)
+const canShowSemanticClusters = computed(() => props.isOwner && isSemanticProjectionMode.value && semanticProjection.value.areas.length > 0)
 const graphSummary = computed(() => {
   const semanticModeCopy = isSemanticProjectionMode.value
     ? ` · семантическая проекция: ${semanticProjection.value.visibleGroupCount} групп`
@@ -111,8 +112,9 @@ function conceptState(node: KnowledgeGraphNode) {
 
 function conceptStateAriaLabel(node: KnowledgeGraphNode): string {
   const state = conceptState(node)
+  const action = isConceptSelected(node.concept_id) ? 'Снять выделение с концепта' : 'Выбрать концепт'
 
-  return `Выбрать концепт ${conceptLabel(node)}. Состояние: ${state.label}. ${state.description}`
+  return `${action} ${conceptLabel(node)}. Состояние: ${state.label}. ${state.description}`
 }
 
 function emitNodeSelected(conceptId: number): void {
@@ -433,7 +435,9 @@ function emitSemanticVisibilityChanged(visible: boolean): void {
       :nodes="props.nodes"
       :edges="props.edges"
       :semantic-edges="props.semanticEdges"
+      :semantic-groups="props.semanticGroups"
       :show-semantic-edges="canShowSemanticOverlay"
+      :show-semantic-clusters="canShowSemanticClusters"
       :selected-concept-id="props.selectedConceptId"
       :neighbour-concept-ids="props.neighbourConceptIds"
       :neighbour-edge-ids="props.neighbourEdgeIds"
@@ -500,7 +504,9 @@ function emitSemanticVisibilityChanged(visible: boolean): void {
           :nodes="props.nodes"
           :edges="props.edges"
           :semantic-edges="props.semanticEdges"
+          :semantic-groups="props.semanticGroups"
           :show-semantic-edges="canShowSemanticOverlay"
+          :show-semantic-clusters="canShowSemanticClusters"
           :selected-concept-id="props.selectedConceptId"
           :neighbour-concept-ids="props.neighbourConceptIds"
           :neighbour-edge-ids="props.neighbourEdgeIds"

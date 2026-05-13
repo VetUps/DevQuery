@@ -56,14 +56,9 @@ function toggleSemanticEdges(): void {
       type="button"
       data-testid="knowledge-graph-semantic-toggle"
       :aria-pressed="props.showSemanticEdges"
-      aria-describedby="knowledge-graph-semantic-toggle-help"
-      @click="toggleSemanticEdges"
     >
       {{ props.showSemanticEdges ? 'Скрыть семантический слой' : 'Показать семантический слой' }}
     </button>
-    <p id="knowledge-graph-semantic-toggle-help" class="knowledge-graph-semantic-legend__help">
-      Переключатель не удаляет структурные связи и не раскрывает приватные доказательства семантики.
-    </p>
   </aside>
 </template>
 
