@@ -4,9 +4,11 @@ import { computed, shallowRef, useTemplateRef } from 'vue'
 import type {
   KnowledgeGraphEdge,
   KnowledgeGraphLayoutPosition,
+  KnowledgeGraphSemanticEdge,
   KnowledgeGraphNode,
 } from '@/features/knowledge/api/knowledgeGraph'
 import KnowledgeGraphCanvas from './KnowledgeGraphCanvas.vue'
+import KnowledgeGraphSemanticLegend from './KnowledgeGraphSemanticLegend.vue'
 import type { KnowledgeGraphConceptStateById } from './knowledgeGraphStatePresentation'
 import { getKnowledgeGraphConceptState } from './knowledgeGraphStatePresentation'
 
@@ -15,11 +17,14 @@ interface Emits {
   'layout-changed': [positions: Record<string, KnowledgeGraphLayoutPosition>]
   'layout-save-requested': []
   'layout-reset-requested': []
+  'semantic-visibility-changed': [visible: boolean]
 }
 
 const props = withDefaults(defineProps<{
   nodes: KnowledgeGraphNode[]
   edges: KnowledgeGraphEdge[]
+  semanticEdges?: KnowledgeGraphSemanticEdge[]
+  showSemanticEdges?: boolean
   selectedConceptId?: number | null
   neighbourConceptIds?: number[]
   neighbourEdgeIds?: string[]
@@ -33,6 +38,8 @@ const props = withDefaults(defineProps<{
   selectedConceptId: null,
   neighbourConceptIds: () => [],
   neighbourEdgeIds: () => [],
+  semanticEdges: () => [],
+  showSemanticEdges: false,
   layoutPositions: () => ({}),
   isOwner: false,
   isLayoutDirty: false,
@@ -47,7 +54,15 @@ const graphCanvasRef = useTemplateRef<InstanceType<typeof KnowledgeGraphCanvas>>
 const isFullscreenOpen = shallowRef(false)
 
 const hasNodes = computed(() => props.nodes.length > 0)
-const graphSummary = computed(() => `${props.nodes.length} концептов · ${props.edges.length} связей`)
+const hasOwnerSemanticEdges = computed(() => props.isOwner && props.semanticEdges.length > 0)
+const canShowSemanticOverlay = computed(() => hasOwnerSemanticEdges.value && props.showSemanticEdges)
+const graphSummary = computed(() => {
+  const semanticCopy = hasOwnerSemanticEdges.value
+    ? ` · ${props.semanticEdges.length} семантических соседей${canShowSemanticOverlay.value ? '' : ' скрыто'}`
+    : ''
+
+  return `${props.nodes.length} концептов · ${props.edges.length} связей${semanticCopy}`
+})
 const isLayoutActionDisabled = computed(() => !props.isLayoutDirty || props.isLayoutSaving || props.isLayoutResetting)
 
 function conceptLabel(node: KnowledgeGraphNode): string {
@@ -104,6 +119,10 @@ function requestLayoutSave(): void {
 
 function requestLayoutReset(): void {
   emit('layout-reset-requested')
+}
+
+function emitSemanticVisibilityChanged(visible: boolean): void {
+  emit('semantic-visibility-changed', visible)
 }
 </script>
 
@@ -162,6 +181,14 @@ function requestLayoutReset(): void {
         </button>
       </div>
     </div>
+
+    <KnowledgeGraphSemanticLegend
+      v-if="hasNodes"
+      :semantic-edge-count="props.isOwner ? props.semanticEdges.length : 0"
+      :show-semantic-edges="canShowSemanticOverlay"
+      :is-owner="props.isOwner"
+      @semantic-visibility-changed="emitSemanticVisibilityChanged"
+    />
 
     <div v-if="hasNodes" class="knowledge-graph-renderer__viewport-toolbar" data-testid="knowledge-graph-viewport-toolbar">
       <p class="knowledge-graph-renderer__toolbar-label">Управление графом</p>
@@ -227,6 +254,8 @@ function requestLayoutReset(): void {
       ref="graphCanvas"
       :nodes="props.nodes"
       :edges="props.edges"
+      :semantic-edges="props.semanticEdges"
+      :show-semantic-edges="canShowSemanticOverlay"
       :selected-concept-id="props.selectedConceptId"
       :neighbour-concept-ids="props.neighbourConceptIds"
       :neighbour-edge-ids="props.neighbourEdgeIds"
@@ -292,6 +321,8 @@ function requestLayoutReset(): void {
         <KnowledgeGraphCanvas
           :nodes="props.nodes"
           :edges="props.edges"
+          :semantic-edges="props.semanticEdges"
+          :show-semantic-edges="canShowSemanticOverlay"
           :selected-concept-id="props.selectedConceptId"
           :neighbour-concept-ids="props.neighbourConceptIds"
           :neighbour-edge-ids="props.neighbourEdgeIds"

@@ -12,6 +12,7 @@ import type {
   KnowledgeGraphInsightRecommendation,
   KnowledgeGraphLayoutPosition,
   KnowledgeGraphRelatedQuestion,
+  KnowledgeGraphSemanticEdge,
   UserKnowledgeGraphResponse,
 } from '@/features/knowledge/api/knowledgeGraph'
 import { useSaveKnowledgeGraphLayoutMutation, useResetKnowledgeGraphLayoutMutation } from '@/features/knowledge/mutations/useKnowledgeGraphLayoutMutation'
@@ -71,6 +72,7 @@ const selectedConceptId = shallowRef<number | null>(null)
 const viewMode = shallowRef<KnowledgeGraphViewMode>('graph')
 const insightSearchText = shallowRef('')
 const activeStateFilters = shallowRef<InsightFilterState[]>([])
+const showSemanticEdges = shallowRef(true)
 
 const graph = computed<UserKnowledgeGraphResponse | undefined>(() => graphQuery.data.value)
 const hasGraph = computed(() => Boolean(graph.value))
@@ -275,6 +277,12 @@ const filteredEdges = computed(() => {
     visibleNodeIds.value.has(edge.source_concept_id) && visibleNodeIds.value.has(edge.target_concept_id)
   ))
 })
+const ownerSemanticEdges = computed<KnowledgeGraphSemanticEdge[]>(() => (isOwner.value ? graph.value?.semantic_edges ?? [] : []))
+const visibleSemanticEdges = computed(() => ownerSemanticEdges.value.filter((edge) => (
+  visibleNodeIds.value.has(edge.source_concept_id) && visibleNodeIds.value.has(edge.target_concept_id)
+)))
+const canShowSemanticEdges = computed(() => isOwner.value && visibleSemanticEdges.value.length > 0)
+const effectiveShowSemanticEdges = computed(() => canShowSemanticEdges.value && showSemanticEdges.value)
 const hasVisibleTopologyNodes = computed(() => filteredNodes.value.length > 0)
 const hasVisibleConcepts = computed(() => filteredConcepts.value.length > 0)
 const filterCountCopy = computed(() => filteredConcepts.value.length + ' из ' + (graph.value?.concepts.length ?? 0) + ' концептов')
@@ -416,6 +424,10 @@ function setViewMode(mode: KnowledgeGraphViewMode) {
   viewMode.value = mode
 }
 
+function handleSemanticVisibilityChanged(visible: boolean) {
+  showSemanticEdges.value = visible
+}
+
 function toNumber(value: string): number {
   const parsed = Number.parseFloat(value)
 
@@ -540,6 +552,14 @@ watch(
     isLayoutDirty.value = false
     layoutActionError.value = ''
   },
+)
+
+watch(
+  () => `${graph.value?.user_id ?? ''}:${ownerSemanticEdges.value.length}`,
+  () => {
+    showSemanticEdges.value = ownerSemanticEdges.value.length > 0
+  },
+  { immediate: true },
 )
 
 watch(
@@ -821,6 +841,8 @@ watch(
           <KnowledgeGraphRenderer
             :nodes="filteredNodes"
             :edges="filteredEdges"
+            :semantic-edges="visibleSemanticEdges"
+            :show-semantic-edges="effectiveShowSemanticEdges"
             :selected-concept-id="selectedConceptId"
             :neighbour-concept-ids="neighbourConceptIds"
             :neighbour-edge-ids="neighbourEdgeIds"
@@ -834,6 +856,7 @@ watch(
             @layout-changed="handleLayoutChanged"
             @layout-save-requested="saveGraphLayout"
             @layout-reset-requested="resetGraphLayout"
+            @semantic-visibility-changed="handleSemanticVisibilityChanged"
           />
         </SurfacePanel>
 
