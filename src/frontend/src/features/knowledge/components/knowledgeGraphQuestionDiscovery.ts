@@ -4,6 +4,7 @@ import type {
   KnowledgeGraphConceptEntry,
   KnowledgeGraphInsightAction,
   KnowledgeGraphInsightConceptEntry,
+  KnowledgeGraphSafeActionPayload,
 } from '@/features/knowledge/api/knowledgeGraph'
 import type { QuestionOrdering } from '@/features/questions/api/questions'
 
@@ -114,7 +115,7 @@ export function buildConceptQuestionDiscoveryRoute(
   return query ? buildRouteFromSafeQuery(query) : null
 }
 
-function actionPayloadToSafeQuery(payload: Record<string, unknown>): SafeDiscoveryQuery {
+function actionPayloadToSafeQuery(payload: KnowledgeGraphSafeActionPayload): SafeDiscoveryQuery {
   const search = normalizeString(payload.search) || normalizeString(payload.query)
 
   return {
@@ -123,6 +124,16 @@ function actionPayloadToSafeQuery(payload: Record<string, unknown>): SafeDiscove
     ordering: normalizeOrdering(payload.order),
     page: normalizePage(payload.page),
   }
+}
+
+export function buildSafeQuestionDiscoveryRoute(
+  payload: KnowledgeGraphSafeActionPayload | null | undefined,
+): KnowledgeGraphQuestionDiscoveryRoute | null {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    return null
+  }
+
+  return buildRouteFromSafeQuery(actionPayloadToSafeQuery(payload))
 }
 
 export function buildRecommendationQuestionDiscoveryRoute(

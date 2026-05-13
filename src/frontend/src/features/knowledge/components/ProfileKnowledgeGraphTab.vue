@@ -27,6 +27,7 @@ import KnowledgeGraphConceptDetails from './KnowledgeGraphConceptDetails.vue'
 import {
   buildConceptQuestionDiscoveryRoute,
   buildRecommendationQuestionDiscoveryRoute,
+  buildSafeQuestionDiscoveryRoute,
   type KnowledgeGraphQuestionDiscoveryRoute,
 } from './knowledgeGraphQuestionDiscovery'
 import type { KnowledgeGraphSemanticState, KnowledgeGraphConceptStateById } from './knowledgeGraphStatePresentation'
@@ -51,6 +52,11 @@ interface KnowledgeRecommendationCard {
   recommendation: KnowledgeGraphInsightRecommendation | KnowledgeGraphInsightRecommendationV2
   presentation: KnowledgeGraphRecommendationPresentation
   discoveryRoute: KnowledgeGraphQuestionDiscoveryRoute | null
+  rankLabel: string
+  scoreLabel: string
+  confidenceLabel: string
+  targetSummary: string
+  evidenceSummaries: string[]
 }
 
 const props = withDefaults(defineProps<{
@@ -374,11 +380,18 @@ function buildRecommendationCard(
     recommendation,
     presentation: resolveKnowledgeGraphRecommendationPresentation(recommendation),
     discoveryRoute: buildRecommendationQuestionDiscoveryRoute(recommendation.action, concept),
+    rankLabel: 'Совместимая рекомендация',
+    scoreLabel: 'Оценка недоступна',
+    confidenceLabel: 'Уверенность недоступна',
+    targetSummary: `Цель: ${concept.name}`,
+    evidenceSummaries: [],
   }
 }
 
 function buildRecommendationV2Card(recommendation: KnowledgeGraphInsightRecommendationV2): KnowledgeRecommendationCard {
   const conceptState = insightsByConceptId.value[recommendation.target.concept.concept_id]
+  const actionRoute = buildSafeQuestionDiscoveryRoute(recommendation.action.payload)
+  const targetRoute = buildSafeQuestionDiscoveryRoute(recommendation.target.discovery)
 
   return {
     id: recommendation.id,
@@ -387,8 +400,39 @@ function buildRecommendationV2Card(recommendation: KnowledgeGraphInsightRecommen
     state: resolveKnowledgeGraphStatePresentation(conceptState ?? { semantic_state: 'unknown', tone_token: 'unknown' }),
     recommendation,
     presentation: resolveKnowledgeGraphRecommendationPresentation(recommendation),
-    discoveryRoute: buildRecommendationQuestionDiscoveryRoute(recommendation.action, recommendation.target.concept),
+    discoveryRoute: actionRoute ?? targetRoute,
+    rankLabel: `Ранг ${recommendation.rank}`,
+    scoreLabel: `Оценка ${formatRatio(recommendation.score)}`,
+    confidenceLabel: `Уверенность ${formatRatio(recommendation.confidence)}`,
+    targetSummary: recommendationTargetSummary(recommendation),
+    evidenceSummaries: recommendation.evidence.slice(0, 4).map(formatRecommendationEvidence),
   }
+}
+
+function recommendationTargetSummary(recommendation: KnowledgeGraphInsightRecommendationV2): string {
+  const parts = [`Цель: ${recommendation.target.concept.name}`]
+
+  if (recommendation.target.group) {
+    parts.push(`группа «${recommendation.target.group.label}»`)
+  }
+
+  if (recommendation.target.neighbours.length > 0) {
+    parts.push(`соседи: ${recommendation.target.neighbours.map((neighbour) => neighbour.name).slice(0, 3).join(', ')}`)
+  }
+
+  return parts.join(' · ')
+}
+
+function formatRecommendationEvidence(entry: KnowledgeGraphInsightRecommendationV2['evidence'][number]): string {
+  const value = entry.value === null ? 'нет данных' : String(entry.value)
+  return `${entry.label}: ${value} · вес ${formatRatio(entry.weight)}`
+}
+
+function formatRatio(value: number): string {
+  return value.toLocaleString('ru-RU', {
+    maximumFractionDigits: 2,
+    minimumFractionDigits: 0,
+  })
 }
 
 function conceptDiscoveryRoute(concept: KnowledgeGraphConceptEntry): KnowledgeGraphQuestionDiscoveryRoute | null {
@@ -844,9 +888,13 @@ watch(
             :key="card.id"
             class="knowledge-tab__recommendation-card"
             :data-testid="`knowledge-recommendation-card-${card.id}`"
+            :aria-label="`${card.rankLabel}: ${card.conceptName}. ${card.presentation.priorityLabel}`"
           >
             <header class="knowledge-tab__recommendation-header">
               <div>
+                <p class="knowledge-tab__recommendation-rank" :data-testid="`knowledge-recommendation-rank-${card.id}`">
+                  {{ card.rankLabel }} · {{ card.scoreLabel }} · {{ card.confidenceLabel }}
+                </p>
                 <p class="knowledge-tab__recommendation-concept">{{ card.conceptName }}</p>
                 <p
                   class="knowledge-concept__state"
@@ -865,6 +913,24 @@ watch(
               <p>{{ card.recommendation.label }}</p>
               <p>{{ card.presentation.reasonDescription }}</p>
               <p class="knowledge-tab__recommendation-help">{{ card.presentation.actionDescription }}</p>
+              <p class="knowledge-tab__recommendation-target" :data-testid="`knowledge-recommendation-target-${card.id}`">
+                {{ card.targetSummary }}
+              </p>
+              <ul
+                v-if="card.evidenceSummaries.length > 0"
+                class="knowledge-tab__recommendation-evidence"
+                :data-testid="`knowledge-recommendation-evidence-${card.id}`"
+                aria-label="Агрегированные доказательства рекомендации"
+              >
+                <li v-for="summary in card.evidenceSummaries" :key="summary">{{ summary }}</li>
+              </ul>
+              <p
+                v-else
+                class="knowledge-tab__recommendation-help"
+                :data-testid="`knowledge-recommendation-evidence-empty-${card.id}`"
+              >
+                Агрегированные доказательства недоступны для этой рекомендации.
+              </p>
               <RouterLink
                 v-if="card.discoveryRoute"
                 class="knowledge-tab__discovery-link"
@@ -873,6 +939,13 @@ watch(
               >
                 Открыть вопросы
               </RouterLink>
+              <p
+                v-else
+                class="knowledge-tab__recommendation-help"
+                :data-testid="`knowledge-recommendation-action-unavailable-${card.id}`"
+              >
+                Безопасная ссылка на вопросы для этой рекомендации недоступна.
+              </p>
             </div>
           </li>
         </ul>
@@ -1038,8 +1111,10 @@ watch(
 }
 
 .knowledge-tab__recommendations-status,
+.knowledge-tab__recommendation-rank,
 .knowledge-tab__recommendation-concept,
 .knowledge-tab__recommendation-action,
+.knowledge-tab__recommendation-target,
 .knowledge-tab__recommendation-help {
   margin: 0;
 }
@@ -1084,6 +1159,22 @@ watch(
 .knowledge-tab__recommendation-concept {
   color: var(--color-text);
   font-weight: 800;
+}
+
+.knowledge-tab__recommendation-rank,
+.knowledge-tab__recommendation-target {
+  color: var(--color-muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.knowledge-tab__recommendation-evidence {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding-left: var(--space-lg);
+  color: var(--color-muted);
+  font-size: 14px;
 }
 
 .knowledge-tab__recommendation-body {

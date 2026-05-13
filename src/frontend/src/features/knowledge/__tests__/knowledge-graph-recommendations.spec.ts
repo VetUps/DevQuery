@@ -280,6 +280,73 @@ describe('knowledge graph recommendations', () => {
     }
   })
 
+  it('renders ranked recommendation-v2 cards with confidence, target, evidence, and safe discovery routes only', async () => {
+    setState({
+      insights: buildInsights({
+        summary: { concept_count: 2, recommendation_count: 2, states: { weak: 1, isolated: 1 } },
+        recommendations: [
+          {
+            rank: 1,
+            id: 'rec-v2-django',
+            score: 0.92,
+            confidence: 0.86,
+            priority: 'high',
+            label: 'Закройте слабое место через свежие вопросы по Django.',
+            reason_code: 'weak_concept_needs_practice',
+            target: {
+              concept: { concept_id: 10, slug: 'django', name: 'Django' },
+              discovery: { tag: ['django'], order: 'question_created_at' },
+              neighbours: [{ concept_id: 11, slug: 'vue', name: 'Vue' }],
+              group: { group_key: 'hidden-group-key', label: 'Web frameworks' },
+            },
+            action: { type: 'answer_question', payload: { search: 'django async', page: '2' } },
+            evidence: [
+              { code: 'weak_signal_count', label: 'Слабые сигналы', value: 3, weight: 0.7 },
+              { code: 'semantic_bridge', label: 'Семантический мост', value: 'Vue', weight: 0.4 },
+            ],
+          },
+          {
+            rank: 2,
+            id: 'rec-v2-vue-no-route',
+            score: 0.58,
+            confidence: 0.61,
+            priority: 'medium',
+            label: 'Свяжите изолированную тему с соседними областями.',
+            reason_code: 'isolated_concept_needs_connections',
+            target: {
+              concept: { concept_id: 11, slug: 'vue', name: 'Vue' },
+              discovery: {},
+              neighbours: [],
+              group: null,
+            },
+            action: { type: 'connect_concept', payload: {} },
+            evidence: [
+              { code: 'isolated', label: 'Изоляция', value: true, weight: 0.5 },
+            ],
+          },
+        ],
+      }),
+    })
+
+    const wrapper = await mountTab()
+
+    expect(wrapper.findAll('[data-testid^="knowledge-recommendation-card-"]')).toHaveLength(2)
+    const firstCard = wrapper.get('[data-testid="knowledge-recommendation-card-rec-v2-django"]')
+    expect(firstCard.text()).toContain('Ранг 1')
+    expect(firstCard.text()).toContain('Оценка 0,92')
+    expect(firstCard.text()).toContain('Уверенность 0,86')
+    expect(firstCard.text()).toContain('Web frameworks')
+    expect(firstCard.text()).toContain('соседи: Vue')
+    expect(wrapper.get('[data-testid="knowledge-recommendation-evidence-rec-v2-django"]').text()).toContain('Слабые сигналы: 3')
+    expect(wrapper.get('[data-testid="knowledge-recommendation-evidence-rec-v2-django"]').text()).toContain('Семантический мост: Vue')
+    const action = wrapper.get('[data-testid="knowledge-recommendation-action-rec-v2-django"]')
+    expect(JSON.parse(action.attributes('data-route-query') ?? '{}')).toEqual({ search: 'django async', page: '2' })
+    expect(wrapper.find('[data-testid="knowledge-recommendation-action-rec-v2-vue-no-route"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="knowledge-recommendation-action-unavailable-rec-v2-vue-no-route"]').text()).toContain('Безопасная ссылка')
+    expect(wrapper.text()).not.toContain('weak_signal_count')
+    expect(wrapper.text()).not.toContain('hidden-group-key')
+  })
+
   it('renders private owner recommendation cards with safe action and reason copy while preserving graph affordances', async () => {
     const wrapper = await mountTab()
 
