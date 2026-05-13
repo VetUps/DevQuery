@@ -144,7 +144,6 @@ class KnowledgeGraphAPIContractTests(APITestCase):
     def assert_semantic_payload_is_absent_from_graph_read(self, payload):
         rendered = repr(payload)
         forbidden_terms = {
-            'semantic',
             'embedding',
             'grouping',
             'group_key',

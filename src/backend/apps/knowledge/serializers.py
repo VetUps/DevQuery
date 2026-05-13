@@ -65,6 +65,18 @@ class KnowledgeGraphEdgeSerializer(serializers.Serializer):
     related_questions = RelatedQuestionSummarySerializer(many=True)
 
 
+class KnowledgeGraphSemanticEdgeSerializer(serializers.Serializer):
+    id = serializers.CharField()
+    source_concept_id = serializers.IntegerField()
+    target_concept_id = serializers.IntegerField()
+    weight = serializers.DecimalField(max_digits=6, decimal_places=5)
+    similarity_score = serializers.DecimalField(max_digits=6, decimal_places=5)
+    confidence = serializers.DecimalField(max_digits=6, decimal_places=5)
+    rank = serializers.IntegerField(min_value=1)
+    reason = serializers.CharField()
+    evidence = serializers.DictField()
+
+
 class KnowledgeGraphLayoutPositionSerializer(serializers.Serializer):
     x = serializers.FloatField()
     y = serializers.FloatField()
@@ -118,6 +130,7 @@ class UserGraphResponseSerializer(serializers.Serializer):
     nodes = UserGraphNodeSerializer(many=True)
     edges = KnowledgeGraphEdgeSerializer(many=True)
     layout = KnowledgeGraphLayoutSerializer(required=False)
+    semantic_edges = KnowledgeGraphSemanticEdgeSerializer(many=True, required=False)
 
 
 class InsightsGraphStateSerializer(serializers.Serializer):
