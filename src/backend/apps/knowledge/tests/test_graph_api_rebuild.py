@@ -34,6 +34,14 @@ class APISemanticEmbeddingProvider:
         )
 
 
+@override_settings(
+    DJANGO_TEST_SQLITE=True,
+    KNOWLEDGE_GRAPH_EMBEDDING_PROVIDER='fake-knowledge-graph-embedding',
+    KNOWLEDGE_GRAPH_CHAT_PROVIDER='fake-knowledge-graph-grouping',
+    KNOWLEDGE_GRAPH_GIGACHAT_AUTH_URL=None,
+    KNOWLEDGE_GRAPH_GIGACHAT_VERIFY_SSL_CERTS=True,
+    KNOWLEDGE_GRAPH_GIGACHAT_CA_BUNDLE_FILE=None,
+)
 class GraphApiRebuildTests(APITestCase):
     def setUp(self):
         self.owner = CustomUser.objects.create_user(
