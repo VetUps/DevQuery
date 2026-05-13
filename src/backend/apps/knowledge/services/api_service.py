@@ -15,6 +15,7 @@ from apps.knowledge.models import (
     QuestionConceptEdge,
     UserConceptActivity,
     UserKnowledgeGraphLayout,
+    UserKnowledgeGraphSemanticCandidate,
     UserKnowledgeGraphState,
 )
 from apps.knowledge.services.graph_state_service import UserKnowledgeGraphRebuildSummary, get_user_graph_state
@@ -106,6 +107,88 @@ def _shared_question_edges_payload(
         )
 
     return edge_payloads
+
+
+def _semantic_candidate_edges_payload(
+    *,
+    user,
+    node_concept_ids: set[int],
+    concept_ids_by_question_id: dict[str, set[int]],
+) -> list[dict[str, Any]]:
+    """Build owner-only aggregate semantic edge DTOs from persisted candidate rows.
+
+    Candidate snapshots carry private source ids and vector metadata. This payload
+    only uses source ids as an internal join key to already-visible graph concepts
+    and emits aggregate counts/ranks, never source ids, hashes, vectors, or raw text.
+    """
+
+    if len(node_concept_ids) < 2 or not concept_ids_by_question_id:
+        return []
+
+    pair_summaries: dict[tuple[int, int], dict[str, Any]] = {}
+    candidates = (
+        UserKnowledgeGraphSemanticCandidate.objects.filter(
+            user=user,
+            source_snapshot__source_type='question',
+            target_snapshot__source_type='question',
+        )
+        .select_related('source_snapshot', 'target_snapshot')
+        .order_by('-similarity_score', 'rank', 'source_snapshot_id', 'target_snapshot_id', 'id')
+    )
+
+    for candidate in candidates:
+        source_concept_ids = concept_ids_by_question_id.get(str(candidate.source_snapshot.source_id), set())
+        target_concept_ids = concept_ids_by_question_id.get(str(candidate.target_snapshot.source_id), set())
+        if not source_concept_ids or not target_concept_ids:
+            continue
+
+        for source_concept_id in sorted(source_concept_ids):
+            if source_concept_id not in node_concept_ids:
+                continue
+            for target_concept_id in sorted(target_concept_ids):
+                if target_concept_id not in node_concept_ids or source_concept_id == target_concept_id:
+                    continue
+
+                pair = tuple(sorted((source_concept_id, target_concept_id)))
+                summary = pair_summaries.get(pair)
+                if summary is None:
+                    pair_summaries[pair] = {
+                        'similarity_score': candidate.similarity_score,
+                        'rank': candidate.rank,
+                        'candidate_count': 1,
+                    }
+                    continue
+
+                summary['candidate_count'] += 1
+                if (candidate.similarity_score, -candidate.rank) > (summary['similarity_score'], -summary['rank']):
+                    summary['similarity_score'] = candidate.similarity_score
+                    summary['rank'] = candidate.rank
+
+    semantic_edges = []
+    for (source_concept_id, target_concept_id), summary in pair_summaries.items():
+        similarity_score = summary['similarity_score']
+        rank = summary['rank']
+        semantic_edges.append(
+            {
+                'id': f'semantic-neighbour:{source_concept_id}:{target_concept_id}',
+                'source_concept_id': source_concept_id,
+                'target_concept_id': target_concept_id,
+                'weight': similarity_score,
+                'similarity_score': similarity_score,
+                'confidence': similarity_score,
+                'rank': rank,
+                'reason': 'semantic_neighbour',
+                'evidence': {
+                    'candidate_count': summary['candidate_count'],
+                    'best_rank': rank,
+                },
+            }
+        )
+
+    return sorted(
+        semantic_edges,
+        key=lambda edge: (-edge['similarity_score'], edge['rank'], edge['source_concept_id'], edge['target_concept_id']),
+    )
 
 
 def _get_layout_for_user(user) -> UserKnowledgeGraphLayout | None:
@@ -270,15 +353,19 @@ def get_user_graph_payload(user, *, is_owner: bool) -> dict[str, Any]:
         breakdown_by_concept[row['concept_id']].append(row)
 
     questions_by_concept: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    concept_ids_by_question_id: dict[str, set[int]] = defaultdict(set)
     seen_related_questions: set[tuple[int, Any]] = set()
     for row in related_question_rows:
-        key = (row['concept_id'], row['related_question_id'])
+        concept_id = row['concept_id']
+        related_question_id = row['related_question_id']
+        concept_ids_by_question_id[str(related_question_id)].add(concept_id)
+        key = (concept_id, related_question_id)
         if key in seen_related_questions:
             continue
         seen_related_questions.add(key)
-        questions_by_concept[row['concept_id']].append(
+        questions_by_concept[concept_id].append(
             {
-                'question_id': row['related_question_id'],
+                'question_id': related_question_id,
                 'title': row['related_question__question_title'],
                 'status': row['related_question__question_status'],
             }
@@ -324,6 +411,11 @@ def get_user_graph_payload(user, *, is_owner: bool) -> dict[str, Any]:
 
     if is_owner:
         payload['layout'] = _layout_payload(_get_layout_for_user(user), allowed_concept_ids=node_concept_ids)
+        payload['semantic_edges'] = _semantic_candidate_edges_payload(
+            user=user,
+            node_concept_ids=node_concept_ids,
+            concept_ids_by_question_id=concept_ids_by_question_id,
+        )
 
     return payload
 
