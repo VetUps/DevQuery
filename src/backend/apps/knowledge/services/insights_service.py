@@ -7,7 +7,13 @@ from typing import Any
 from django.db.models import Avg, Count, Max, Min, Sum
 from django.utils import timezone
 
-from apps.knowledge.models import QuestionConceptEdge, UserConceptActivity, UserKnowledgeGraphState
+from apps.knowledge.models import (
+    QuestionConceptEdge,
+    UserConceptActivity,
+    UserKnowledgeGraphSemanticCandidate,
+    UserKnowledgeGraphSemanticGroup,
+    UserKnowledgeGraphState,
+)
 from apps.knowledge.services.graph_state_service import get_user_graph_state
 
 ZERO_WEIGHT = Decimal('0.0000')
@@ -45,6 +51,9 @@ SCORING_STATE_DIVERSITY_WEIGHT = Decimal('0.15')
 SCORING_STATE_CONFIDENCE_WEIGHT = Decimal('0.15')
 
 RECOMMENDATION_LIMIT = 3
+TOP_LEVEL_RECOMMENDATION_LIMIT = 5
+SEMANTIC_RECOMMENDATION_ROW_LIMIT = 100
+RECOMMENDATION_EVIDENCE_LIMIT = 4
 
 STATE_STRONG = 'strong'
 STATE_GROWING = 'growing'
@@ -77,6 +86,50 @@ STATE_PRIORITY = {
     STATE_GROWING: 40,
     STATE_STRONG: 50,
 }
+
+
+RECOMMENDATION_STATE_BASE_SCORE = {
+    STATE_WEAK: Decimal('0.9500'),
+    STATE_STALE: Decimal('0.9000'),
+    STATE_ISOLATED: Decimal('0.8200'),
+    STATE_GROWING: Decimal('0.4500'),
+    STATE_STRONG: Decimal('0.2000'),
+}
+
+RECOMMENDATION_STATE_REASON = {
+    STATE_WEAK: 'weak_concept_needs_practice',
+    STATE_STALE: 'stale_concept_needs_refresh',
+    STATE_ISOLATED: 'isolated_concept_needs_connections',
+    STATE_GROWING: 'growing_concept_has_momentum',
+    STATE_STRONG: 'strong_concept_maintenance',
+}
+
+RECOMMENDATION_REASON_PRIORITY = {
+    'weak_concept_needs_practice': 10,
+    'stale_concept_needs_refresh': 20,
+    'isolated_concept_needs_connections': 30,
+    'semantic_neighbour_suggests_bridge': 40,
+    'growing_concept_has_momentum': 50,
+    'strong_concept_maintenance': 60,
+}
+
+UNSAFE_RECOMMENDATION_EVIDENCE_KEY_MARKERS = (
+    'body',
+    'content_hash',
+    'email',
+    'hash',
+    'idempotency_key',
+    'model',
+    'provider',
+    'raw',
+    'secret',
+    'source_id',
+    'source_object_id',
+    'text',
+    'token',
+    'vector',
+)
+UNSAFE_RECOMMENDATION_VALUE_MARKERS = ('<', '>', 'sk_', 'source_id', 'content_hash', 'vector_payload', '@')
 
 
 def _safe_decimal(value: Decimal | None) -> Decimal:
@@ -373,6 +426,298 @@ def _recommendation_for_state(*, concept_id: int, slug: str, name: str, state: s
     }
 
 
+
+
+def _is_safe_recommendation_value(value: Any) -> bool:
+    if isinstance(value, dict):
+        for key, child in value.items():
+            normalized_key = str(key).lower().replace('-', '_')
+            if any(marker in normalized_key for marker in UNSAFE_RECOMMENDATION_EVIDENCE_KEY_MARKERS):
+                return False
+            if not _is_safe_recommendation_value(child):
+                return False
+        return True
+    if isinstance(value, list):
+        return all(_is_safe_recommendation_value(child) for child in value)
+    if isinstance(value, str):
+        normalized_value = value.lower()
+        return not any(marker in normalized_value for marker in UNSAFE_RECOMMENDATION_VALUE_MARKERS)
+    return True
+
+
+def _recommendation_evidence_entry(code: str, label: str, value: Decimal | int | str, weight: Decimal | int | float) -> dict[str, Any]:
+    entry = {
+        'code': code,
+        'label': label,
+        'value': value,
+        'weight': _bounded_score(weight),
+    }
+    return entry if _is_safe_recommendation_value(entry) else {}
+
+
+def _concept_question_index(user, visible_concept_ids: set[int], owner_question_ids: set[Any]) -> dict[str, set[int]]:
+    if not visible_concept_ids or not owner_question_ids:
+        return {}
+
+    rows = (
+        QuestionConceptEdge.objects.filter(question_id__in=owner_question_ids, concept_id__in=visible_concept_ids)
+        .values('question_id', 'concept_id')
+        .order_by('question_id', 'concept_id')
+    )
+    concept_ids_by_question_id: dict[str, set[int]] = defaultdict(set)
+    for row in rows:
+        concept_ids_by_question_id[str(row['question_id'])].add(row['concept_id'])
+
+    activity_rows = (
+        UserConceptActivity.objects.filter(
+            user=user,
+            concept_id__in=visible_concept_ids,
+            related_question_id__in=owner_question_ids,
+        )
+        .values('related_question_id', 'concept_id')
+        .distinct()
+    )
+    for row in activity_rows:
+        concept_ids_by_question_id[str(row['related_question_id'])].add(row['concept_id'])
+    return concept_ids_by_question_id
+
+
+def _semantic_neighbour_summaries(
+    *,
+    user,
+    visible_concept_ids: set[int],
+    concept_ids_by_question_id: dict[str, set[int]],
+) -> dict[int, list[dict[str, Any]]]:
+    if len(visible_concept_ids) < 2 or not concept_ids_by_question_id:
+        return {}
+
+    neighbours_by_concept: dict[int, dict[int, dict[str, Any]]] = defaultdict(dict)
+    candidates = (
+        UserKnowledgeGraphSemanticCandidate.objects.filter(
+            user=user,
+            source_snapshot__source_type='question',
+            target_snapshot__source_type='question',
+        )
+        .select_related('source_snapshot', 'target_snapshot')
+        .order_by('-similarity_score', 'rank', 'source_snapshot_id', 'target_snapshot_id', 'id')[:SEMANTIC_RECOMMENDATION_ROW_LIMIT]
+    )
+    for candidate in candidates:
+        source_concept_ids = concept_ids_by_question_id.get(str(candidate.source_snapshot.source_id), set())
+        target_concept_ids = concept_ids_by_question_id.get(str(candidate.target_snapshot.source_id), set())
+        if not source_concept_ids or not target_concept_ids:
+            continue
+        for source_concept_id in sorted(source_concept_ids):
+            if source_concept_id not in visible_concept_ids:
+                continue
+            for target_concept_id in sorted(target_concept_ids):
+                if target_concept_id not in visible_concept_ids or source_concept_id == target_concept_id:
+                    continue
+                for concept_id, neighbour_id in ((source_concept_id, target_concept_id), (target_concept_id, source_concept_id)):
+                    current = neighbours_by_concept[concept_id].get(neighbour_id)
+                    if current is None:
+                        neighbours_by_concept[concept_id][neighbour_id] = {
+                            'concept_id': neighbour_id,
+                            'similarity_score': candidate.similarity_score,
+                            'rank': candidate.rank,
+                            'candidate_count': 1,
+                        }
+                    else:
+                        current['candidate_count'] += 1
+                        if (candidate.similarity_score, -candidate.rank) > (current['similarity_score'], -current['rank']):
+                            current['similarity_score'] = candidate.similarity_score
+                            current['rank'] = candidate.rank
+
+    return {
+        concept_id: sorted(
+            neighbours.values(),
+            key=lambda item: (-item['similarity_score'], item['rank'], item['concept_id']),
+        )[:3]
+        for concept_id, neighbours in neighbours_by_concept.items()
+    }
+
+
+def _semantic_group_summaries(*, user, visible_concepts_by_id: dict[int, dict[str, Any]]) -> dict[int, list[dict[str, Any]]]:
+    if not visible_concepts_by_id:
+        return {}
+
+    groups_by_concept: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    groups = (
+        UserKnowledgeGraphSemanticGroup.objects.filter(user=user)
+        .prefetch_related('memberships__concept')
+        .order_by('-generated_at', 'group_key', 'id')
+    )
+    for group in groups:
+        memberships = [
+            membership
+            for membership in group.memberships.all()
+            if membership.concept_id in visible_concepts_by_id
+        ]
+        if not memberships:
+            continue
+        memberships.sort(key=lambda membership: (membership.rank, membership.concept.slug, membership.concept_id))
+        safe_group = {
+            'group_key': group.group_key,
+            'label': group.label,
+            'confidence': group.confidence,
+        }
+        if not _is_safe_recommendation_value(safe_group):
+            continue
+        for membership in memberships:
+            groups_by_concept[membership.concept_id].append(
+                {
+                    **safe_group,
+                    'member_rank': membership.rank,
+                    'member_confidence': membership.confidence,
+                }
+            )
+    return {concept_id: groups[:2] for concept_id, groups in groups_by_concept.items()}
+
+
+def _recommendation_priority(score: Decimal) -> str:
+    if score >= Decimal('0.7500'):
+        return 'high'
+    if score >= Decimal('0.4500'):
+        return 'medium'
+    return 'low'
+
+
+def _top_level_recommendation_for_concept(
+    *,
+    concept: dict[str, Any],
+    semantic_neighbours: list[dict[str, Any]],
+    semantic_groups: list[dict[str, Any]],
+    visible_concepts_by_id: dict[int, dict[str, Any]],
+) -> dict[str, Any]:
+    semantic_state = concept['semantic_state']
+    best_neighbour = semantic_neighbours[0] if semantic_neighbours else None
+    has_semantic_bridge = bool(best_neighbour or semantic_groups)
+    if has_semantic_bridge and semantic_state in {STATE_GROWING, STATE_STRONG}:
+        reason_code = 'semantic_neighbour_suggests_bridge'
+        action_type = ACTION_CONNECT_CONCEPT
+        base_score = Decimal('0.6200')
+        label = f'Bridge {concept["name"]} through semantic neighbours'
+    else:
+        reason_code = RECOMMENDATION_STATE_REASON[semantic_state]
+        action_type = concept['recommendations'][0]['action']['type']
+        base_score = RECOMMENDATION_STATE_BASE_SCORE[semantic_state]
+        label = concept['recommendations'][0]['label']
+
+    inverse_state_score = SCORE_ONE - concept['state_score']
+    semantic_boost = Decimal('0.0000')
+    if best_neighbour:
+        semantic_boost = max(semantic_boost, _bounded_score(best_neighbour['similarity_score']) * Decimal('0.1200'))
+    if semantic_groups:
+        semantic_boost = max(semantic_boost, _bounded_score(semantic_groups[0]['confidence']) * Decimal('0.0800'))
+    score = _bounded_score((base_score * Decimal('0.7800')) + (inverse_state_score * Decimal('0.1400')) + semantic_boost)
+    confidence = _bounded_score((concept['confidence_score'] * Decimal('0.6500')) + (score * Decimal('0.3500')))
+
+    target: dict[str, Any] = {
+        'concept': {
+            'concept_id': concept['concept_id'],
+            'slug': concept['slug'],
+            'name': concept['name'],
+        },
+        'discovery': _base_action_payload(concept['slug'], concept['name']),
+    }
+    if best_neighbour:
+        neighbour_concept = visible_concepts_by_id.get(best_neighbour['concept_id'])
+        if neighbour_concept:
+            target['neighbours'] = [
+                {
+                    'concept_id': neighbour_concept['concept_id'],
+                    'slug': neighbour_concept['slug'],
+                    'name': neighbour_concept['name'],
+                }
+            ]
+    if semantic_groups:
+        group = semantic_groups[0]
+        target['group'] = {
+            'group_key': group['group_key'],
+            'label': group['label'],
+        }
+
+    evidence = [
+        _recommendation_evidence_entry('state_score', 'Composite concept readiness score', concept['state_score'], concept['state_score']),
+        _recommendation_evidence_entry('freshness', 'Freshness signal', concept['freshness_score'], SCORE_ONE - concept['freshness_score']),
+        _recommendation_evidence_entry('connectivity', 'Owner-visible connectivity signal', concept['owner_graph_degree'], concept['connectivity_score']),
+        _recommendation_evidence_entry('confidence', 'Aggregate confidence signal', concept['confidence_score'], concept['confidence_score']),
+    ]
+    if best_neighbour:
+        evidence.append(
+            _recommendation_evidence_entry(
+                'semantic_neighbour',
+                'Persisted semantic neighbour similarity',
+                best_neighbour['similarity_score'],
+                best_neighbour['similarity_score'],
+            )
+        )
+    if semantic_groups:
+        evidence.append(
+            _recommendation_evidence_entry(
+                'semantic_group',
+                'Persisted semantic group confidence',
+                semantic_groups[0]['confidence'],
+                semantic_groups[0]['confidence'],
+            )
+        )
+    evidence = [entry for entry in evidence if entry][:RECOMMENDATION_EVIDENCE_LIMIT]
+
+    return {
+        'rank': 0,
+        'id': f'v2:{reason_code}:{concept["concept_id"]}',
+        'score': score,
+        'confidence': confidence,
+        'priority': _recommendation_priority(score),
+        'label': label,
+        'reason_code': reason_code,
+        'target': target,
+        'action': {
+            'type': action_type,
+            'payload': target['discovery'],
+        },
+        'evidence': evidence,
+        '_sort_reason_priority': RECOMMENDATION_REASON_PRIORITY[reason_code],
+        '_sort_slug': concept['slug'],
+        '_sort_concept_id': concept['concept_id'],
+    }
+
+
+def _diversified_top_recommendations(recommendations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    ordered = sorted(
+        recommendations,
+        key=lambda item: (-item['score'], item['_sort_reason_priority'], item['_sort_slug'], item['_sort_concept_id']),
+    )
+    selected: list[dict[str, Any]] = []
+    selected_ids: set[str] = set()
+    seen_reasons: set[str] = set()
+    for recommendation in ordered:
+        if recommendation['reason_code'] in seen_reasons:
+            continue
+        selected.append(recommendation)
+        selected_ids.add(recommendation['id'])
+        seen_reasons.add(recommendation['reason_code'])
+        if len(selected) >= TOP_LEVEL_RECOMMENDATION_LIMIT:
+            break
+    if len(selected) < TOP_LEVEL_RECOMMENDATION_LIMIT:
+        for recommendation in ordered:
+            if recommendation['id'] in selected_ids:
+                continue
+            selected.append(recommendation)
+            selected_ids.add(recommendation['id'])
+            if len(selected) >= TOP_LEVEL_RECOMMENDATION_LIMIT:
+                break
+
+    reranked = sorted(
+        selected,
+        key=lambda item: (-item['score'], item['_sort_reason_priority'], item['_sort_slug'], item['_sort_concept_id']),
+    )
+    for index, recommendation in enumerate(reranked, start=1):
+        recommendation['rank'] = index
+        recommendation.pop('_sort_reason_priority', None)
+        recommendation.pop('_sort_slug', None)
+        recommendation.pop('_sort_concept_id', None)
+    return reranked
+
 def get_owner_insights_payload(user) -> dict[str, Any]:
     """Build owner-only, redacted knowledge graph insight DTOs from aggregate activity rows."""
 
@@ -399,7 +744,6 @@ def get_owner_insights_payload(user) -> dict[str, Any]:
 
     concepts = []
     state_counts: Counter[str] = Counter()
-    recommendation_count = 0
 
     for row in concept_rows:
         concept_id = row['concept_id']
@@ -441,7 +785,6 @@ def get_owner_insights_payload(user) -> dict[str, Any]:
             state=semantic_state,
         )
         recommendations = [recommendation][:RECOMMENDATION_LIMIT]
-        recommendation_count += len(recommendations)
         concepts.append(
             {
                 'concept_id': concept_id,
@@ -480,13 +823,32 @@ def get_owner_insights_payload(user) -> dict[str, Any]:
     for concept in concepts:
         concept.pop('_sort_state_priority', None)
 
+    visible_concepts_by_id = {concept['concept_id']: concept for concept in concepts}
+    concept_ids_by_question_id = _concept_question_index(user, set(visible_concepts_by_id), owner_question_ids)
+    semantic_neighbours_by_concept = _semantic_neighbour_summaries(
+        user=user,
+        visible_concept_ids=set(visible_concepts_by_id),
+        concept_ids_by_question_id=concept_ids_by_question_id,
+    )
+    semantic_groups_by_concept = _semantic_group_summaries(user=user, visible_concepts_by_id=visible_concepts_by_id)
+    recommendation_candidates = [
+        _top_level_recommendation_for_concept(
+            concept=concept,
+            semantic_neighbours=semantic_neighbours_by_concept.get(concept['concept_id'], []),
+            semantic_groups=semantic_groups_by_concept.get(concept['concept_id'], []),
+            visible_concepts_by_id=visible_concepts_by_id,
+        )
+        for concept in concepts
+    ]
+    top_level_recommendations = _diversified_top_recommendations(recommendation_candidates)
+
     return {
         'user_id': user.pk,
         'viewer': {'is_owner': True},
         'state': _insights_state_payload(state),
         'summary': {
             'concept_count': len(concepts),
-            'recommendation_count': recommendation_count,
+            'recommendation_count': len(top_level_recommendations),
             'states': {
                 STATE_STRONG: state_counts[STATE_STRONG],
                 STATE_GROWING: state_counts[STATE_GROWING],
@@ -495,5 +857,6 @@ def get_owner_insights_payload(user) -> dict[str, Any]:
                 STATE_ISOLATED: state_counts[STATE_ISOLATED],
             },
         },
+        'recommendations': top_level_recommendations,
         'concepts': concepts,
     }
