@@ -681,6 +681,44 @@ def _semantic_member_signature(slugs: list[str]) -> tuple[str, str]:
     return hashlib.sha256(member_slug_signature.encode('utf-8')).hexdigest(), member_slug_signature
 
 
+def _semantic_group_slugs(group: UserKnowledgeGraphSemanticGroup) -> list[str]:
+    if group.member_slug_signature:
+        return [slug for slug in group.member_slug_signature.split('|') if slug]
+    if group.top_member_slugs:
+        return [str(slug) for slug in group.top_member_slugs if slug]
+    return list(group.memberships.order_by('rank', 'concept__slug').values_list('concept__slug', flat=True))
+
+
+def _member_overlap_score(left_slugs: list[str], right_slugs: list[str]) -> float:
+    left = set(left_slugs)
+    right = set(right_slugs)
+    if not left or not right:
+        return 0.0
+    return len(left & right) / max(len(left), len(right))
+
+
+def _candidate_group_match(cluster: dict[str, Any], group: UserKnowledgeGraphSemanticGroup) -> tuple[bool, tuple[float, float, float, str], dict[str, Any]]:
+    exact_signature = bool(group.member_signature and group.member_signature == cluster['member_signature'])
+    existing_slugs = _semantic_group_slugs(group)
+    overlap = _member_overlap_score(cluster['top_member_slugs'], existing_slugs[:10])
+    centroid_similarity = 0.0
+    existing_centroid = list(group.centroid_payload or [])
+    if existing_centroid and len(existing_centroid) == len(cluster['centroid_payload']):
+        centroid_similarity = _cosine_similarity(cluster['centroid_payload'], existing_centroid)
+
+    compatible = exact_signature or (centroid_similarity >= 0.90000 and overlap >= 0.50000) or overlap >= 0.75000
+    match_kind = 'member_signature' if exact_signature else 'centroid_member_overlap'
+    evidence = {
+        'deterministic_match': match_kind,
+        'member_overlap': round(overlap, 6),
+        'centroid_similarity': round(float(centroid_similarity), 6),
+        'member_count': len(cluster['slugs']),
+        'centroid_dimensions': len(cluster['centroid_payload']),
+    }
+    score = (1.0 if exact_signature else 0.0, overlap, float(centroid_similarity), group.group_key)
+    return compatible, score, evidence
+
+
 def _concept_vectors_by_slug(user, snapshots_by_index: dict[int, UserKnowledgeGraphEmbeddingSnapshot]) -> dict[str, list[list[float]]]:
     snapshots_by_source_id = {str(snapshot.source_id): snapshot for snapshot in snapshots_by_index.values()}
     if not snapshots_by_source_id:
@@ -801,13 +839,25 @@ def _reconcile_deterministic_semantic_groups(
                 model=model,
             )
         )
-        by_signature = {group.member_signature: group for group in existing_groups if group.member_signature}
         used_group_ids: set[int] = set()
 
         for index, cluster in enumerate(clusters, start=1):
-            group = by_signature.get(cluster['member_signature'])
+            match_candidates = []
+            for existing_group in existing_groups:
+                if existing_group.pk in used_group_ids:
+                    continue
+                compatible, score, match_evidence = _candidate_group_match(cluster, existing_group)
+                if compatible:
+                    # Sort descending by exact-signature, member overlap, centroid similarity;
+                    # then ascending by stable group_key for deterministic tie-breaking.
+                    match_candidates.append((score[0], score[1], score[2], existing_group.group_key, existing_group.pk, existing_group, match_evidence))
+            match_candidates.sort(key=lambda item: (-item[0], -item[1], -item[2], item[3], item[4]))
+            matched = match_candidates[0] if match_candidates else None
+            group = matched[5] if matched else None
+            match_evidence = matched[6] if matched else cluster['reuse_evidence']
             is_created = group is None
             old_centroid = list(group.centroid_payload or []) if group is not None else []
+            old_member_signature = group.member_signature if group is not None else ''
             if is_created:
                 group = UserKnowledgeGraphSemanticGroup(
                     user=user,
@@ -821,7 +871,7 @@ def _reconcile_deterministic_semantic_groups(
                 created_count += 1
             else:
                 reused_count += 1
-                if _centroid_changed(old_centroid, cluster['centroid_payload']):
+                if _centroid_changed(old_centroid, cluster['centroid_payload']) or old_member_signature != cluster['member_signature']:
                     changed_count += 1
 
             group.label = f"Semantic cluster {index}"
@@ -833,7 +883,7 @@ def _reconcile_deterministic_semantic_groups(
             group.member_signature = cluster['member_signature']
             group.member_slug_signature = cluster['member_slug_signature']
             group.top_member_slugs = cluster['top_member_slugs']
-            group.reuse_evidence = cluster['reuse_evidence']
+            group.reuse_evidence = match_evidence
             group.generated_at = generated_at
             group.last_seen_at = generated_at
             if group.first_seen_at is None:
