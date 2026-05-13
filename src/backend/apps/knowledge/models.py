@@ -268,6 +268,11 @@ class UserKnowledgeGraphSemanticState(models.Model):
     neighbor_candidate_count = models.PositiveIntegerField(default=0)
     semantic_group_count = models.PositiveIntegerField(default=0)
     semantic_group_membership_count = models.PositiveIntegerField(default=0)
+    semantic_group_reused_count = models.PositiveIntegerField(default=0)
+    semantic_group_created_count = models.PositiveIntegerField(default=0)
+    semantic_group_changed_count = models.PositiveIntegerField(default=0)
+    semantic_group_stale_count = models.PositiveIntegerField(default=0)
+    semantic_group_archived_count = models.PositiveIntegerField(default=0)
     estimated_token_count = models.PositiveIntegerField(default=0)
     estimated_cost = models.DecimalField(max_digits=12, decimal_places=6, default=Decimal('0.000000'))
     budget_cap = models.DecimalField(max_digits=12, decimal_places=6, default=Decimal('0.000000'))
@@ -388,6 +393,11 @@ class UserKnowledgeGraphSemanticGroup(models.Model):
         validators=[MinValueValidator(Decimal('0.0000')), MaxValueValidator(Decimal('1.0000'))],
     )
     evidence = models.JSONField(default=dict, blank=True, validators=[validate_semantic_group_safe_json])
+    centroid_payload = models.JSONField(default=list, blank=True, validators=[validate_semantic_group_safe_json])
+    member_signature = models.CharField(max_length=64, blank=True, default='', db_index=True)
+    member_slug_signature = models.CharField(max_length=255, blank=True, default='')
+    top_member_slugs = models.JSONField(default=list, blank=True, validators=[validate_semantic_group_safe_json])
+    reuse_evidence = models.JSONField(default=dict, blank=True, validators=[validate_semantic_group_safe_json])
     lifecycle_status = models.CharField(max_length=20, choices=LifecycleStatus.choices, default=LifecycleStatus.ACTIVE)
     lifecycle_reason_code = models.CharField(
         max_length=80,
