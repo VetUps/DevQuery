@@ -1132,6 +1132,34 @@ describe('ProfileKnowledgeGraphTab', () => {
     expect(wrapper.get('[data-testid="knowledge-semantic-group-members"]').text()).toContain('Django')
     expect(wrapper.get('[data-testid="knowledge-semantic-group-members"]').text()).toContain('ранг 1')
     expect(wrapper.get('[data-testid="knowledge-semantic-group-members"]').text()).toContain('уверенность 0,93')
+
+    await wrapper.get('[data-testid="knowledge-semantic-group-member-10"]').trigger('click')
+    await nextTick()
+
+    expect(wrapper.get('[data-testid="renderer-selected-id"]').text()).toBe('10')
+    expect(wrapper.get('[data-testid="knowledge-graph-selected-details"]').text()).toContain('Django')
+    expect(wrapper.get('[data-testid="knowledge-selected-concept-discovery"]').attributes('data-route-name')).toBe('home')
+    expect(JSON.parse(wrapper.get('[data-testid="knowledge-selected-concept-discovery"]').attributes('data-route-query') ?? '{}')).toEqual({ tag: ['django'] })
+
+    await wrapper.get('[data-testid="knowledge-related-questions-open"]').trigger('click')
+    await nextTick()
+    expect(wrapper.get('[data-testid="knowledge-related-questions-modal"]').text()).toContain('Как построить безопасный граф знаний?')
+
+    await wrapper.get('[data-testid="knowledge-view-mode-list"]').trigger('click')
+    await nextTick()
+    expect(wrapper.get('[data-testid="knowledge-list-panel"]').text()).toContain('Django')
+
+    await wrapper.get('[data-testid="knowledge-semantic-group-member-11"]').trigger('click')
+    await nextTick()
+
+    expect(wrapper.get('[data-testid="knowledge-view-mode-graph"]').attributes('aria-pressed')).toBe('true')
+    expect(wrapper.get('[data-testid="renderer-selected-id"]').text()).toBe('11')
+    expect(wrapper.get('[data-testid="knowledge-graph-selected-details"]').text()).toContain('Vue')
+
+    wrapper.findComponent({ name: 'KnowledgeGraphSemanticGroupsPanel' }).vm.$emit('member-selected', 404)
+    await nextTick()
+    expect(wrapper.get('[data-testid="renderer-selected-id"]').text()).toBe('11')
+
     expect(wrapper.text()).not.toContain('signal_count')
     expect(wrapper.text()).not.toContain('raw_output')
     expect(wrapper.text()).not.toContain('provider')
@@ -1139,8 +1167,11 @@ describe('ProfileKnowledgeGraphTab', () => {
     await wrapper.get('[data-testid="knowledge-insights-search"]').setValue('django')
     await nextTick()
 
-    expect(wrapper.get('[data-testid="knowledge-semantic-groups-empty"]').text()).toContain('Семантические группы появятся')
-    expect(wrapper.find('[data-testid="knowledge-semantic-group-card-frameworks"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="knowledge-semantic-group-card-frameworks"]').attributes('aria-pressed')).toBe('true')
+    expect(wrapper.get('[data-testid="knowledge-semantic-group-members"]').text()).toContain('Django')
+    expect(wrapper.find('[data-testid="knowledge-semantic-group-member-11"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="knowledge-semantic-group-hidden-members"]').text()).toContain('Скрыто фильтрами: 1')
+    expect(wrapper.get('[data-testid="renderer-selected-id"]').text()).toBe('none')
     expect(rendererHarness.props.at(-1)?.edges).toBe(graph.edges)
   })
 
