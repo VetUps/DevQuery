@@ -4,6 +4,7 @@ from uuid import uuid4
 
 from django.apps import apps
 from django.contrib.contenttypes.models import ContentType
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
 
@@ -11,6 +12,8 @@ from apps.knowledge.models import (
     KnowledgeConcept,
     QuestionConceptEdge,
     UserConceptActivity,
+    UserKnowledgeGraphSemanticGroup,
+    UserKnowledgeGraphSemanticGroupMembership,
     UserKnowledgeGraphSemanticState,
     UserKnowledgeGraphState,
 )
@@ -162,6 +165,11 @@ class KnowledgeGraphAPIContractTests(APITestCase):
             'semantic-provider-raw-output',
             'Traceback',
             'provider-stack.py',
+            'backend-architecture',
+            'Архитектура бэкенда',
+            'Безопасная агрегированная тема',
+            'concept_slugs',
+            'shared_candidate',
         }
         leaked_terms = sorted(term for term in forbidden_terms if term in rendered)
         self.assertEqual(leaked_terms, [], f'Graph read leaked semantic/provider internals: {leaked_terms}')
@@ -184,10 +192,38 @@ class KnowledgeGraphAPIContractTests(APITestCase):
             grouping_provider='grouping-provider',
             grouping_model='grouping-model',
             source_item_count=3,
+            semantic_group_count=1,
+            semantic_group_membership_count=2,
             estimated_token_count=999,
             estimated_cost=Decimal('12.345678'),
             budget_cap=Decimal('1.000000'),
             last_error_message='sk_live_semantic_secret Traceback provider-stack.py graph-owner@example.com Private question body',
+        )
+        private_group = UserKnowledgeGraphSemanticGroup.objects.create(
+            user=self.owner,
+            provider='grouping-provider',
+            model='grouping-model',
+            group_key='backend-architecture',
+            label='Архитектура бэкенда',
+            description='Безопасная агрегированная тема по связанным понятиям.',
+            rationale='Понятия часто используются вместе в графе владельца.',
+            confidence=Decimal('0.9100'),
+            evidence={'concept_slugs': ['django', 'rest-api'], 'candidate_count': 1},
+            generated_at=timezone.now(),
+        )
+        UserKnowledgeGraphSemanticGroupMembership.objects.create(
+            group=private_group,
+            concept=self.django,
+            rank=1,
+            confidence=Decimal('0.9300'),
+            evidence={'reason': 'shared_candidate', 'rank': 1},
+        )
+        UserKnowledgeGraphSemanticGroupMembership.objects.create(
+            group=private_group,
+            concept=self.rest,
+            rank=2,
+            confidence=Decimal('0.8900'),
+            evidence={'reason': 'shared_candidate', 'rank': 2},
         )
 
         def fail_provider_factory(*args, **kwargs):
