@@ -4,6 +4,7 @@ from django.core.management import CommandError, call_command
 from django.test import TestCase, override_settings
 
 from apps.knowledge.models import KnowledgeConcept, QuestionConceptEdge, UserConceptActivity, UserKnowledgeGraphState
+from apps.knowledge.services.insights_service import get_owner_insights_payload
 from apps.notifications.models import Notification
 from apps.qa.models import Comment, Question, QuestionEditProposal, QuestionRevision, Solution, SolutionEdits, Tag, Vote
 from apps.user.models import CustomUser, ReputationPolicyConfig, ReputationTransaction
@@ -67,6 +68,14 @@ class SeedLocalDataCommandTests(TestCase):
         self.assertEqual(ReputationPolicyConfig.objects.get().protected_newcomer_window_hours, 12)
         self.assertTrue(Tag.objects.filter(name='django', questions_count__gt=0).exists())
         self.assertTrue(ReputationTransaction.objects.filter(note__contains='Локальные тестовые данные').exists())
+
+        for email in ['expert.local@example.com', 'master.local@example.com']:
+            insights = get_owner_insights_payload(CustomUser.objects.get(user_email=email))
+            states = insights['summary']['states']
+            self.assertGreater(states['strong'], 0, email)
+            self.assertGreater(states['growing'], 0, email)
+            self.assertGreater(states['weak'], 0, email)
+            self.assertLess(states['strong'], insights['summary']['concept_count'], email)
 
     @override_settings(DEBUG=True)
     def test_command_is_idempotent(self):
