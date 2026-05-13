@@ -365,6 +365,53 @@ def _semantic_groups_payload(*, user, node_concept_ids: set[int]) -> list[dict[s
     return payloads
 
 
+def _semantic_graph_view_payload(
+    *,
+    semantic_groups: list[dict[str, Any]],
+    semantic_edges: list[dict[str, Any]],
+    semantic_diagnostics: dict[str, Any],
+) -> dict[str, Any]:
+    """Build owner-only semantic graph mode metadata from already-materialized DTOs.
+
+    This is deliberately view metadata, not a semantic relationship model: group-to-group
+    relationships are not part of the S03 contract, so the payload exposes stable counts,
+    lifecycle support, and current semantic mode state without provider internals.
+    """
+
+    supported_lifecycle_statuses = [status.value for status in SEMANTIC_VISIBLE_LIFECYCLE_STATUSES]
+    lifecycle_counts = {status: 0 for status in supported_lifecycle_statuses}
+    visible_member_count = 0
+
+    for group in semantic_groups:
+        lifecycle_status = group.get('lifecycle_status')
+        if lifecycle_status in lifecycle_counts:
+            lifecycle_counts[lifecycle_status] += 1
+        visible_member_count += len(group.get('members', []))
+
+    status = semantic_diagnostics.get('status', UserKnowledgeGraphSemanticState.Status.PENDING)
+    enabled = bool(semantic_diagnostics.get('enabled', False))
+    available = enabled and status not in {
+        UserKnowledgeGraphSemanticState.Status.PENDING,
+        UserKnowledgeGraphSemanticState.Status.PROVIDER_ERROR,
+    }
+
+    return {
+        'schema_version': 1,
+        'mode': 'semantic',
+        'status': status,
+        'reason_code': semantic_diagnostics.get('reason_code', ''),
+        'phase': semantic_diagnostics.get('phase', ''),
+        'enabled': enabled,
+        'available': available,
+        'visible_group_count': len(semantic_groups),
+        'visible_member_count': visible_member_count,
+        'semantic_edge_count': len(semantic_edges),
+        'lifecycle_counts': lifecycle_counts,
+        'supported_lifecycle_statuses': supported_lifecycle_statuses,
+        'archived_groups_included': False,
+    }
+
+
 def _get_layout_for_user(user) -> UserKnowledgeGraphLayout | None:
     try:
         return user.knowledge_graph_layout
@@ -585,13 +632,21 @@ def get_user_graph_payload(user, *, is_owner: bool) -> dict[str, Any]:
 
     if is_owner:
         payload['layout'] = _layout_payload(_get_layout_for_user(user), allowed_concept_ids=node_concept_ids)
-        payload['semantic_edges'] = _semantic_candidate_edges_payload(
+        semantic_edges = _semantic_candidate_edges_payload(
             user=user,
             node_concept_ids=node_concept_ids,
             concept_ids_by_question_id=concept_ids_by_question_id,
         )
-        payload['semantic_groups'] = _semantic_groups_payload(user=user, node_concept_ids=node_concept_ids)
-        payload['semantic'] = _semantic_diagnostics_payload(user)
+        semantic_groups = _semantic_groups_payload(user=user, node_concept_ids=node_concept_ids)
+        semantic_diagnostics = _semantic_diagnostics_payload(user)
+        payload['semantic_edges'] = semantic_edges
+        payload['semantic_groups'] = semantic_groups
+        payload['semantic_graph'] = _semantic_graph_view_payload(
+            semantic_groups=semantic_groups,
+            semantic_edges=semantic_edges,
+            semantic_diagnostics=semantic_diagnostics,
+        )
+        payload['semantic'] = semantic_diagnostics
 
     return payload
 
