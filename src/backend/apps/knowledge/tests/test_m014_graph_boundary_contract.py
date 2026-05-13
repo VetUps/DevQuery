@@ -76,6 +76,8 @@ class M014KnowledgeGraphBoundaryContractTests(SimpleTestCase):
             'UserKnowledgeGraphEmbeddingSnapshot',
             'UserKnowledgeGraphLayout',
             'UserKnowledgeGraphSemanticCandidate',
+            'UserKnowledgeGraphSemanticGroup',
+            'UserKnowledgeGraphSemanticGroupMembership',
             'UserKnowledgeGraphSemanticState',
             'UserKnowledgeGraphState',
         }

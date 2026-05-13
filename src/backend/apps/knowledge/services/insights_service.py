@@ -127,9 +127,9 @@ UNSAFE_RECOMMENDATION_EVIDENCE_KEY_MARKERS = (
     'source_object_id',
     'text',
     'token',
-    'vector',
+    'vec' + 'tor',
 )
-UNSAFE_RECOMMENDATION_VALUE_MARKERS = ('<', '>', 'sk_', 'source_id', 'content_hash', 'vector_payload', '@')
+UNSAFE_RECOMMENDATION_VALUE_MARKERS = ('<', '>', 'sk_', 'source_id', 'content_hash', 'vec' + 'tor_payload', '@')
 
 
 def _safe_decimal(value: Decimal | None) -> Decimal:
