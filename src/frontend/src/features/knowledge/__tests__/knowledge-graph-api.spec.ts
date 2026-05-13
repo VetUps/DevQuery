@@ -331,6 +331,8 @@ describe('knowledge graph API contract', () => {
           ],
         },
       ],
+      semantic_edges: [],
+      semantic_groups: [],
     })
     expect(parsed.nodes[0].confidence).toBe('1.0000')
     expect(parsed.edges[0].weight).toBe('2.0000')
