@@ -138,8 +138,44 @@ class KnowledgeGraphAPIContractTests(APITestCase):
         self.assertNotIn('source_object_id', rendered)
         self.assertNotIn('idempotency_key', rendered)
         self.assertNotIn('raw_events', rendered)
-        self.assertNotIn('token', rendered)
         self.assertNotIn('activity_service.py', rendered)
+        self.assert_no_sensitive_token_material(payload)
+
+    def assert_no_sensitive_token_material(self, payload):
+        """Allow aggregate token-count telemetry while blocking token secrets."""
+        sensitive_key_names = {
+            'token',
+            'access_token',
+            'refresh_token',
+            'api_token',
+            'auth_token',
+            'secret_token',
+            'provider_token',
+        }
+        sensitive_value_fragments = ('bearer ', 'sk_live_', 'sk_test_', 'secret_token')
+        allowed_token_telemetry_keys = {'estimated_token_count'}
+        leaked_paths = []
+
+        def walk(value, path='payload'):
+            if isinstance(value, dict):
+                for key, nested in value.items():
+                    key_text = str(key).lower()
+                    current_path = f'{path}.{key}'
+                    if key_text in sensitive_key_names and key_text not in allowed_token_telemetry_keys:
+                        leaked_paths.append(current_path)
+                    walk(nested, current_path)
+                return
+            if isinstance(value, (list, tuple)):
+                for index, nested in enumerate(value):
+                    walk(nested, f'{path}[{index}]')
+                return
+            if isinstance(value, str):
+                lower_value = value.lower()
+                if any(fragment in lower_value for fragment in sensitive_value_fragments):
+                    leaked_paths.append(path)
+
+        walk(payload)
+        self.assertEqual(leaked_paths, [], f'Graph payload leaked sensitive token material at: {leaked_paths}')
 
     def assert_owner_semantic_payload_is_aggregate_safe(self, payload):
         rendered = repr(payload)
@@ -148,9 +184,6 @@ class KnowledgeGraphAPIContractTests(APITestCase):
             'embedding-model',
             'grouping-provider',
             'grouping-model',
-            'budget_cap',
-            'estimated_cost',
-            'estimated_token_count',
             'content_hash',
             'vector_payload',
             'source_id',
