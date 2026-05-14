@@ -9,6 +9,11 @@ import { useSessionStore } from '@/features/auth/stores/session'
 import { useNotificationsQuery } from '@/features/notifications/queries/useNotificationsQuery'
 import { useQuestionListQuery } from '@/features/questions/queries/useQuestionListQuery'
 
+const favoriteMutationState = {
+  isPending: ref(false),
+  mutateAsync: vi.fn(),
+}
+
 const notificationQueryState = {
   data: ref<any>({ count: 0, next: null, previous: null, results: [] }),
   isPending: ref(false),
@@ -32,6 +37,10 @@ vi.mock('@/features/notifications/queries/useNotificationsQuery', () => ({
 
 vi.mock('@/features/questions/queries/useQuestionListQuery', () => ({
   useQuestionListQuery: vi.fn(() => queryState),
+}))
+
+vi.mock('@/features/questions/mutations/useQuestionFavoriteMutation', () => ({
+  useQuestionFavoriteMutation: vi.fn(() => favoriteMutationState),
 }))
 
 vi.mock('@/features/questions/queries/useTagAutocompleteQuery', () => ({
@@ -103,6 +112,8 @@ describe('question list home page', () => {
     notificationQueryState.isError.value = false
     notificationQueryState.isPlaceholderData.value = false
     notificationQueryState.refetch.mockReset()
+    favoriteMutationState.isPending.value = false
+    favoriteMutationState.mutateAsync.mockReset()
     vi.mocked(useQuestionListQuery).mockClear()
     vi.mocked(useNotificationsQuery).mockClear()
   })
@@ -137,6 +148,110 @@ describe('question list home page', () => {
     await wrapper.get('[data-testid="question-list-state-error"] button').trigger('click')
 
     expect(queryState.refetch).toHaveBeenCalled()
+  })
+
+
+  it('renders authenticated favorite controls on question cards and keeps question links navigable', async () => {
+    queryState.data.value = {
+      count: 2,
+      next: null,
+      previous: null,
+      results: [
+        {
+          question_id: 'question-favorite-active',
+          user: 'user-1',
+          question_title: 'Как сохранить активный вопрос в ленте?',
+          question_status: 'open',
+          question_created_at: '2026-03-01T12:00:00Z',
+          question_updated_at: '2026-03-02T12:00:00Z',
+          favorites_count: 7,
+          is_favorited: true,
+          tags: [],
+        },
+        {
+          question_id: 'question-favorite-inactive',
+          user: 'user-2',
+          question_title: 'Как добавить вопрос в избранное из ленты?',
+          question_status: 'open',
+          question_created_at: '2026-03-01T13:00:00Z',
+          question_updated_at: '2026-03-02T13:00:00Z',
+          favorites_count: 0,
+          is_favorited: false,
+          tags: [],
+        },
+      ],
+    }
+
+    const { wrapper } = await mountHomePage('/', { authenticated: true })
+
+    const cards = wrapper.findAll('[data-testid="question-card"]')
+    expect(cards).toHaveLength(2)
+    expect(cards[0].get('[data-testid="question-favorite-action"]').attributes('data-authenticated')).toBe('true')
+    expect(cards[0].get('[data-testid="question-favorite-action"]').attributes('data-favorited')).toBe('true')
+    expect(cards[0].get('[data-testid="question-favorite-count"]').text()).toBe('7')
+    expect(cards[1].get('[data-testid="question-favorite-action"]').attributes('data-favorited')).toBe('false')
+    expect(cards[1].get('[data-testid="question-favorite-count"]').text()).toBe('0')
+    expect(cards[0].get('a.question-card__link').attributes('href')).toBe('/questions/question-favorite-active')
+  })
+
+  it('toggles favorites from the authenticated question list without hijacking card navigation', async () => {
+    queryState.data.value = {
+      count: 1,
+      next: null,
+      previous: null,
+      results: [
+        {
+          question_id: 'question-favorite-toggle',
+          user: 'user-1',
+          question_title: 'Как переключить избранное из карточки?',
+          question_status: 'open',
+          question_created_at: '2026-03-01T12:00:00Z',
+          question_updated_at: '2026-03-02T12:00:00Z',
+          favorites_count: 3,
+          is_favorited: false,
+          tags: [],
+        },
+      ],
+    }
+
+    const { wrapper, router } = await mountHomePage('/', { authenticated: true })
+
+    await wrapper.get('[data-testid="question-favorite-button"]').trigger('click')
+
+    expect(favoriteMutationState.mutateAsync).toHaveBeenCalledWith({
+      questionId: 'question-favorite-toggle',
+      isFavorited: true,
+    })
+    expect(router.currentRoute.value.fullPath).toBe('/')
+  })
+
+  it('renders anonymous favorite login affordances on question cards without mutating', async () => {
+    queryState.data.value = {
+      count: 1,
+      next: null,
+      previous: null,
+      results: [
+        {
+          question_id: 'question-favorite-login',
+          user: 'user-1',
+          question_title: 'Как показать вход для избранного?',
+          question_status: 'open',
+          question_created_at: '2026-03-01T12:00:00Z',
+          question_updated_at: '2026-03-02T12:00:00Z',
+          favorites_count: 5,
+          is_favorited: false,
+          tags: [],
+        },
+      ],
+    }
+
+    const { wrapper } = await mountHomePage()
+
+    expect(wrapper.find('[data-testid="question-favorite-button"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="question-favorite-action"]').attributes('data-authenticated')).toBe('false')
+    expect(wrapper.get('[data-testid="question-favorite-login-link"]').attributes('href')).toBe('/login')
+    expect(wrapper.get('[data-testid="question-favorite-count"]').text()).toBe('5')
+    expect(favoriteMutationState.mutateAsync).not.toHaveBeenCalled()
   })
 
 

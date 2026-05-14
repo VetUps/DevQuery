@@ -103,6 +103,11 @@ const createExpertInvitationsMutationState = {
   mutateAsync: vi.fn(),
 }
 
+const favoriteMutationState = {
+  isPending: ref(false),
+  mutateAsync: vi.fn(),
+}
+
 vi.mock('@/features/questions/queries/useQuestionDetailQuery', () => ({
   useQuestionDetailQuery: vi.fn(() => questionDetailState),
 }))
@@ -156,6 +161,10 @@ vi.mock('@/features/questions/mutations/useCreateExpertInvitationsMutation', () 
   useCreateExpertInvitationsMutation: vi.fn(() => createExpertInvitationsMutationState),
 }))
 
+vi.mock('@/features/questions/mutations/useQuestionFavoriteMutation', () => ({
+  useQuestionFavoriteMutation: vi.fn(() => favoriteMutationState),
+}))
+
 function buildInvitationNotification(overrides: Partial<NotificationItem> = {}): NotificationItem {
   return {
     notification_id: 'notification-1',
@@ -188,6 +197,8 @@ function buildQuestionDetail(overrides: Partial<QuestionDetail> = {}): QuestionD
     question_created_at: '2026-03-01T12:00:00Z',
     question_updated_at: '2026-03-02T12:00:00Z',
     tags: [],
+    favorites_count: 0,
+    is_favorited: false,
     upvotes: 12,
     downvotes: 3,
     score: 9,
@@ -307,6 +318,7 @@ async function mountQuestionDetailPage(authenticated = false) {
     history: createMemoryHistory(),
     routes: [
       { path: '/', component: { template: '<div>home</div>' } },
+      { path: '/login', component: { template: '<div>login</div>' } },
       { path: '/questions/:questionId', component: QuestionDetailPage },
     ],
   })
@@ -396,6 +408,9 @@ describe('question detail page', () => {
 
     createExpertInvitationsMutationState.isPending.value = false
     createExpertInvitationsMutationState.mutateAsync.mockReset()
+
+    favoriteMutationState.isPending.value = false
+    favoriteMutationState.mutateAsync.mockReset()
   })
 
   it('renders the loading skeleton while the detail query is pending', async () => {
@@ -418,6 +433,56 @@ describe('question detail page', () => {
     expect(questionDetailState.refetch).toHaveBeenCalled()
   })
 
+  it('renders authenticated favorite controls in the question detail hero and keeps vote rail behavior', async () => {
+    questionDetailState.data.value = buildQuestionDetail({
+      question_id: 'question-1',
+      favorites_count: 4,
+      is_favorited: true,
+    })
+
+    const { wrapper } = await mountQuestionDetailPage(true)
+
+    const favoriteAction = wrapper.get('[data-testid="question-favorite-action"]')
+    expect(favoriteAction.attributes('data-authenticated')).toBe('true')
+    expect(favoriteAction.attributes('data-favorited')).toBe('true')
+    expect(wrapper.get('[data-testid="question-favorite-count"]').text()).toBe('4')
+    expect(wrapper.get('[data-testid="question-favorite-button"]').attributes('aria-pressed')).toBe('true')
+    expect(wrapper.findComponent(SignalVoteRail).exists()).toBe(true)
+  })
+
+  it('toggles favorites from the authenticated question detail hero', async () => {
+    questionDetailState.data.value = buildQuestionDetail({
+      question_id: 'question-1',
+      favorites_count: 2,
+      is_favorited: false,
+    })
+
+    const { wrapper } = await mountQuestionDetailPage(true)
+
+    await wrapper.get('[data-testid="question-favorite-button"]').trigger('click')
+
+    expect(favoriteMutationState.mutateAsync).toHaveBeenCalledWith({
+      questionId: 'question-1',
+      isFavorited: true,
+    })
+  })
+
+  it('renders anonymous favorite login affordance on the question detail hero without mutating', async () => {
+    questionDetailState.data.value = buildQuestionDetail({
+      question_id: 'question-1',
+      favorites_count: 6,
+      is_favorited: false,
+    })
+
+    const { wrapper } = await mountQuestionDetailPage(false)
+
+    expect(wrapper.find('[data-testid="question-favorite-button"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="question-favorite-action"]').attributes('data-authenticated')).toBe('false')
+    expect(wrapper.get('[data-testid="question-favorite-login-link"]').attributes('href')).toBe('/login')
+    expect(wrapper.get('[data-testid="question-favorite-count"]').text()).toBe('6')
+    expect(favoriteMutationState.mutateAsync).not.toHaveBeenCalled()
+  })
+
   it('renders the vote rail in readonly mode on the public detail route', async () => {
     questionDetailState.data.value = {
       question_id: 'question-1',
@@ -428,6 +493,8 @@ describe('question detail page', () => {
       question_created_at: '2026-03-01T12:00:00Z',
       question_updated_at: '2026-03-02T12:00:00Z',
       tags: [],
+      favorites_count: 0,
+      is_favorited: false,
       upvotes: 12,
       downvotes: 3,
       score: 9,

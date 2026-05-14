@@ -293,6 +293,7 @@ onBeforeUnmount(clearSearchDebounceTimer)
                 v-for="question in questionList"
                 :key="question.question_id"
                 :question="question"
+                :is-authenticated="isAuthenticated"
                 :is-invited-for-current-user="invitedQuestionIds.has(question.question_id)"
               />
             </div>

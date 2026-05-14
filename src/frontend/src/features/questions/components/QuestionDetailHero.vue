@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { QuestionDetail } from '@/features/questions/api/questions'
 import type { PublicUserProfile } from '@/features/users/api/publicProfiles'
+import QuestionFavoriteAction from '@/features/questions/components/QuestionFavoriteAction.vue'
 import QuestionTagChips from '@/features/questions/components/QuestionTagChips.vue'
 import ProtectedQuestionChip from '@/features/questions/components/ProtectedQuestionChip.vue'
 import AuthorReputationBadge from '@/features/users/components/AuthorReputationBadge.vue'
@@ -13,6 +14,7 @@ defineProps<{
   question: QuestionDetail
   author: PublicUserProfile | null | undefined
   currentUserId?: string
+  isAuthenticated: boolean
   canVote?: boolean
   canEdit?: boolean
   canProposeEdit?: boolean
@@ -45,7 +47,14 @@ const emit = defineEmits<{
 
       <h1 class="question-detail-hero__title">{{ question.question_title }}</h1>
       <QuestionTagChips :tags="question.tags" variant="large" />
-      <div v-if="canEdit || canProposeEdit || canInviteExperts" class="question-detail-hero__actions">
+      <div class="question-detail-hero__actions">
+        <QuestionFavoriteAction
+          :question-id="question.question_id"
+          :is-favorited="question.is_favorited"
+          :favorites-count="question.favorites_count"
+          :is-authenticated="isAuthenticated"
+          variant="large"
+        />
         <AppButton v-if="canEdit" type="button" variant="secondary" @click="emit('requestEdit')">
           Редактировать вопрос
         </AppButton>
