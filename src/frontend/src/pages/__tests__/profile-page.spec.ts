@@ -48,6 +48,12 @@ vi.mock('@/features/questions/components/ProfileQuestionEditReviewQueue.vue', ()
   },
 }))
 
+vi.mock('@/features/questions/components/ProfileFavoritesTab.vue', () => ({
+  default: {
+    template: '<section data-testid="profile-favorites-workspace">Избранные вопросы профиля готовы к просмотру.</section>',
+  },
+}))
+
 vi.mock('@/features/solutions/components/ProfileEditHistoryTab.vue', () => ({
   default: {
     template: '<div data-testid="history-workspace">История обработанных правок к вашим решениям доступна в профиле.</div>',
@@ -341,6 +347,20 @@ describe('profile reputation surfaces', () => {
     expect(localStorageSet).not.toHaveBeenCalled()
   })
 
+  it('closes the reputation dialog and clears the body lock when switching to favorites', async () => {
+    const { wrapper, router } = await mountProfilePage()
+
+    await openReputationDialog(wrapper)
+    expect(getDialog()).not.toBeNull()
+    expect(document.body.style.overflow).toBe('hidden')
+
+    await wrapper.get('[data-testid="profile-tab-favorites"]').trigger('click')
+    await flushPromises()
+
+    await expectReputationDialogClosed(router.currentRoute.value.query, { tab: 'favorites' })
+    expect(wrapper.get('[data-testid="profile-favorites-workspace"]').text()).toContain('Избранные вопросы профиля')
+  })
+
   it('closes the reputation dialog and clears the body lock when switching to notifications', async () => {
     const { wrapper, router } = await mountProfilePage()
 
@@ -414,6 +434,25 @@ describe('profile reputation surfaces', () => {
     expect(wrapper.get('[data-testid="knowledge-graph-error-copy"]').text()).toContain('Профиль остаётся доступен')
     expect(wrapper.text()).toContain('Sergey')
     expect(wrapper.find('[data-testid="reputation-explanation-trigger"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="profile-favorites-workspace"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="profile-notifications-tab"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="history-workspace"]').exists()).toBe(false)
+    expect(getDialog()).toBeNull()
+    expect(getExplanationPanel()).toBeNull()
+  })
+
+  it('uses the route query to switch into the favorites workspace', async () => {
+    const { wrapper, router } = await mountProfilePage({ tab: 'favorites' })
+
+    expect(router.currentRoute.value.path).toBe('/profile')
+    expect(router.currentRoute.value.name).toBeUndefined()
+    expect(router.currentRoute.value.query.tab).toBe('favorites')
+    expect(wrapper.get('[data-testid="profile-tab-favorites"]').classes()).toContain('profile-page__tab--active')
+    expect(wrapper.get('[data-testid="profile-tab-favorites"]').text()).toContain('Избранное')
+    expect(wrapper.get('[data-testid="profile-favorites-workspace"]').text()).toContain('Избранные вопросы профиля')
+    expect(wrapper.text()).toContain('Sergey')
+    expect(wrapper.find('[data-testid="reputation-explanation-trigger"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="profile-knowledge-graph-tab"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="profile-notifications-tab"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="history-workspace"]').exists()).toBe(false)
     expect(getDialog()).toBeNull()
@@ -440,6 +479,7 @@ describe('profile reputation surfaces', () => {
     expect(unknownState.router.currentRoute.value.query.tab).toBe('unknown')
     expect(unknownState.wrapper.get('[data-testid="profile-tab-overview"]').classes()).toContain('profile-page__tab--active')
     expect(unknownState.wrapper.get('[data-testid="reputation-explanation-trigger"]').exists()).toBe(true)
+    expect(unknownState.wrapper.find('[data-testid="profile-favorites-workspace"]').exists()).toBe(false)
     expect(unknownState.wrapper.find('[data-testid="profile-knowledge-graph-tab"]').exists()).toBe(false)
     expect(unknownState.wrapper.find('[data-testid="profile-notifications-tab"]').exists()).toBe(false)
 
@@ -452,6 +492,7 @@ describe('profile reputation surfaces', () => {
     expect(malformedState.router.currentRoute.value.query.tab).toEqual(['notifications', 'history'])
     expect(malformedState.wrapper.get('[data-testid="profile-tab-overview"]').classes()).toContain('profile-page__tab--active')
     expect(malformedState.wrapper.get('[data-testid="reputation-explanation-trigger"]').exists()).toBe(true)
+    expect(malformedState.wrapper.find('[data-testid="profile-favorites-workspace"]').exists()).toBe(false)
     expect(malformedState.wrapper.find('[data-testid="profile-knowledge-graph-tab"]').exists()).toBe(false)
     expect(malformedState.wrapper.find('[data-testid="profile-notifications-tab"]').exists()).toBe(false)
   })
@@ -465,8 +506,10 @@ describe('profile reputation surfaces', () => {
     const { wrapper } = await mountProfilePage({ tab: 'knowledge' })
 
     expect(wrapper.text()).toContain('Не удалось загрузить профиль')
+    expect(wrapper.find('[data-testid="profile-tab-favorites"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="profile-tab-notifications"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="profile-tab-knowledge"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="profile-favorites-workspace"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="profile-notifications-tab"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="profile-knowledge-graph-tab"]').exists()).toBe(false)
   })
@@ -474,6 +517,16 @@ describe('profile reputation surfaces', () => {
   it('updates the route when switching tabs from the shell', async () => {
     const localStorageSet = vi.spyOn(Storage.prototype, 'setItem')
     const { wrapper, router } = await mountProfilePage()
+
+    await wrapper.get('[data-testid="profile-tab-favorites"]').trigger('click')
+    await flushPromises()
+
+    expect(router.currentRoute.value.path).toBe('/profile')
+    expect(router.currentRoute.value.name).toBeUndefined()
+    expect(router.currentRoute.value.query.tab).toBe('favorites')
+    expect(localStorageSet).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('Избранные вопросы профиля готовы к просмотру.')
+    expect(wrapper.find('[data-testid="history-workspace"]').exists()).toBe(false)
 
     await wrapper.get('[data-testid="profile-tab-notifications"]').trigger('click')
     await flushPromises()
