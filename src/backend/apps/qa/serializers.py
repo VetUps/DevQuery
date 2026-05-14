@@ -284,6 +284,12 @@ class QuestionGetSerializer(AuthorReputationMixin, QuestionFavoriteStateMixin, Q
         fields = '__all__'
 
 
+class QuestionFavoriteMutationSerializer(serializers.Serializer):
+    question_id = serializers.UUIDField(read_only=True)
+    favorites_count = serializers.IntegerField(read_only=True)
+    is_favorited = serializers.BooleanField(read_only=True)
+
+
 class QuestionListSerializer(AuthorReputationMixin, QuestionFavoriteStateMixin, QuestionProtectionMixin, serializers.ModelSerializer):
     tags = TagSerializer(many=True, read_only=True)
     favorites_count = serializers.SerializerMethodField()

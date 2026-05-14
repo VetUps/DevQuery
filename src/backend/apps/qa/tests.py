@@ -317,6 +317,146 @@ class QuestionFavoriteApiTests(APITestCase):
             ],
         )
 
+    def test_favorite_mutations_require_authentication(self):
+        post_response = self.client.post(f'/question/{self.question.question_id}/favorite/')
+        delete_response = self.client.delete(f'/question/{self.question.question_id}/favorite/')
+        list_response = self.client.get('/question/favorites/')
+
+        self.assertEqual(post_response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(delete_response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(list_response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_repeated_post_is_idempotent_and_returns_server_truth(self):
+        QuestionFavoriteService.add_favorite(self.other_viewer, self.question)
+        self.client.force_authenticate(self.viewer)
+
+        first_response = self.client.post(f'/question/{self.question.question_id}/favorite/')
+        second_response = self.client.post(f'/question/{self.question.question_id}/favorite/')
+
+        self.assertEqual(first_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(second_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(QuestionFavorite.objects.filter(user=self.viewer, question=self.question).count(), 1)
+        self.assertEqual(second_response.data, {
+            'question_id': str(self.question.question_id),
+            'favorites_count': 2,
+            'is_favorited': True,
+        })
+
+    def test_repeated_delete_is_idempotent_and_returns_server_truth(self):
+        QuestionFavoriteService.add_favorite(self.viewer, self.question)
+        QuestionFavoriteService.add_favorite(self.other_viewer, self.question)
+        self.client.force_authenticate(self.viewer)
+
+        first_response = self.client.delete(f'/question/{self.question.question_id}/favorite/')
+        second_response = self.client.delete(f'/question/{self.question.question_id}/favorite/')
+
+        self.assertEqual(first_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(second_response.status_code, status.HTTP_200_OK)
+        self.assertFalse(QuestionFavorite.objects.filter(user=self.viewer, question=self.question).exists())
+        self.assertEqual(second_response.data, {
+            'question_id': str(self.question.question_id),
+            'favorites_count': 1,
+            'is_favorited': False,
+        })
+
+    def test_favorite_mutation_nonexistent_question_returns_404(self):
+        self.client.force_authenticate(self.viewer)
+        missing_question_id = '00000000-0000-0000-0000-000000000001'
+
+        post_response = self.client.post(f'/question/{missing_question_id}/favorite/')
+        delete_response = self.client.delete(f'/question/{missing_question_id}/favorite/')
+
+        self.assertEqual(post_response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(delete_response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_favorites_list_is_owner_only_and_empty_when_viewer_has_no_favorites(self):
+        QuestionFavoriteService.add_favorite(self.other_viewer, self.question)
+
+        self.client.force_authenticate(self.viewer)
+        viewer_response = self.client.get('/question/favorites/')
+
+        self.client.force_authenticate(self.other_viewer)
+        other_response = self.client.get('/question/favorites/')
+
+        self.assertEqual(viewer_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(other_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(viewer_response.data['results'], [])
+        self.assertEqual([item['question_id'] for item in other_response.data['results']], [str(self.question.question_id)])
+
+    def test_favorites_list_reuses_search_repeated_tag_ordering_and_public_counts(self):
+        django = Tag.objects.create(name='django', questions_count=2)
+        drf = Tag.objects.create(name='drf', questions_count=1)
+        python = Tag.objects.create(name='python', questions_count=1)
+        self.question.question_title = 'Favorite tagged django drf question'
+        self.other_question.question_title = 'Favorite tagged django only question'
+        self.question.save(update_fields=['question_title'])
+        self.other_question.save(update_fields=['question_title'])
+        self.question.tags.add(django, drf)
+        self.other_question.tags.add(django, python)
+        QuestionFavoriteService.add_favorite(self.viewer, self.question)
+        QuestionFavoriteService.add_favorite(self.viewer, self.other_question)
+        QuestionFavoriteService.add_favorite(self.other_viewer, self.question)
+        self.client.force_authenticate(self.viewer)
+
+        response = self.client.get(
+            '/question/favorites/',
+            {
+                'search': 'tagged',
+                'ordering': 'question_created_at',
+                'tag': ['django', 'drf', 'django'],
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data['results']), 1)
+        item = response.data['results'][0]
+        self.assertEqual(item['question_id'], str(self.question.question_id))
+        self.assertEqual(item['favorites_count'], 2)
+        self.assertTrue(item['is_favorited'])
+        self.assertEqual(
+            item['tags'],
+            [
+                {'name': 'django', 'questions_count': 2},
+                {'name': 'drf', 'questions_count': 1},
+            ],
+        )
+
+    def test_favorites_list_invalid_ordering_falls_back_to_newest_first_and_paginates(self):
+        questions = [self.question, self.other_question]
+        for index in range(5):
+            questions.append(Question.objects.create(
+                user=self.author,
+                question_title=f'Paged favorite {index}',
+                question_body='Need pagination coverage.',
+            ))
+
+        for index, question in enumerate(questions):
+            QuestionFavoriteService.add_favorite(self.viewer, question)
+            Question.objects.filter(pk=question.pk).update(question_created_at=timezone.now() - timedelta(minutes=index))
+
+        self.client.force_authenticate(self.viewer)
+        first_page = self.client.get('/question/favorites/', {'ordering': 'not-supported'})
+        second_page = self.client.get('/question/favorites/', {'ordering': 'not-supported', 'page': 2})
+
+        self.assertEqual(first_page.status_code, status.HTTP_200_OK)
+        self.assertEqual(second_page.status_code, status.HTTP_200_OK)
+        self.assertEqual(first_page.data['count'], 7)
+        self.assertEqual(len(first_page.data['results']), 5)
+        self.assertEqual(len(second_page.data['results']), 2)
+        self.assertEqual(first_page.data['results'][0]['question_id'], str(self.question.question_id))
+        self.assertIn('next', first_page.data)
+        self.assertIn('previous', first_page.data)
+
+    def test_favorites_list_filtered_empty_uses_paginated_envelope(self):
+        QuestionFavoriteService.add_favorite(self.viewer, self.question)
+        self.client.force_authenticate(self.viewer)
+
+        response = self.client.get('/question/favorites/', {'search': 'no matching title'})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['count'], 0)
+        self.assertEqual(response.data['results'], [])
+
 
 class QuestionProtectionServiceTests(APITestCase):
     def setUp(self):
