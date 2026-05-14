@@ -10,10 +10,10 @@ from drf_spectacular.utils import extend_schema, OpenApiParameter
 
 from apps.knowledge.services import recover_sync_posted_solution_activity
 
-from .models import Question, Solution, SolutionEdits, Comment, Tag, QuestionEditProposal
+from .models import Question, QuestionFavorite, Solution, SolutionEdits, Comment, Tag, QuestionEditProposal
 from .serializers import (
     QuestionGetSerializer, QuestionListSerializer, QuestionUpdateCreateSerializer,
-    QuestionCreateResponseSerializer, EligibleExpertCandidateSerializer, EligibleExpertsResponseSerializer,
+    QuestionCreateResponseSerializer, QuestionFavoriteMutationSerializer, EligibleExpertCandidateSerializer, EligibleExpertsResponseSerializer,
     ExpertInvitationCreateRequestSerializer, ExpertInvitationCreateResponseSerializer,
     ExpertInvitationListItemSerializer, ExpertInvitationListResponseSerializer,
     QuestionEditCreateSerializer, QuestionEditProposalResponseSerializer,
@@ -75,6 +75,7 @@ class QuestionViewSet(mixins.ListModelMixin,
     question_list_serializer = QuestionListSerializer
     question_create_serializer = QuestionUpdateCreateSerializer
     question_create_response_serializer = QuestionCreateResponseSerializer
+    question_favorite_mutation_serializer = QuestionFavoriteMutationSerializer
     question_edit_create_serializer = QuestionEditCreateSerializer
     question_edit_proposal_response_serializer = QuestionEditProposalResponseSerializer
     question_edit_event_serializer = QuestionEditEventSerializer
@@ -84,7 +85,7 @@ class QuestionViewSet(mixins.ListModelMixin,
     question_ordering_fields = {'question_created_at', '-question_created_at'}
 
     def get_serializer_class(self):
-        if self.action == 'list':
+        if self.action in ['list', 'favorites']:
             return self.question_list_serializer
         if self.action == 'retrieve':
             return self.question_get_serializer
@@ -97,7 +98,7 @@ class QuestionViewSet(mixins.ListModelMixin,
         return self.serializer_class
 
     def get_permissions(self):
-        if self.action == 'create':
+        if self.action in ['create', 'favorite', 'favorites']:
             permission_classes = [IsAuthenticated]
         elif self.action in [
             'update',
@@ -117,40 +118,47 @@ class QuestionViewSet(mixins.ListModelMixin,
 
         return [permission() for permission in permission_classes]
 
+    def _apply_discovery_filters(self, queryset):
+        search = self.request.query_params.get('search', '').strip()
+        ordering = self.request.query_params.get('ordering', '-question_created_at')
+        raw_tag_filters = self.request.query_params.getlist('tag')
+        tag_filters = []
+        seen_tag_filters = set()
+
+        for raw_tag_filter in raw_tag_filters:
+            tag_filter = raw_tag_filter.strip().lower()
+
+            if tag_filter and tag_filter not in seen_tag_filters:
+                seen_tag_filters.add(tag_filter)
+                tag_filters.append(tag_filter)
+
+        if search:
+            queryset = queryset.filter(question_title__icontains=search)
+
+        for tag_filter in tag_filters:
+            queryset = queryset.filter(tags__name=tag_filter)
+
+        if tag_filters:
+            queryset = queryset.distinct()
+
+        if ordering not in self.question_ordering_fields:
+            ordering = '-question_created_at'
+
+        return queryset.order_by(ordering)
+
     def get_queryset(self):
         queryset = Question.objects.select_related('user').prefetch_related('tags')
         user = getattr(self.request, 'user', None)
 
-        if self.action in ['list', 'retrieve']:
+        if self.action == 'favorites':
+            favorite_question_ids = QuestionFavorite.objects.filter(user=user).values('question_id')
+            queryset = queryset.filter(question_id__in=favorite_question_ids)
+
+        if self.action in ['list', 'retrieve', 'favorites']:
             queryset = QuestionFavoriteService.annotate_favorites(queryset, user)
 
-        if self.action == 'list':
-            search = self.request.query_params.get('search', '').strip()
-            ordering = self.request.query_params.get('ordering', '-question_created_at')
-            raw_tag_filters = self.request.query_params.getlist('tag')
-            tag_filters = []
-            seen_tag_filters = set()
-
-            for raw_tag_filter in raw_tag_filters:
-                tag_filter = raw_tag_filter.strip().lower()
-
-                if tag_filter and tag_filter not in seen_tag_filters:
-                    seen_tag_filters.add(tag_filter)
-                    tag_filters.append(tag_filter)
-
-            if search:
-                queryset = queryset.filter(question_title__icontains=search)
-
-            for tag_filter in tag_filters:
-                queryset = queryset.filter(tags__name=tag_filter)
-
-            if tag_filters:
-                queryset = queryset.distinct()
-
-            if ordering not in self.question_ordering_fields:
-                ordering = '-question_created_at'
-
-            queryset = queryset.order_by(ordering)
+        if self.action in ['list', 'favorites']:
+            queryset = self._apply_discovery_filters(queryset)
 
         if self.action == 'retrieve':
             queryset = VoteService.annotate_votes(queryset, Question, user)
@@ -200,6 +208,56 @@ class QuestionViewSet(mixins.ListModelMixin,
     )
     def list(self, request, *args, **kwargs):
         return super().list(request, *args, **kwargs)
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                'search', OpenApiTypes.STR,
+                location='query', required=False, description='Поиск по названию вопроса среди избранного текущего пользователя'
+            ),
+            OpenApiParameter(
+                'ordering', OpenApiTypes.STR,
+                location='query', required=False,
+                description='Сортировка по дате: -question_created_at или question_created_at'
+            ),
+            OpenApiParameter(
+                'tag', OpenApiTypes.STR,
+                location='query', required=False, many=True,
+                description='Фильтр избранного по существующим нормализованным тегам. Повторите параметр для AND-семантики: ?tag=django&tag=serializer'
+            ),
+        ],
+        responses=QuestionListSerializer(many=True),
+    )
+    @action(detail=False, methods=['get'], url_path='favorites')
+    def favorites(self, request, *args, **kwargs):
+        return super().list(request, *args, **kwargs)
+
+    def _favorite_response(self, question, request):
+        annotated_question = QuestionFavoriteService.annotate_favorites(
+            Question.objects.filter(question_id=question.question_id),
+            request.user,
+        ).get()
+        state = QuestionFavoriteService.get_favorite_state(annotated_question, request.user)
+        serializer = self.question_favorite_mutation_serializer({
+            'question_id': annotated_question.question_id,
+            **state,
+        })
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    @extend_schema(
+        request=None,
+        responses={200: QuestionFavoriteMutationSerializer},
+    )
+    @action(detail=True, methods=['post', 'delete'], url_path='favorite')
+    def favorite(self, request, question_id=None):
+        question = self.get_object()
+
+        if request.method == 'POST':
+            QuestionFavoriteService.add_favorite(request.user, question)
+        else:
+            QuestionFavoriteService.remove_favorite(request.user, question)
+
+        return self._favorite_response(question, request)
 
     @extend_schema(
         request=QuestionUpdateCreateSerializer,
