@@ -308,6 +308,7 @@ onBeforeUnmount(() => {
           :question="questionDetailQuery.data.value"
           :author="questionAuthorQuery.data.value"
           :current-user-id="currentUserId"
+          :is-authenticated="isAuthenticated"
           :can-vote="isAuthenticated"
           :can-edit="canEditQuestion"
           :can-propose-edit="canProposeQuestionEdit"

@@ -3,12 +3,14 @@ import type { LocationQueryRaw } from 'vue-router'
 
 import { type QuestionListItem } from '@/features/questions/api/questions'
 import ProtectedQuestionChip from '@/features/questions/components/ProtectedQuestionChip.vue'
+import QuestionFavoriteAction from '@/features/questions/components/QuestionFavoriteAction.vue'
 import QuestionTagChips from '@/features/questions/components/QuestionTagChips.vue'
 import AuthorReputationBadge from '@/features/users/components/AuthorReputationBadge.vue'
 import { formatLongDate, formatQuestionStatus } from '@/shared/libs/formatting'
 
 const props = defineProps<{
   question: QuestionListItem
+  isAuthenticated: boolean
   isInvitedForCurrentUser?: boolean
   tagLinkPath?: string
   tagLinkQueryBase?: LocationQueryRaw
@@ -57,6 +59,13 @@ const props = defineProps<{
           Обновлён {{ formatLongDate(question.question_updated_at) }}
         </span>
       </div>
+      <QuestionFavoriteAction
+        class="question-card__favorite"
+        :question-id="question.question_id"
+        :is-favorited="question.is_favorited"
+        :favorites-count="question.favorites_count"
+        :is-authenticated="props.isAuthenticated"
+      />
     </div>
 
     <RouterLink
