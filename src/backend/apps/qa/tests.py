@@ -180,6 +180,144 @@ class QuestionFavoriteServiceTests(APITestCase):
         self.assertEqual(anonymous_state, {'favorites_count': 1, 'is_favorited': False})
 
 
+class QuestionFavoriteApiTests(APITestCase):
+    def setUp(self):
+        self.author = CustomUser.objects.create_user(
+            user_email='favorite-api-author@example.com',
+            user_name='favorite-api-author',
+            password='password',
+        )
+        self.viewer = CustomUser.objects.create_user(
+            user_email='favorite-api-viewer@example.com',
+            user_name='favorite-api-viewer',
+            password='password',
+        )
+        self.other_viewer = CustomUser.objects.create_user(
+            user_email='favorite-api-other@example.com',
+            user_name='favorite-api-other',
+            password='password',
+        )
+        self.question = Question.objects.create(
+            user=self.author,
+            question_title='Favorite API question',
+            question_body='Need list and detail favorite state.',
+        )
+        self.other_question = Question.objects.create(
+            user=self.author,
+            question_title='Other favorite API question',
+            question_body='Need zero-state coverage.',
+        )
+
+    def _list_item(self, response, question):
+        return next(
+            item
+            for item in response.data['results']
+            if item['question_id'] == str(question.question_id)
+        )
+
+    def test_anonymous_list_and_detail_include_public_count_and_false_viewer_state(self):
+        tag = Tag.objects.create(name='django', questions_count=1)
+        self.question.tags.add(tag)
+        QuestionFavoriteService.add_favorite(self.viewer, self.question)
+        QuestionFavoriteService.add_favorite(self.other_viewer, self.question)
+
+        list_response = self.client.get('/question/', {'ordering': 'question_created_at'})
+        detail_response = self.client.get(f'/question/{self.question.question_id}/')
+
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
+        list_item = self._list_item(list_response, self.question)
+        self.assertEqual(list_item['favorites_count'], 2)
+        self.assertFalse(list_item['is_favorited'])
+        self.assertEqual(list_item['tags'], [{'name': 'django', 'questions_count': 1}])
+        self.assertIn('results', list_response.data)
+
+        self.assertEqual(detail_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(detail_response.data['favorites_count'], 2)
+        self.assertFalse(detail_response.data['is_favorited'])
+        self.assertEqual(detail_response.data['tags'], [{'name': 'django', 'questions_count': 1}])
+
+    def test_authenticated_list_and_detail_state_is_viewer_specific_while_count_stays_public(self):
+        QuestionFavoriteService.add_favorite(self.viewer, self.question)
+        QuestionFavoriteService.add_favorite(self.other_viewer, self.question)
+
+        self.client.force_authenticate(self.viewer)
+        viewer_list_response = self.client.get('/question/')
+        viewer_detail_response = self.client.get(f'/question/{self.question.question_id}/')
+
+        self.client.force_authenticate(self.other_viewer)
+        other_detail_response = self.client.get(f'/question/{self.question.question_id}/')
+        other_list_response = self.client.get('/question/')
+
+        self.assertEqual(viewer_list_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(viewer_detail_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(other_list_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(other_detail_response.status_code, status.HTTP_200_OK)
+
+        viewer_item = self._list_item(viewer_list_response, self.question)
+        other_item = self._list_item(other_list_response, self.question)
+        viewer_zero_item = self._list_item(viewer_list_response, self.other_question)
+
+        self.assertEqual(viewer_item['favorites_count'], 2)
+        self.assertTrue(viewer_item['is_favorited'])
+        self.assertEqual(viewer_detail_response.data['favorites_count'], 2)
+        self.assertTrue(viewer_detail_response.data['is_favorited'])
+
+        self.assertEqual(other_item['favorites_count'], 2)
+        self.assertTrue(other_item['is_favorited'])
+        self.assertEqual(other_detail_response.data['favorites_count'], 2)
+        self.assertTrue(other_detail_response.data['is_favorited'])
+
+        self.assertEqual(viewer_zero_item['favorites_count'], 0)
+        self.assertFalse(viewer_zero_item['is_favorited'])
+
+    def test_non_favoriting_authenticated_viewer_gets_false_state_with_public_count(self):
+        QuestionFavoriteService.add_favorite(self.viewer, self.question)
+
+        self.client.force_authenticate(self.other_viewer)
+        list_response = self.client.get('/question/')
+        detail_response = self.client.get(f'/question/{self.question.question_id}/')
+
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(detail_response.status_code, status.HTTP_200_OK)
+        list_item = self._list_item(list_response, self.question)
+        self.assertEqual(list_item['favorites_count'], 1)
+        self.assertFalse(list_item['is_favorited'])
+        self.assertEqual(detail_response.data['favorites_count'], 1)
+        self.assertFalse(detail_response.data['is_favorited'])
+
+    def test_search_ordering_and_repeated_tag_filters_still_use_main_list_contract(self):
+        django = Tag.objects.create(name='django', questions_count=2)
+        drf = Tag.objects.create(name='drf', questions_count=1)
+        self.question.question_title = 'Favorite tagged django drf question'
+        self.question.save(update_fields=['question_title'])
+        self.question.tags.add(django, drf)
+        self.other_question.tags.add(django)
+        QuestionFavoriteService.add_favorite(self.viewer, self.question)
+
+        response = self.client.get(
+            '/question/',
+            {
+                'search': 'tagged',
+                'ordering': 'question_created_at',
+                'tag': ['django', 'drf', 'django'],
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data['results']), 1)
+        item = response.data['results'][0]
+        self.assertEqual(item['question_id'], str(self.question.question_id))
+        self.assertEqual(item['favorites_count'], 1)
+        self.assertFalse(item['is_favorited'])
+        self.assertEqual(
+            item['tags'],
+            [
+                {'name': 'django', 'questions_count': 2},
+                {'name': 'drf', 'questions_count': 1},
+            ],
+        )
+
+
 class QuestionProtectionServiceTests(APITestCase):
     def setUp(self):
         self.newcomer_author = CustomUser.objects.create_user(

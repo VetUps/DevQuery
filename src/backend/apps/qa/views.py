@@ -25,6 +25,7 @@ from .serializers import (
     VoteSerializer, VoteCreateSerializer, SolutionEditApprovalSerializer, TagSerializer,
     QuestionDraftAssistRequestSerializer, QuestionDraftAssistResponseSerializer,
 )
+from .services.question_favorite_service import QuestionFavoriteService
 from .services.question_edit_service import QuestionChangePayload, QuestionEditService
 from .services.question_expert_invitation_service import QuestionExpertInvitationService
 from .services.question_draft_assistant_service import QuestionDraftAssistantService
@@ -118,6 +119,10 @@ class QuestionViewSet(mixins.ListModelMixin,
 
     def get_queryset(self):
         queryset = Question.objects.select_related('user').prefetch_related('tags')
+        user = getattr(self.request, 'user', None)
+
+        if self.action in ['list', 'retrieve']:
+            queryset = QuestionFavoriteService.annotate_favorites(queryset, user)
 
         if self.action == 'list':
             search = self.request.query_params.get('search', '').strip()
@@ -148,7 +153,6 @@ class QuestionViewSet(mixins.ListModelMixin,
             queryset = queryset.order_by(ordering)
 
         if self.action == 'retrieve':
-            user = self.request.user
             queryset = VoteService.annotate_votes(queryset, Question, user)
 
         return queryset
@@ -221,8 +225,12 @@ class QuestionViewSet(mixins.ListModelMixin,
         serializer = self.get_serializer(instance, data=request.data, partial=partial)
         serializer.is_valid(raise_exception=True)
         self.perform_update(serializer)
-        updated_question = VoteService.annotate_votes(
+        updated_queryset = QuestionFavoriteService.annotate_favorites(
             Question.objects.select_related('user').prefetch_related('tags').filter(question_id=instance.question_id),
+            request.user,
+        )
+        updated_question = VoteService.annotate_votes(
+            updated_queryset,
             Question,
             request.user,
         ).get()

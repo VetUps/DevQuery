@@ -237,12 +237,27 @@ class AuthorReputationMixin(serializers.Serializer):
         return ReputationService.get_progress(user)
 
 
-class QuestionGetSerializer(AuthorReputationMixin, QuestionProtectionMixin, serializers.ModelSerializer):
+class QuestionFavoriteStateMixin:
+    favorite_field_names = [
+        'favorites_count',
+        'is_favorited',
+    ]
+
+    def get_favorites_count(self, obj: Question):
+        return getattr(obj, 'favorites_count', 0) or 0
+
+    def get_is_favorited(self, obj: Question):
+        return bool(getattr(obj, 'is_favorited', False))
+
+
+class QuestionGetSerializer(AuthorReputationMixin, QuestionFavoriteStateMixin, QuestionProtectionMixin, serializers.ModelSerializer):
     upvotes = serializers.IntegerField(source='vote_upvotes', read_only=True)
     downvotes = serializers.IntegerField(source='vote_downvotes', read_only=True)
     score = serializers.IntegerField(source='vote_score', read_only=True)
     user_vote = serializers.ChoiceField(source='user_vote_type', choices=Vote.VoteType.choices, read_only=True, allow_null=True)
     tags = TagSerializer(many=True, read_only=True)
+    favorites_count = serializers.SerializerMethodField()
+    is_favorited = serializers.SerializerMethodField()
     is_protected = serializers.SerializerMethodField()
     protection_reason_code = serializers.SerializerMethodField()
     protected_until = serializers.SerializerMethodField()
@@ -269,8 +284,10 @@ class QuestionGetSerializer(AuthorReputationMixin, QuestionProtectionMixin, seri
         fields = '__all__'
 
 
-class QuestionListSerializer(AuthorReputationMixin, QuestionProtectionMixin, serializers.ModelSerializer):
+class QuestionListSerializer(AuthorReputationMixin, QuestionFavoriteStateMixin, QuestionProtectionMixin, serializers.ModelSerializer):
     tags = TagSerializer(many=True, read_only=True)
+    favorites_count = serializers.SerializerMethodField()
+    is_favorited = serializers.SerializerMethodField()
     is_protected = serializers.SerializerMethodField()
     protection_reason_code = serializers.SerializerMethodField()
     protected_until = serializers.SerializerMethodField()
@@ -303,6 +320,7 @@ class QuestionListSerializer(AuthorReputationMixin, QuestionProtectionMixin, ser
             'question_updated_at',
             *AuthorReputationMixin.author_reputation_field_names,
             'tags',
+            *QuestionFavoriteStateMixin.favorite_field_names,
             *QuestionProtectionMixin.protection_field_names,
         ]
 
