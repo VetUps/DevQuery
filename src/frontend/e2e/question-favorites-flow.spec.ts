@@ -2,12 +2,24 @@ import { expect, test, type Page, type Route } from '@playwright/test'
 
 const API_ORIGIN = 'http://127.0.0.1:8000'
 const OWNER_USER_ID = '11111111-1111-4111-8111-111111111111'
+const OTHER_USER_ID = '33333333-3333-4333-8333-333333333333'
 const QUESTION_ID = '22222222-2222-4222-8222-222222222222'
 const ACCESS_TOKEN = 'playwright-access-token'
 const REFRESH_TOKEN = 'playwright-refresh-token'
 
 const QUESTION_TITLE = 'Как проверить избранное вопроса через Playwright?'
 const QUESTION_BODY = 'Публичное описание вопроса для smoke-проверки избранного.'
+const PRIVATE_MARKERS = [
+  ACCESS_TOKEN,
+  REFRESH_TOKEN,
+  'other-user-private-title',
+  'private@example.test',
+  'source_object_id',
+  'django-stack-trace',
+  'Traceback (most recent call last)',
+  'diagnostic-id-private-42',
+] as const
+const ALLOWED_FAVORITES_QUERY_PARAMS = new Set(['page', 'search', 'ordering', 'tag'])
 
 const profileFixture = {
   user_id: OWNER_USER_ID,
@@ -67,8 +79,47 @@ async function installAuthenticatedSession(page: Page) {
   )
 }
 
+async function expectNoPrivateMarkers(page: Page) {
+  const bodyText = await page.locator('body').innerText()
+  const currentUrl = page.url()
+
+  for (const marker of PRIVATE_MARKERS) {
+    expect(bodyText).not.toContain(marker)
+    expect(currentUrl).not.toContain(marker)
+  }
+}
+
 function expectBearer(route: Route) {
   expect(route.request().headers().authorization).toBe(`Bearer ${ACCESS_TOKEN}`)
+}
+
+function expectNormalizedFavoritesRequest(route: Route, expected?: {
+  page?: string
+  search?: string
+  ordering?: string
+  tags?: string[]
+}) {
+  expectBearer(route)
+
+  const url = new URL(route.request().url())
+  expect(url.pathname).toBe('/question/favorites/')
+
+  for (const key of url.searchParams.keys()) {
+    expect(ALLOWED_FAVORITES_QUERY_PARAMS.has(key), `unexpected favorites query param: ${key}`).toBe(true)
+  }
+
+  for (const marker of PRIVATE_MARKERS) {
+    expect(url.href).not.toContain(marker)
+  }
+
+  if (!expected) {
+    return
+  }
+
+  expect(url.searchParams.get('page')).toBe(expected.page ?? '1')
+  expect(url.searchParams.get('search')).toBe(expected.search ?? null)
+  expect(url.searchParams.get('ordering')).toBe(expected.ordering ?? '-question_created_at')
+  expect(url.searchParams.getAll('tag')).toEqual(expected.tags ?? [])
 }
 
 function buildQuestion(favoriteState: { isFavorited: boolean; favoritesCount: number }) {
@@ -85,6 +136,16 @@ function buildQuestion(favoriteState: { isFavorited: boolean; favoritesCount: nu
     favorites_count: favoriteState.favoritesCount,
     is_favorited: favoriteState.isFavorited,
     tags: [{ name: 'playwright', questions_count: 1 }],
+  }
+}
+
+function buildPrivateAnnotatedQuestion(favoriteState: { isFavorited: boolean; favoritesCount: number }) {
+  return {
+    ...buildQuestion(favoriteState),
+    private_debug_title: 'other-user-private-title',
+    private_email: 'private@example.test',
+    source_object_id: OTHER_USER_ID,
+    diagnostics: 'django-stack-trace diagnostic-id-private-42',
   }
 }
 
@@ -176,7 +237,7 @@ async function routeFavoriteJourneyApi(page: Page, favoriteState: { isFavorited:
   })
 
   await page.route(new RegExp(`^${API_ORIGIN.replaceAll('.', '\\.')}\/question\/favorites\/(?:\\?.*)?$`), async (route) => {
-    expectBearer(route)
+    expectNormalizedFavoritesRequest(route)
     counts.favoritesList += 1
     const results = favoriteState.isFavorited ? [buildQuestion(favoriteState)] : []
     await json(route, 200, buildQuestionPage(results))
@@ -264,9 +325,83 @@ test.describe('question favorites production smoke', () => {
     await expect(page.getByTestId('profile-favorites-state-empty')).toBeVisible()
     await expect(page.getByTestId('profile-favorites-count')).toContainText('0 сохранённых вопросов')
     await expect(page.getByTestId('profile-favorites-workspace').getByText(QUESTION_TITLE)).toHaveCount(0)
+    await expect(page.getByTestId('profile-favorites-workspace').getByTestId('question-card')).toHaveCount(0)
+    await expectNoPrivateMarkers(page)
 
     expect(requests.feed).toBeGreaterThanOrEqual(1)
     expect(requests.favoritesList).toBeGreaterThanOrEqual(2)
     expect(requests.detail).toBeGreaterThanOrEqual(1)
+  })
+
+  test('requests owner-only favorites with normalized discovery params and hides private fixture markers', async ({ page }) => {
+    let favoritesRequests = 0
+
+    await page.route(new RegExp(`^${API_ORIGIN.replaceAll('.', '\\.')}\/question\/favorites\/(?:\\?.*)?$`), async (route) => {
+      favoritesRequests += 1
+      expectNormalizedFavoritesRequest(route, {
+        page: '2',
+        search: 'cache',
+        ordering: 'question_created_at',
+        tags: ['vue', 'tanstack'],
+      })
+      await json(route, 200, buildQuestionPage([buildPrivateAnnotatedQuestion({ isFavorited: true, favoritesCount: 4 })], 12))
+    })
+
+    await page.goto('/profile?tab=favorites&search=cache&ordering=question_created_at&tag=vue&tag=tanstack&page=2')
+
+    await expect(page.getByTestId('profile-page')).toBeVisible()
+    await expect(page.getByTestId('profile-tab-favorites')).toHaveClass(/profile-page__tab--active/)
+    await expect(page.getByTestId('profile-favorites-workspace')).toBeVisible()
+    await expect(page.getByTestId('profile-favorites-count')).toContainText('12 сохранённых вопросов')
+    await expect(page.getByTestId('profile-favorites-list').getByText(QUESTION_TITLE)).toBeVisible()
+    await expect(page.getByTestId('profile-favorites-list').getByTestId('question-favorite-button')).toHaveAttribute('aria-pressed', 'true')
+    await expectNoPrivateMarkers(page)
+    expect(favoritesRequests).toBe(1)
+  })
+
+  test('keeps the profile shell visible and retries favorites errors without leaking diagnostics', async ({ page }) => {
+    let favoritesRequests = 0
+
+    await page.route(new RegExp(`^${API_ORIGIN.replaceAll('.', '\\.')}\/question\/favorites\/(?:\\?.*)?$`), async (route) => {
+      favoritesRequests += 1
+      expectNormalizedFavoritesRequest(route, {
+        page: '2',
+        search: 'cache',
+        ordering: 'question_created_at',
+        tags: ['vue', 'tanstack'],
+      })
+
+      if (favoritesRequests === 1) {
+        await json(route, 500, {
+          detail: 'Traceback (most recent call last): django-stack-trace diagnostic-id-private-42 private@example.test',
+          source_object_id: OTHER_USER_ID,
+        })
+        return
+      }
+
+      await json(route, 200, buildQuestionPage([buildQuestion({ isFavorited: true, favoritesCount: 9 })], 1))
+    })
+
+    await page.goto('/profile?tab=favorites&search=cache&ordering=question_created_at&tag=vue&tag=tanstack&page=2')
+
+    await expect(page.getByTestId('profile-page')).toBeVisible()
+    await expect(page.getByTestId('profile-tab-favorites')).toHaveClass(/profile-page__tab--active/)
+    const workspace = page.getByTestId('profile-favorites-workspace')
+    await expect(workspace).toBeVisible()
+    const errorState = page.getByTestId('profile-favorites-state-error')
+    await expect(errorState).toBeVisible()
+    await expect(errorState).toContainText('Не удалось загрузить сохранённые вопросы')
+    await expect(errorState).toContainText('Активные фильтры сохранены')
+    await expect(errorState).toContainText('повторите запрос ещё раз')
+    await expectNoPrivateMarkers(page)
+    expect(favoritesRequests).toBe(1)
+
+    await errorState.getByRole('button', { name: 'Попробовать снова' }).click()
+
+    await expect(page.getByTestId('profile-favorites-list').getByText(QUESTION_TITLE)).toBeVisible()
+    await expect(page.getByTestId('profile-favorites-count')).toContainText('1 сохранённых вопросов')
+    await expect(page).toHaveURL(/\/profile\?tab=favorites&search=cache&ordering=question_created_at&tag=vue&tag=tanstack&page=2$/)
+    await expectNoPrivateMarkers(page)
+    expect(favoritesRequests).toBe(2)
   })
 })

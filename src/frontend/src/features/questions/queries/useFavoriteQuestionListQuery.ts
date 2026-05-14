@@ -11,5 +11,6 @@ export function useFavoriteQuestionListQuery(params: MaybeRefOrGetter<QuestionLi
     queryKey: computed(() => ['questions', 'list', 'favorites', normalizedParams.value]),
     placeholderData: keepPreviousData,
     queryFn: () => fetchFavoriteQuestionList(normalizedParams.value),
+    retry: false,
   })
 }
