@@ -10,7 +10,8 @@
     "typecheck": "node ./node_modules/vue-tsc/bin/vue-tsc.js --noEmit",
     "test": "node ./node_modules/vitest/vitest.mjs",
     "test:run": "node ./node_modules/vitest/vitest.mjs run",
-    "smoke:profile-knowledge-graph": "npm run build && playwright test --config=playwright.config.ts e2e/profile-knowledge-graph.spec.ts"
+    "smoke:profile-knowledge-graph": "npm run build && playwright test --config=playwright.config.ts e2e/profile-knowledge-graph.spec.ts",
+    "smoke:question-favorites": "npm run build && playwright test --config=playwright.config.ts e2e/question-favorites-flow.spec.ts"
   },
   "dependencies": {
     "@fontsource/ibm-plex-sans": "^5.2.8",
