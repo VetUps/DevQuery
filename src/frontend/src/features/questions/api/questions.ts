@@ -306,6 +306,15 @@ export function normalizeQuestionTags(tags: readonly unknown[] = []) {
   return [...new Set(normalizedTags)]
 }
 
+function normalizeQuestionListResponse(data: PaginatedResponse<unknown>) {
+  return {
+    ...data,
+    results: Array.isArray(data.results)
+      ? data.results.map((item) => normalizeQuestionListItem(item))
+      : [],
+  } satisfies PaginatedResponse<QuestionListItem>
+}
+
 export async function fetchQuestionList(params: QuestionListParams) {
   const normalizedTags = normalizeQuestionTags(params.tags)
   const response = await http.get<PaginatedResponse<unknown>>('/question/', {
@@ -320,12 +329,24 @@ export async function fetchQuestionList(params: QuestionListParams) {
     },
   })
 
-  return {
-    ...response.data,
-    results: Array.isArray(response.data.results)
-      ? response.data.results.map((item) => normalizeQuestionListItem(item))
-      : [],
-  } satisfies PaginatedResponse<QuestionListItem>
+  return normalizeQuestionListResponse(response.data)
+}
+
+export async function fetchFavoriteQuestionList(params: QuestionListParams) {
+  const normalizedTags = normalizeQuestionTags(params.tags)
+  const response = await http.get<PaginatedResponse<unknown>>('/question/favorites/', {
+    params: {
+      page: params.page,
+      search: params.search?.trim() || undefined,
+      ordering: params.ordering,
+      tag: normalizedTags.length > 0 ? normalizedTags : undefined,
+    },
+    paramsSerializer: {
+      indexes: null,
+    },
+  })
+
+  return normalizeQuestionListResponse(response.data)
 }
 
 export async function fetchQuestionDetail(questionId: string) {
