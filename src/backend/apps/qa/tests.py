@@ -1,6 +1,7 @@
 from datetime import timedelta
 from unittest.mock import patch
 
+from django.contrib.auth.models import AnonymousUser
 from django.contrib.contenttypes.models import ContentType
 from django.db import IntegrityError, transaction
 from django.utils import timezone
@@ -14,6 +15,7 @@ from apps.qa.models import (
     Question,
     QuestionEditEvent,
     QuestionEditProposal,
+    QuestionFavorite,
     QuestionRevision,
     Solution,
     SolutionEdits,
@@ -36,12 +38,146 @@ from apps.qa.serializers import (
 )
 from apps.qa.services.question_edit_service import QuestionChangePayload, QuestionEditService
 from apps.qa.services.question_expert_invitation_service import QuestionExpertInvitationService
+from apps.qa.services.question_favorite_service import QuestionFavoriteService
 from apps.qa.services.question_protection_service import QuestionProtectionService
 from apps.qa.services.solution_edits_service import SolutionEditService
 from apps.qa.services.solution_service import BEST_SOLUTION_REPUTATION_AWARD, SolutionService
 from apps.qa.services.vote_service import VoteService
 from apps.user.models import CustomUser, ReputationLevelThreshold, ReputationPolicyConfig, ReputationTransaction
 from apps.user.services.reputation_service import ReputationService
+
+
+class QuestionFavoriteModelTests(APITestCase):
+    def setUp(self):
+        self.author = CustomUser.objects.create_user(
+            user_email='favorite-author@example.com',
+            user_name='favorite-author',
+            password='password',
+        )
+        self.viewer = CustomUser.objects.create_user(
+            user_email='favorite-viewer@example.com',
+            user_name='favorite-viewer',
+            password='password',
+        )
+        self.question = Question.objects.create(
+            user=self.author,
+            question_title='Favorite persistence question',
+            question_body='Need duplicate-safe favorite rows.',
+        )
+
+    def test_duplicate_user_question_pair_is_rejected(self):
+        QuestionFavorite.objects.create(user=self.viewer, question=self.question)
+
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                QuestionFavorite.objects.create(user=self.viewer, question=self.question)
+
+        self.assertEqual(QuestionFavorite.objects.filter(user=self.viewer, question=self.question).count(), 1)
+
+    def test_user_cascade_removes_favorites(self):
+        QuestionFavorite.objects.create(user=self.viewer, question=self.question)
+
+        self.viewer.delete()
+
+        self.assertFalse(QuestionFavorite.objects.filter(question=self.question).exists())
+
+    def test_question_cascade_removes_favorites(self):
+        QuestionFavorite.objects.create(user=self.viewer, question=self.question)
+
+        self.question.delete()
+
+        self.assertFalse(QuestionFavorite.objects.filter(user=self.viewer).exists())
+
+
+class QuestionFavoriteServiceTests(APITestCase):
+    def setUp(self):
+        self.author = CustomUser.objects.create_user(
+            user_email='favorite-service-author@example.com',
+            user_name='favorite-service-author',
+            password='password',
+        )
+        self.viewer = CustomUser.objects.create_user(
+            user_email='favorite-service-viewer@example.com',
+            user_name='favorite-service-viewer',
+            password='password',
+        )
+        self.other_viewer = CustomUser.objects.create_user(
+            user_email='favorite-service-other@example.com',
+            user_name='favorite-service-other',
+            password='password',
+        )
+        self.question = Question.objects.create(
+            user=self.author,
+            question_title='Favorite service question',
+            question_body='Need idempotent service operations.',
+        )
+        self.other_question = Question.objects.create(
+            user=self.author,
+            question_title='Unfavorited service question',
+            question_body='Need zero-state annotation coverage.',
+        )
+
+    def test_add_favorite_is_idempotent_and_returns_server_truth(self):
+        first_favorite, first_created = QuestionFavoriteService.add_favorite(self.viewer, self.question)
+        second_favorite, second_created = QuestionFavoriteService.add_favorite(self.viewer, self.question)
+
+        self.assertTrue(first_created)
+        self.assertFalse(second_created)
+        self.assertEqual(first_favorite.pk, second_favorite.pk)
+        self.assertEqual(QuestionFavorite.objects.filter(user=self.viewer, question=self.question).count(), 1)
+
+    def test_remove_favorite_is_idempotent(self):
+        QuestionFavoriteService.add_favorite(self.viewer, self.question)
+
+        first_deleted = QuestionFavoriteService.remove_favorite(self.viewer, self.question)
+        second_deleted = QuestionFavoriteService.remove_favorite(self.viewer, self.question)
+
+        self.assertEqual(first_deleted, 1)
+        self.assertEqual(second_deleted, 0)
+        self.assertFalse(QuestionFavorite.objects.filter(user=self.viewer, question=self.question).exists())
+
+    def test_annotate_favorites_returns_public_count_and_authenticated_viewer_state(self):
+        QuestionFavoriteService.add_favorite(self.viewer, self.question)
+        QuestionFavoriteService.add_favorite(self.other_viewer, self.question)
+
+        questions = {
+            question.pk: question
+            for question in QuestionFavoriteService.annotate_favorites(
+                Question.objects.filter(pk__in=[self.question.pk, self.other_question.pk]).order_by('question_title'),
+                user=self.viewer,
+            )
+        }
+
+        self.assertEqual(questions[self.question.pk].favorites_count, 2)
+        self.assertTrue(questions[self.question.pk].is_favorited)
+        self.assertEqual(questions[self.other_question.pk].favorites_count, 0)
+        self.assertFalse(questions[self.other_question.pk].is_favorited)
+
+    def test_annotate_favorites_defaults_anonymous_state_to_false(self):
+        QuestionFavoriteService.add_favorite(self.viewer, self.question)
+
+        annotated_question = QuestionFavoriteService.annotate_favorites(
+            Question.objects.filter(pk=self.question.pk),
+            user=AnonymousUser(),
+        ).get()
+
+        self.assertEqual(annotated_question.favorites_count, 1)
+        self.assertFalse(annotated_question.is_favorited)
+
+    def test_get_favorite_state_uses_annotations_or_database_truth(self):
+        QuestionFavoriteService.add_favorite(self.viewer, self.question)
+        annotated_question = QuestionFavoriteService.annotate_favorites(
+            Question.objects.filter(pk=self.question.pk),
+            user=self.viewer,
+        ).get()
+
+        annotated_state = QuestionFavoriteService.get_favorite_state(annotated_question, self.viewer)
+        direct_state = QuestionFavoriteService.get_favorite_state(self.question, self.viewer)
+        anonymous_state = QuestionFavoriteService.get_favorite_state(self.question, None)
+
+        self.assertEqual(annotated_state, {'favorites_count': 1, 'is_favorited': True})
+        self.assertEqual(direct_state, {'favorites_count': 1, 'is_favorited': True})
+        self.assertEqual(anonymous_state, {'favorites_count': 1, 'is_favorited': False})
 
 
 class QuestionProtectionServiceTests(APITestCase):

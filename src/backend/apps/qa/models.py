@@ -46,6 +46,31 @@ class Question(models.Model):
     def __str__(self):
         return self.question_title
 
+
+class QuestionFavorite(models.Model):
+    favorite_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False, blank=False,
+                                   help_text='Уникальный идентификатор избранного вопроса')
+    user = models.ForeignKey(CustomUser, blank=False, null=False, on_delete=models.CASCADE,
+                             related_name='question_favorites', help_text='Пользователь, добавивший вопрос в избранное')
+    question = models.ForeignKey(Question, blank=False, null=False, on_delete=models.CASCADE,
+                                 related_name='favorites', help_text='Вопрос, добавленный в избранное')
+    created_at = models.DateTimeField(auto_now_add=True, blank=False,
+                                      help_text='Дата добавления вопроса в избранное')
+
+    class Meta:
+        db_table = 'question_favorites'
+        constraints = [
+            models.UniqueConstraint(fields=['user', 'question'], name='unique_question_favorite_user_question')
+        ]
+        indexes = [
+            models.Index(fields=['user', 'created_at']),
+            models.Index(fields=['question']),
+        ]
+
+    def __str__(self):
+        return f'{self.user.user_name if self.user else "Anonymous"} favorited {self.question_id}'
+
+
 class Solution(models.Model):
     solution_id =         models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False, blank=False,
                                            help_text='Уникальный идентификатор решения')
