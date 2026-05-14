@@ -8,6 +8,7 @@ import { useSessionStore } from '@/features/auth/stores/session'
 import { canAccessAdminWorkspace } from '@/features/admin/libs/admin-access'
 import ProfileKnowledgeGraphTab from '@/features/knowledge/components/ProfileKnowledgeGraphTab.vue'
 import ProfileNotificationsTab from '@/features/notifications/components/ProfileNotificationsTab.vue'
+import ProfileFavoritesTab from '@/features/questions/components/ProfileFavoritesTab.vue'
 import ProfileQuestionEditReviewQueue from '@/features/questions/components/ProfileQuestionEditReviewQueue.vue'
 import ProfileEditHistoryTab from '@/features/solutions/components/ProfileEditHistoryTab.vue'
 import ProfileEditReviewQueue from '@/features/solutions/components/ProfileEditReviewQueue.vue'
@@ -20,10 +21,11 @@ import AppDialog from '@/shared/ui/AppDialog.vue'
 import InlineFeedbackPanel from '@/shared/ui/InlineFeedbackPanel.vue'
 import SurfacePanel from '@/shared/ui/SurfacePanel.vue'
 
-type ProfileTab = 'overview' | 'knowledge' | 'review' | 'history' | 'notifications'
+type ProfileTab = 'overview' | 'favorites' | 'knowledge' | 'review' | 'history' | 'notifications'
 
 const PROFILE_TABS: Array<{ value: ProfileTab; label: string }> = [
   { value: 'overview', label: 'Обзор' },
+  { value: 'favorites', label: 'Избранное' },
   { value: 'knowledge', label: 'Граф знаний' },
   { value: 'review', label: 'Проверка правок' },
   { value: 'history', label: 'История правок' },
@@ -195,6 +197,8 @@ async function setActiveTab(tab: ProfileTab) {
           <ProfileEditHistoryTab v-else-if="activeTab === 'history'" />
 
           <ProfileKnowledgeGraphTab v-else-if="activeTab === 'knowledge'" />
+
+          <ProfileFavoritesTab v-else-if="activeTab === 'favorites'" />
 
           <ProfileNotificationsTab v-else />
         </SurfacePanel>
