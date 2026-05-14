@@ -109,6 +109,8 @@ export interface QuestionListItem extends QuestionProtectionSnapshot {
   question_status: 'open' | 'closed' | 'solved' | string
   question_created_at: string
   question_updated_at: string
+  favorites_count: number
+  is_favorited: boolean
   tags: QuestionTag[]
 }
 
@@ -158,6 +160,12 @@ export interface CreateQuestionResponse {
   question_created_at: string
   question_updated_at: string
   tags: QuestionTag[]
+}
+
+export interface QuestionFavoriteMutationResponse {
+  question_id: string
+  favorites_count: number
+  is_favorited: boolean
 }
 
 const DEFAULT_QUESTION_PROTECTION_SNAPSHOT: QuestionProtectionSnapshot = {
@@ -281,6 +289,10 @@ export function normalizeQuestionListItem(value: unknown): QuestionListItem {
     question_status: typeof question.question_status === 'string' ? question.question_status : 'open',
     question_created_at: typeof question.question_created_at === 'string' ? question.question_created_at : '',
     question_updated_at: typeof question.question_updated_at === 'string' ? question.question_updated_at : '',
+    favorites_count: typeof question.favorites_count === 'number' && Number.isFinite(question.favorites_count)
+      ? Math.max(0, question.favorites_count)
+      : 0,
+    is_favorited: typeof question.is_favorited === 'boolean' ? question.is_favorited : false,
     tags: Array.isArray(question.tags) ? question.tags.filter(isQuestionTag) : [],
   }, question)
 }
@@ -394,6 +406,41 @@ function normalizeQuestionDetail(value: unknown): QuestionDetail {
         ? question.user_vote
         : null,
   }
+}
+
+export function normalizeQuestionFavoriteMutationResponse(value: unknown): QuestionFavoriteMutationResponse {
+  if (!value || typeof value !== 'object') {
+    throw new Error('Malformed question favorite response')
+  }
+
+  const response = value as Record<string, unknown>
+
+  if (
+    typeof response.question_id !== 'string' ||
+    typeof response.favorites_count !== 'number' ||
+    !Number.isFinite(response.favorites_count) ||
+    typeof response.is_favorited !== 'boolean'
+  ) {
+    throw new Error('Malformed question favorite response')
+  }
+
+  return {
+    question_id: response.question_id,
+    favorites_count: Math.max(0, response.favorites_count),
+    is_favorited: response.is_favorited,
+  }
+}
+
+export async function addQuestionFavorite(questionId: string) {
+  const response = await http.post<unknown>(`/question/${questionId}/favorite/`)
+
+  return normalizeQuestionFavoriteMutationResponse(response.data)
+}
+
+export async function removeQuestionFavorite(questionId: string) {
+  const response = await http.delete<unknown>(`/question/${questionId}/favorite/`)
+
+  return normalizeQuestionFavoriteMutationResponse(response.data)
 }
 
 export async function updateQuestion(questionId: string, payload: UpdateQuestionPayload) {
