@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type {
   KnowledgeGraphEdge,
   KnowledgeGraphNode,
+  KnowledgeGraphSemanticEdge,
   KnowledgeGraphSemanticGraphMetadata,
   KnowledgeGraphSemanticGroup,
 } from '@/features/knowledge/api/knowledgeGraph'
@@ -273,6 +274,22 @@ function buildSemanticGraphMetadata(overrides: Partial<KnowledgeGraphSemanticGra
   }
 }
 
+function buildSemanticEdges(): KnowledgeGraphSemanticEdge[] {
+  return [
+    {
+      id: 'semantic-10-12',
+      source_concept_id: 10,
+      target_concept_id: 12,
+      weight: '0.8400',
+      similarity_score: '0.8400',
+      confidence: '0.9000',
+      rank: 1,
+      reason: 'semantic_neighbour',
+      evidence: { source: 'test' },
+    },
+  ]
+}
+
 function buildSemanticGroups(): KnowledgeGraphSemanticGroup[] {
   return [
     {
@@ -346,6 +363,27 @@ describe('KnowledgeGraphRenderer', () => {
     expect(cytoscapeMock.constructor).toHaveBeenCalledOnce()
     const options = cytoscapeMock.constructor.mock.calls[0][0] as CytoscapeOptions
     expect(options.elements?.some((element) => element.data?.id === 'semantic-cluster-frontend-patterns')).toBe(false)
+  })
+
+  it('emits semantic visibility changes when the legend toggle is clicked', async () => {
+    const wrapper = mount(KnowledgeGraphRenderer, {
+      props: {
+        nodes: buildNodes(),
+        edges: buildEdges(),
+        semanticEdges: buildSemanticEdges(),
+        showSemanticEdges: true,
+        isOwner: true,
+      },
+    })
+    await flushPromises()
+
+    const toggle = wrapper.get('[data-testid="knowledge-graph-semantic-toggle"]')
+    expect(toggle.text()).toBe('Скрыть семантический слой')
+    expect(toggle.attributes('aria-pressed')).toBe('true')
+
+    await toggle.trigger('click')
+
+    expect(wrapper.emitted('semantic-visibility-changed')).toEqual([[false]])
   })
 
   it('renders owner semantic groups as accessible projection areas with lifecycle counts', async () => {
