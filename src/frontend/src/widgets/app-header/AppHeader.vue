@@ -118,9 +118,11 @@ async function handleLogout() {
   position: sticky;
   top: 0;
   z-index: 10;
-  border-bottom: 1px solid rgb(207 198 180 / 0.58);
-  background: rgb(228 222 208 / 0.88);
-  backdrop-filter: blur(10px);
+  border-bottom: 1px solid rgb(255 255 255 / 0.4);
+  background: rgb(228 222 208 / 0.65);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.04);
 }
 
 .app-header__inner {
