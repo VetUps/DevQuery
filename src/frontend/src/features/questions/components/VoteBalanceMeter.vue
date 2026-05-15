@@ -38,11 +38,11 @@ const downvoteWidth = computed(() => {
     </div>
 
     <div class="vote-balance-meter__legend">
-      <span class="vote-balance-meter__label vote-balance-meter__label--up">
-        Поддержали: {{ upvotes }}
+      <span class="vote-balance-meter__label vote-balance-meter__label--up" aria-label="Поддержали">
+        ▲ {{ upvotes }}
       </span>
-      <span class="vote-balance-meter__label vote-balance-meter__label--down">
-        Против: {{ downvotes }}
+      <span class="vote-balance-meter__label vote-balance-meter__label--down" aria-label="Против">
+        ▼ {{ downvotes }}
       </span>
     </div>
   </div>
@@ -81,7 +81,14 @@ const downvoteWidth = computed(() => {
   justify-content: space-between;
   gap: var(--space-sm);
   color: var(--color-muted);
-  font-size: 13px;
+  font-size: 14px;
+}
+
+.vote-balance-meter__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 600;
 }
 
 .vote-balance-meter__label--up {
