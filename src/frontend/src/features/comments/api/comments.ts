@@ -1,5 +1,6 @@
 import { http } from '@/shared/api/http'
 import type { PaginatedResponse } from '@/features/questions/api/questions'
+import type { ReputationSummary } from '@/features/users/api/reputation'
 
 export type CommentTargetType = 'question' | 'solution'
 
@@ -8,6 +9,8 @@ export interface CommentListItem {
   user: string
   user_name: string
   user_avatar_url: string | null
+  user_reputation_score?: number | null
+  reputation?: ReputationSummary | null
   target_type: CommentTargetType
   target_id: string
   parent_id: string | null

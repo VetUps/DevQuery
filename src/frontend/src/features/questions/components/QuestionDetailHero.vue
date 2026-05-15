@@ -70,14 +70,16 @@ const emit = defineEmits<{
       <div class="question-detail-hero__author">
         <div>
           <p class="question-detail-hero__author-label">Автор вопроса</p>
-          <p class="question-detail-hero__author-name">
-            {{ author?.user_name ?? 'Профиль автора загружается' }}
-          </p>
-          <AuthorReputationBadge
-            v-if="author"
-            :reputation="author.reputation"
-            :fallback-score="author.user_reputation_score"
-          />
+          <div class="question-detail-hero__author-identity">
+            <p class="question-detail-hero__author-name">
+              {{ author?.user_name ?? 'Профиль автора загружается' }}
+            </p>
+            <AuthorReputationBadge
+              v-if="author"
+              :reputation="author.reputation"
+              :fallback-score="author.user_reputation_score"
+            />
+          </div>
         </div>
 
         <dl v-if="author" class="question-detail-hero__author-stats">
@@ -207,6 +209,14 @@ const emit = defineEmits<{
 .question-detail-hero__author {
   padding-top: var(--space-lg);
   border-top: 1px solid rgb(207 198 180 / 0.72);
+}
+
+.question-detail-hero__author-identity {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs) var(--space-sm);
+  margin-top: var(--space-xs);
 }
 
 .question-detail-hero__author-name {

@@ -5,6 +5,7 @@ import {
   buildReputationProgress,
   type ReputationSummary,
 } from '@/features/users/api/reputation'
+import ReputationRankIcon from '@/features/users/components/ReputationRankIcon.vue'
 import SurfacePanel from '@/shared/ui/SurfacePanel.vue'
 
 const props = defineProps<{
@@ -47,7 +48,10 @@ const statusLabel = computed(() => (
             Как работает репутация
           </button>
         </div>
-        <h2 class="profile-reputation-summary__title">{{ reputation.level_label }}</h2>
+        <div class="profile-reputation-summary__title-row">
+          <ReputationRankIcon :level="reputation.level" size="profile" />
+          <h2 class="profile-reputation-summary__title">{{ reputation.level_label }}</h2>
+        </div>
       </div>
       <div class="profile-reputation-summary__score-block">
         <span class="profile-reputation-summary__score">{{ reputation.score }}</span>
@@ -151,8 +155,15 @@ const statusLabel = computed(() => (
   outline: none;
 }
 
-.profile-reputation-summary__title {
+.profile-reputation-summary__title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
   margin-top: var(--space-xs);
+}
+
+.profile-reputation-summary__title {
   font-size: clamp(24px, 3vw, 32px);
   line-height: 1.08;
 }

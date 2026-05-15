@@ -238,7 +238,7 @@ describe('profile reputation surfaces', () => {
     expect(text).toContain('Ваш ответ выбрали лучшим решением.')
   })
 
-  it('opens the real AppDialog with scoring rules and backend-provided threshold bands', async () => {
+  it('opens the real AppDialog with scoring rules, all trust levels, and rank icons', async () => {
     profileState.data.value = buildProfile({
       user_reputation_score: 165,
       reputation: {
@@ -273,10 +273,16 @@ describe('profile reputation surfaces', () => {
     expect(explanation?.textContent).toContain('Голос за решение+10')
     expect(explanation?.textContent).toContain('Голос за вопрос+5')
     expect(explanation?.textContent).toContain('Одобренная правка+2')
-    expect(explanation?.textContent).toContain('Эксперт150–449')
-    expect(explanation?.textContent).toContain('Мастер450+')
-    expect(explanation?.textContent).not.toContain('Эксперт100–299')
-    expect(explanation?.textContent).not.toContain('Мастер300+')
+    expect(explanation?.textContent).toContain('Новичок0–29')
+    expect(explanation?.textContent).toContain('Участник30–99')
+    expect(explanation?.textContent).toContain('Эксперт100–299')
+    expect(explanation?.textContent).toContain('Мастер300+')
+    expect(Array.from(explanation?.querySelectorAll('[data-testid="reputation-rank-icon"]') ?? []).map((icon) => icon.getAttribute('data-rank-level'))).toEqual([
+      'newcomer',
+      'participant',
+      'expert',
+      'master',
+    ])
     expect(router.currentRoute.value.query).toEqual({})
   })
 

@@ -1,10 +1,9 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-
-import type { ReputationSummary } from '@/features/users/api/reputation'
+import type { ReputationLevel, ReputationSummary } from '@/features/users/api/reputation'
+import ReputationRankIcon from '@/features/users/components/ReputationRankIcon.vue'
 import SurfacePanel from '@/shared/ui/SurfacePanel.vue'
 
-const props = defineProps<{
+defineProps<{
   reputation?: ReputationSummary | null
 }>()
 
@@ -15,49 +14,12 @@ const scoringRules = [
   { label: 'Одобренная правка', value: '+2' },
 ]
 
-const defaultLevelThresholds = [
-  { label: 'Новичок', range: '0–29' },
-  { label: 'Участник', range: '30–99' },
-  { label: 'Эксперт', range: '100–299' },
-  { label: 'Мастер', range: '300+' },
+const levelThresholds: Array<{ level: ReputationLevel; label: string; range: string }> = [
+  { level: 'newcomer', label: 'Новичок', range: '0–29' },
+  { level: 'participant', label: 'Участник', range: '30–99' },
+  { level: 'expert', label: 'Эксперт', range: '100–299' },
+  { level: 'master', label: 'Мастер', range: '300+' },
 ]
-
-function formatThresholdRange(minimumScore: number, nextMinimumScore?: number | null) {
-  if (nextMinimumScore === null || nextMinimumScore === undefined) {
-    return `${minimumScore}+`
-  }
-
-  return `${minimumScore}–${Math.max(nextMinimumScore - 1, minimumScore)}`
-}
-
-const levelThresholds = computed(() => {
-  const reputation = props.reputation
-
-  if (
-    !reputation
-    || reputation.level_minimum_score === undefined
-    || reputation.next_level_label === undefined
-    || reputation.next_level_minimum_score === undefined
-  ) {
-    return defaultLevelThresholds
-  }
-
-  const levels = [
-    {
-      label: reputation.level_label,
-      range: formatThresholdRange(reputation.level_minimum_score, reputation.next_level_minimum_score),
-    },
-  ]
-
-  if (reputation.next_level_label) {
-    levels.push({
-      label: reputation.next_level_label,
-      range: formatThresholdRange(reputation.next_level_minimum_score ?? 0, null),
-    })
-  }
-
-  return levels
-})
 </script>
 
 <template>
@@ -88,9 +50,12 @@ const levelThresholds = computed(() => {
           <div
             v-for="threshold in levelThresholds"
             :key="threshold.label"
-            class="reputation-explanation-panel__rule"
+            class="reputation-explanation-panel__rule reputation-explanation-panel__rule--level"
           >
-            <dt>{{ threshold.label }}</dt>
+            <dt class="reputation-explanation-panel__level-name">
+              <ReputationRankIcon :level="threshold.level" />
+              <span>{{ threshold.label }}</span>
+            </dt>
             <dd>{{ threshold.range }}</dd>
           </div>
         </dl>
@@ -182,6 +147,12 @@ const levelThresholds = computed(() => {
 .reputation-explanation-panel__rule dt {
   color: var(--color-text);
   font-weight: 600;
+}
+
+.reputation-explanation-panel__level-name {
+  display: inline-flex;
+  gap: var(--space-xs);
+  align-items: center;
 }
 
 .reputation-explanation-panel__rule dd {

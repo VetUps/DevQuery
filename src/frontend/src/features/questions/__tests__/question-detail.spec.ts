@@ -604,8 +604,12 @@ describe('question detail page', () => {
 
     expect(wrapper.get('[data-testid="expert-invitation-available-section"]').text()).toContain('Кого можно пригласить сейчас')
     expect(wrapper.get('[data-testid="expert-invitation-available-list"]').text()).toContain('Expert Alice')
+    expect(wrapper.get('[data-testid="expert-invitation-available-row-expert-1"] [data-testid="reputation-rank-icon"]').attributes('data-rank-level')).toBe('expert')
+    expect(wrapper.get('[data-testid="expert-invitation-available-row-master-1"] [data-testid="reputation-rank-icon"]').attributes('data-rank-level')).toBe('master')
     expect(wrapper.get('[data-testid="expert-invitation-invited-section"]').text()).toContain('Получатели приглашений')
     expect(wrapper.get('[data-testid="expert-invitation-invited-row-expert-2"]').text()).toContain('Invited Eve')
+    expect(wrapper.get('[data-testid="expert-invitation-invited-row-expert-2"] [data-testid="reputation-rank-icon"]').attributes('data-rank-level')).toBe('expert')
+    expect(wrapper.get('[data-testid="expert-invitation-invited-row-master-2"] [data-testid="reputation-rank-icon"]').attributes('data-rank-level')).toBe('master')
     expect(wrapper.get('[data-testid="expert-invitation-status-expert-2"]').text()).toContain('Приглашение активно')
     expect(wrapper.get('[data-testid="expert-invitation-read-expert-2"]').text()).toContain('Уведомление не прочитано')
     expect(wrapper.get('[data-testid="expert-invitation-window-expert-2"]').text()).toContain('Защитное окно активно')
@@ -1047,6 +1051,8 @@ describe('question detail page', () => {
     const badge = wrapper.get('[data-testid="author-reputation-badge"]')
     expect(badge.text()).toContain('Master')
     expect(badge.text()).toContain('510')
+    expect(badge.get('[data-testid="reputation-rank-icon"]').attributes('data-rank-level')).toBe('master')
+    expect(badge.findAll('[data-rank-part="star"]')).toHaveLength(3)
     expect(wrapper.text()).not.toContain('manual_level')
   })
 
