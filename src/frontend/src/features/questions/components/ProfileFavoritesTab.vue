@@ -266,6 +266,8 @@ onBeforeUnmount(clearSearchDebounceTimer)
           :key="question.question_id"
           :question="question"
           :is-authenticated="true"
+          tag-link-path="/profile"
+          :tag-link-query-base="{ tab: 'favorites' }"
         />
       </div>
 
