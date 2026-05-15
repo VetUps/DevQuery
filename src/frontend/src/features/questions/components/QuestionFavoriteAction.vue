@@ -25,8 +25,6 @@ const actionLabel = computed(() => (
     ? `В избранном. Убрать из избранного, ${safeFavoritesCount.value}`
     : `Добавить в избранное, ${safeFavoritesCount.value}`
 ))
-const stateLabel = computed(() => (props.isFavorited ? 'В избранном' : 'В избранное'))
-
 async function toggleFavorite() {
   if (!props.isAuthenticated || favoriteMutation.isPending.value) {
     return
@@ -71,8 +69,11 @@ async function toggleFavorite() {
         :size="variant === 'large' ? 24 : 20"
         :stroke-width="2.25"
       />
-      <span class="question-favorite-action__state">{{ stateLabel }}</span>
-      <span class="question-favorite-action__count" data-testid="question-favorite-count">
+      <span
+        class="question-favorite-action__count"
+        :class="{ 'question-favorite-action__count--compact': variant === 'compact' }"
+        data-testid="question-favorite-count"
+      >
         {{ safeFavoritesCount }}
       </span>
     </button>
@@ -91,8 +92,11 @@ async function toggleFavorite() {
         :size="variant === 'large' ? 24 : 20"
         :stroke-width="2.25"
       />
-      <span class="question-favorite-action__state">Войдите, чтобы сохранить</span>
-      <span class="question-favorite-action__count" data-testid="question-favorite-count">
+      <span
+        class="question-favorite-action__count"
+        :class="{ 'question-favorite-action__count--compact': variant === 'compact' }"
+        data-testid="question-favorite-count"
+      >
         {{ safeFavoritesCount }}
       </span>
     </RouterLink>
@@ -131,7 +135,9 @@ async function toggleFavorite() {
 
 .question-favorite-action--compact .question-favorite-action__button,
 .question-favorite-action--compact .question-favorite-action__link {
-  padding: 0 var(--space-md);
+  justify-content: center;
+  width: 40px;
+  padding: 0;
 }
 
 .question-favorite-action--large .question-favorite-action__button,
@@ -189,5 +195,17 @@ async function toggleFavorite() {
   background: rgb(69 58 38 / 0.08);
   color: inherit;
   font-variant-numeric: tabular-nums;
+}
+
+.question-favorite-action__count--compact {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 </style>

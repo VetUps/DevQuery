@@ -219,6 +219,19 @@ describe('profile favorites tab', () => {
     expect(wrapper.get('[data-testid="question-favorite-action"]').attributes('data-favorited')).toBe('true')
     expect(wrapper.get('[data-testid="question-favorite-count"]').text()).toBe('8')
     expect(wrapper.get('a.question-card__link').attributes('href')).toBe('/questions/favorite-question-42')
+    expect(wrapper.get('[data-testid="question-tag-chips"] a').attributes('href')).toBe('/profile?tab=favorites&tag=vue')
+
+    await wrapper.get('[data-testid="question-tag-chips"] a').trigger('click')
+    await flushPromises()
+
+    expect(router.currentRoute.value.path).toBe('/profile')
+    expect(router.currentRoute.value.query).toEqual({
+      tab: 'favorites',
+      tag: 'vue',
+    })
+
+    await router.push('/profile?tab=favorites')
+    await flushPromises()
 
     await wrapper.get('[data-testid="question-favorite-button"]').trigger('click')
     await nextTick()

@@ -59,7 +59,8 @@ describe('QuestionFavoriteAction', () => {
     expect(button.attributes('aria-busy')).toBe('false')
     expect(button.attributes('aria-label')).toContain('Добавить в избранное')
     expect(wrapper.get('[data-testid="question-favorite-count"]').text()).toBe('4')
-    expect(wrapper.text()).toContain('В избранное')
+    expect(wrapper.get('[data-testid="question-favorite-count"]').classes()).toContain('question-favorite-action__count--compact')
+    expect(wrapper.find('.question-favorite-action__state').exists()).toBe(false)
   })
 
   it('renders active state with filled and non-color cues', () => {
@@ -75,7 +76,7 @@ describe('QuestionFavoriteAction', () => {
     expect(button.attributes('aria-pressed')).toBe('true')
     expect(button.attributes('aria-label')).toContain('В избранном')
     expect(icon.classes()).toContain('question-favorite-action__icon--filled')
-    expect(wrapper.text()).toContain('В избранном')
+    expect(wrapper.find('.question-favorite-action__state').exists()).toBe(false)
     expect(wrapper.get('[data-testid="question-favorite-count"]').text()).toBe('9')
   })
 
