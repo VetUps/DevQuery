@@ -81,6 +81,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
 
 class PublicUserProfileSerializer(serializers.ModelSerializer):
     reputation = serializers.SerializerMethodField()
+    weekly_score = serializers.IntegerField(read_only=True, required=False)
 
     class Meta:
         model = CustomUser
@@ -93,6 +94,7 @@ class PublicUserProfileSerializer(serializers.ModelSerializer):
             'user_bio',
             'user_created_at',
             'reputation',
+            'weekly_score',
         )
 
     def get_reputation(self, obj) -> dict:
@@ -121,6 +123,7 @@ class AdminUserListSerializer(serializers.ModelSerializer):
 
 class AdminActivityTimelineQuerySerializer(serializers.Serializer):
     limit = serializers.IntegerField(required=False, min_value=0)
+    page = serializers.IntegerField(required=False, min_value=1, default=1)
     type = serializers.ListField(
         child=serializers.ChoiceField(choices=sorted(AdminActivityService.ALLOWED_TYPES)),
         required=False,
@@ -145,6 +148,7 @@ class AdminActivityTimelineQuerySerializer(serializers.Serializer):
 
     def validate(self, attrs):
         attrs.setdefault('limit', AdminActivityService.DEFAULT_LIMIT)
+        attrs.setdefault('page', 1)
         attrs.setdefault('type', sorted(AdminActivityService.ALLOWED_TYPES))
         return attrs
 
@@ -162,6 +166,7 @@ class AdminActivityTimelineItemSerializer(serializers.Serializer):
 class AdminActivityTimelineResponseSerializer(serializers.Serializer):
     items = AdminActivityTimelineItemSerializer(many=True, read_only=True)
     count = serializers.IntegerField(read_only=True)
+    page = serializers.IntegerField(read_only=True)
     limit = serializers.IntegerField(read_only=True)
     available_types = serializers.ListField(child=serializers.CharField(), read_only=True)
 

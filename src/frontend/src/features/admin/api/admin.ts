@@ -78,6 +78,7 @@ export interface AdminUserActivityItem {
 export interface AdminUserActivityTimeline {
   items: AdminUserActivityItem[]
   count: number
+  page: number
   limit: number
   available_types: AdminUserActivityType[]
 }
@@ -86,6 +87,19 @@ export interface FetchAdminUserActivityTimelineParams {
   userId: string
   types?: AdminUserActivityType[] | null
   limit?: number | null
+  page?: number | null
+}
+
+export interface FetchAdminUserReputationLedgerParams {
+  userId: string
+  page?: number | null
+}
+
+export interface AdminUserReputationLedgerPage {
+  count: number
+  next: string | null
+  previous: string | null
+  results: ReputationLedgerEntry[]
 }
 
 export class MalformedAdminApiResponseError extends Error {
@@ -251,6 +265,7 @@ export function parseAdminUserActivityTimeline(value: unknown): AdminUserActivit
   return {
     items: items.map(parseAdminUserActivityItem),
     count: assertNonNegativeFiniteInteger(value.count, 'count'),
+    page: assertNonNegativeFiniteInteger(value.page, 'page'),
     limit: assertNonNegativeFiniteInteger(value.limit, 'limit'),
     available_types: parseAdminUserActivityAvailableTypes(value.available_types),
   }
@@ -309,6 +324,31 @@ export function parseAdminReputationPolicyConfig(value: unknown): AdminReputatio
   }
 }
 
+export function parseAdminUserReputationLedgerPage(value: unknown): AdminUserReputationLedgerPage {
+  if (!isRecord(value)) {
+    throw new MalformedAdminApiResponseError('Malformed admin API response: expected paginated ledger object')
+  }
+
+  const results = value.results
+  if (!Array.isArray(results)) {
+    throw new MalformedAdminApiResponseError('Malformed admin API response: results')
+  }
+
+  return {
+    count: assertNonNegativeFiniteInteger(value.count, 'count'),
+    next: assertNullableString(value.next, 'next'),
+    previous: assertNullableString(value.previous, 'previous'),
+    results: results.map((item) => {
+      try {
+        const parseFn = typeof parseReputationLedger === 'function' ? parseReputationLedger : parseAdminReputationLedger
+        return parseFn([item])[0]
+      } catch {
+        throw new MalformedAdminApiResponseError('Malformed admin API response: ledger entry')
+      }
+    }),
+  }
+}
+
 function buildAdminUserListParams(params: FetchAdminUsersParams = {}) {
   const queryParams: Record<string, string | number> = {}
   const search = params.search?.trim()
@@ -324,11 +364,15 @@ function buildAdminUserListParams(params: FetchAdminUsersParams = {}) {
   return Object.keys(queryParams).length > 0 ? { params: queryParams } : undefined
 }
 
-function buildAdminUserActivityTimelineParams(params: Pick<FetchAdminUserActivityTimelineParams, 'types' | 'limit'> = {}) {
+function buildAdminUserActivityTimelineParams(params: Pick<FetchAdminUserActivityTimelineParams, 'types' | 'limit' | 'page'> = {}) {
   const queryParams = new URLSearchParams()
 
   if (typeof params.limit === 'number' && Number.isFinite(params.limit)) {
     queryParams.set('limit', String(Math.max(0, Math.floor(params.limit))))
+  }
+  
+  if (typeof params.page === 'number' && Number.isFinite(params.page)) {
+    queryParams.set('page', String(Math.max(1, Math.floor(params.page))))
   }
 
   params.types?.forEach((type) => {
@@ -359,6 +403,18 @@ export async function fetchAdminUserActivityTimeline(params: FetchAdminUserActiv
   )
 
   return parseAdminUserActivityTimeline(response.data)
+}
+
+export async function fetchAdminUserReputationLedger(params: FetchAdminUserReputationLedgerParams) {
+  const queryParams = new URLSearchParams()
+  if (typeof params.page === 'number' && Number.isFinite(params.page)) {
+    queryParams.set('page', String(Math.max(1, Math.floor(params.page))))
+  }
+
+  const config = queryParams.size > 0 ? { params: queryParams } : undefined
+  const response = await http.get<unknown>(`/admin-api/users/${encodeURIComponent(params.userId)}/reputation-ledger/`, config)
+
+  return parseAdminUserReputationLedgerPage(response.data)
 }
 
 export async function updateAdminUserManualOverride(params: UpdateAdminUserManualOverrideParams) {

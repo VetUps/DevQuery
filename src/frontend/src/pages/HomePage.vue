@@ -11,6 +11,7 @@ import PublicDiscoveryIntro from '@/features/questions/components/PublicDiscover
 import QuestionCard from '@/features/questions/components/QuestionCard.vue'
 import QuestionListPagination from '@/features/questions/components/QuestionListPagination.vue'
 import QuestionListSkeleton from '@/features/questions/components/QuestionListSkeleton.vue'
+import TopUsersWidget from '@/features/users/components/TopUsersWidget.vue'
 import type { QuestionOrdering } from '@/features/questions/api/questions'
 import AppShellLayout from '@/layouts/AppShellLayout.vue'
 import InlineFeedbackPanel from '@/shared/ui/InlineFeedbackPanel.vue'
@@ -310,6 +311,7 @@ onBeforeUnmount(clearSearchDebounceTimer)
           data-testid="home-discovery-sidebar"
         >
           <PublicDiscoveryIntro :total-questions="totalQuestions" />
+          <TopUsersWidget />
         </aside>
       </div>
     </section>
