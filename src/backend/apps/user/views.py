@@ -4,6 +4,7 @@ from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework.pagination import PageNumberPagination
 from drf_spectacular.utils import extend_schema
 
 from shared.permissions import IsAdmin
@@ -15,6 +16,7 @@ from .serializers import (
     AdminReputationPolicySerializer,
     AdminUserListSerializer,
     AdminUserReputationDetailSerializer,
+    ReputationLedgerEntrySerializer,
     UserRegisterSerializer,
     UserLoginSerializer,
     UserProfileSerializer,
@@ -108,6 +110,55 @@ class UserViewSet(viewsets.GenericViewSet):
         serializer = self.get_serializer(instance=user)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
+    @extend_schema(
+        responses={200: PublicUserProfileSerializer(many=True)}
+    )
+    @action(detail=False, methods=['get'], permission_classes=[AllowAny], url_path='top-global')
+    def top_global(self, request):
+        queryset = CustomUser.objects.filter(is_active=True).order_by('-user_reputation_score')
+        
+        paginator = PageNumberPagination()
+        paginator.page_size = 5
+        paginator.page_size_query_param = 'page_size'
+        page = paginator.paginate_queryset(queryset, request, view=self)
+        if page is not None:
+            serializer = PublicUserProfileSerializer(page, many=True)
+            return paginator.get_paginated_response(serializer.data)
+
+        serializer = PublicUserProfileSerializer(queryset, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    @extend_schema(
+        responses={200: PublicUserProfileSerializer(many=True)}
+    )
+    @action(detail=False, methods=['get'], permission_classes=[AllowAny], url_path='top-weekly')
+    def top_weekly(self, request):
+        from django.utils import timezone
+        from datetime import timedelta
+        from django.db.models import Sum, Q, IntegerField
+        from django.db.models.functions import Coalesce
+        
+        seven_days_ago = timezone.now() - timedelta(days=7)
+        queryset = CustomUser.objects.filter(is_active=True).annotate(
+            weekly_score=Coalesce(
+                Sum('reputation_transactions__reputation_transaction_amount', 
+                    filter=Q(reputation_transactions__created_at__gte=seven_days_ago)),
+                0,
+                output_field=IntegerField()
+            )
+        ).filter(weekly_score__gt=0).order_by('-weekly_score')
+        
+        paginator = PageNumberPagination()
+        paginator.page_size = 5
+        paginator.page_size_query_param = 'page_size'
+        page = paginator.paginate_queryset(queryset, request, view=self)
+        if page is not None:
+            serializer = PublicUserProfileSerializer(page, many=True)
+            return paginator.get_paginated_response(serializer.data)
+
+        serializer = PublicUserProfileSerializer(queryset, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
 
 class AdminReputationPolicyView(APIView):
     permission_classes = [IsAuthenticated, IsAdmin]
@@ -148,6 +199,8 @@ class AdminUserViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewset
             return AdminManualReputationOverrideSerializer
         if self.action == 'activity':
             return AdminActivityTimelineQuerySerializer
+        if self.action == 'reputation_ledger':
+            return ReputationLedgerEntrySerializer
         return AdminUserListSerializer
 
     def get_queryset(self):
@@ -217,18 +270,40 @@ class AdminUserViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewset
         query_serializer = self.get_serializer(data=request.query_params)
         query_serializer.is_valid(raise_exception=True)
         limit = query_serializer.validated_data['limit']
+        page = query_serializer.validated_data['page']
         activity_types = query_serializer.validated_data['type']
-        items = AdminActivityService.timeline(
+        items, total_count = AdminActivityService.timeline(
             user=target_user,
             activity_types=activity_types,
-            limit=limit,
+            page=page,
+            page_size=limit,
         )
         return Response(
             {
                 'items': items,
-                'count': len(items),
+                'count': total_count,
+                'page': page,
                 'limit': limit,
                 'available_types': sorted(AdminActivityService.ALLOWED_TYPES),
             },
             status=status.HTTP_200_OK,
         )
+
+    @extend_schema(responses={200: ReputationLedgerEntrySerializer(many=True)})
+    @action(detail=True, methods=['get'], url_path='reputation-ledger')
+    def reputation_ledger(self, request, *args, **kwargs):
+        target_user = self.get_object()
+        queryset = target_user.reputation_transactions.select_related('actor').order_by('-created_at')
+        
+        paginator = PageNumberPagination()
+        paginator.page_size = 10
+        paginator.page_size_query_param = 'page_size'
+        paginator.max_page_size = 50
+        
+        page = paginator.paginate_queryset(queryset, request, view=self)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return paginator.get_paginated_response(serializer.data)
+
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)

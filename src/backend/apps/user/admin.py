@@ -91,7 +91,7 @@ class CustomUserAdmin(admin.ModelAdmin):
             'Reputation',
             {
                 'fields': ('user_reputation_score', 'manual_reputation_level', 'manual_override_note'),
-                'description': 'Ручной уровень влияет только на вычисленный уровень и политику доступа. Очки репутации и история начислений не изменяются.',
+                'description': 'При установке ручного уровня очки репутации автоматически устанавливаются в минимальное значение для выбранного уровня.',
             },
         ),
         ('Permissions', {'fields': ('user_role', 'is_active', 'is_staff', 'is_superuser', 'groups', 'user_permissions')}),

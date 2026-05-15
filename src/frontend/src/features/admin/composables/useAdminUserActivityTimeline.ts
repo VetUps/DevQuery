@@ -7,7 +7,7 @@ import {
   type AdminUserActivityType,
 } from '@/features/admin/api/admin'
 
-const DEFAULT_ACTIVITY_LIMIT = 25
+const DEFAULT_ACTIVITY_LIMIT = 10
 const SAFE_ACTIVITY_ERROR = 'Не удалось загрузить активность пользователя. Повторите попытку.'
 
 function uniqueActivityTypes(types: readonly AdminUserActivityType[]) {
@@ -22,6 +22,7 @@ export function useAdminUserActivityTimeline() {
   const isLoading = shallowRef(false)
   const error = shallowRef<unknown>(null)
   const safeErrorMessage = shallowRef('')
+  const page = shallowRef(1)
 
   let requestId = 0
 
@@ -30,6 +31,7 @@ export function useAdminUserActivityTimeline() {
   const availableTypes = computed<AdminUserActivityType[]>(() => timeline.value?.available_types ?? [])
   const count = computed(() => timeline.value?.count ?? 0)
   const limit = computed(() => timeline.value?.limit ?? DEFAULT_ACTIVITY_LIMIT)
+  const hasNextPage = computed(() => count.value > page.value * limit.value)
 
   function clearTimelineState() {
     timeline.value = null
@@ -41,6 +43,7 @@ export function useAdminUserActivityTimeline() {
 
   function setSelectedUserId(userId: string | null) {
     selectedUserId.value = userId
+    page.value = 1
     requestId += 1
 
     if (!userId) {
@@ -56,6 +59,12 @@ export function useAdminUserActivityTimeline() {
     selectedTypes.value = selectedTypes.value.includes(type)
       ? selectedTypes.value.filter((selectedType) => selectedType !== type)
       : [...selectedTypes.value, type]
+    page.value = 1
+  }
+
+  function setPage(newPage: number) {
+    page.value = newPage
+    void loadTimeline()
   }
 
   async function loadTimeline() {
@@ -75,6 +84,7 @@ export function useAdminUserActivityTimeline() {
         userId: selectedUserId.value,
         types: selectedTypes.value,
         limit: DEFAULT_ACTIVITY_LIMIT,
+        page: page.value,
       })
 
       if (currentRequestId !== requestId) {
@@ -114,9 +124,12 @@ export function useAdminUserActivityTimeline() {
     availableTypes,
     count,
     limit,
+    page: readonly(page),
+    hasNextPage,
     setSelectedUserId,
     setSelectedTypes,
     toggleSelectedType,
+    setPage,
     loadTimeline,
     retry,
   }

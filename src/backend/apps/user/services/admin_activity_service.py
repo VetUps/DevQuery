@@ -39,7 +39,7 @@ class AdminActivityItem:
 
 
 class AdminActivityService:
-    DEFAULT_LIMIT = 25
+    DEFAULT_LIMIT = 10
     MAX_LIMIT = 50
     ALLOWED_TYPES = {
         'question',
@@ -59,11 +59,13 @@ class AdminActivityService:
         *,
         user: CustomUser,
         activity_types: Iterable[str] | None = None,
-        limit: int = DEFAULT_LIMIT,
-    ) -> list[dict[str, Any]]:
-        normalized_limit = max(0, min(int(limit), cls.MAX_LIMIT))
+        page: int = 1,
+        page_size: int = DEFAULT_LIMIT,
+    ) -> tuple[list[dict[str, Any]], int]:
+        normalized_page = max(1, int(page))
+        normalized_limit = max(0, min(int(page_size), cls.MAX_LIMIT))
         if normalized_limit == 0:
-            return []
+            return [], 0
 
         requested_types = set(activity_types or cls.ALLOWED_TYPES)
         items: list[AdminActivityItem] = []
@@ -79,25 +81,46 @@ class AdminActivityService:
             'question_edit_event': cls._question_edit_events,
             'reputation': cls._reputation_events,
         }
+        counts = {
+            'question': lambda u: Question.objects.filter(user=u).count(),
+            'solution': lambda u: Solution.objects.filter(user=u).count(),
+            'comment': lambda u: Comment.objects.filter(user=u).count(),
+            'vote': lambda u: Vote.objects.filter(user=u).count(),
+            'solution_edit': lambda u: SolutionEdits.objects.filter(user=u).count(),
+            'question_edit_proposal': lambda u: QuestionEditProposal.objects.filter(author=u).count(),
+            'question_revision': lambda u: QuestionRevision.objects.filter(actor=u).count(),
+            'question_edit_event': lambda u: QuestionEditEvent.objects.filter(actor=u).count(),
+            'reputation': lambda u: ReputationTransaction.objects.filter(user=u).count(),
+        }
+
+        total_count = 0
+        fetch_limit = normalized_page * normalized_limit
+
         for activity_type in sorted(requested_types):
             collector = collectors.get(activity_type)
-            if collector is not None:
-                items.extend(collector(user, normalized_limit))
+            counter = counts.get(activity_type)
+            if collector is not None and counter is not None:
+                total_count += counter(user)
+                items.extend(collector(user, fetch_limit))
 
         items.sort(key=lambda item: item.occurred_at, reverse=True)
-        return [item.as_dict() for item in items[:normalized_limit]]
+        
+        offset = (normalized_page - 1) * normalized_limit
+        page_items = items[offset : offset + normalized_limit]
+        
+        return [item.as_dict() for item in page_items], total_count
 
     @staticmethod
     def _question_label(question: Question | None) -> str:
         if question is None:
-            return 'Question unavailable'
-        return question.question_title or 'Untitled question'
+            return 'Вопрос недоступен'
+        return question.question_title or 'Вопрос без названия'
 
     @classmethod
     def _solution_label(cls, solution: Solution | None) -> str:
         if solution is None:
-            return 'Solution unavailable'
-        return f'Solution for {cls._question_label(solution.question)}'
+            return 'Решение недоступно'
+        return f'Решение для вопроса: {cls._question_label(solution.question)}'
 
     @classmethod
     def _generic_target_label(cls, target: Any) -> str:
@@ -106,7 +129,7 @@ class AdminActivityService:
         if isinstance(target, Solution):
             return cls._solution_label(target)
         if target is None:
-            return 'Target unavailable'
+            return 'Объект недоступен'
         return str(target)
 
     @staticmethod
@@ -126,7 +149,7 @@ class AdminActivityService:
 
     @staticmethod
     def _actor_label(actor: CustomUser | None) -> str:
-        return actor.user_name if actor else 'Unknown actor'
+        return actor.user_name if actor else 'Неизвестный пользователь'
 
     @classmethod
     def _questions(cls, user: CustomUser, limit: int) -> list[AdminActivityItem]:
@@ -135,8 +158,8 @@ class AdminActivityService:
                 id=str(question.question_id),
                 type='question',
                 occurred_at=question.question_created_at,
-                title='Question created',
-                summary='Created a question.',
+                title='Вопрос создан',
+                summary='Создал вопрос.',
                 target_label=cls._question_label(question),
                 route=cls._question_route(question),
             )
@@ -150,8 +173,8 @@ class AdminActivityService:
                 id=str(solution.solution_id),
                 type='solution',
                 occurred_at=solution.solution_created_at,
-                title='Solution posted',
-                summary='Posted a solution.',
+                title='Решение опубликовано',
+                summary='Опубликовал решение.',
                 target_label=cls._question_label(solution.question),
                 route=cls._solution_route(solution),
             )
@@ -166,15 +189,15 @@ class AdminActivityService:
         for comment in comments:
             target_label, route = target_info.get(
                 (comment.content_type_id, str(comment.object_id)),
-                ('Target unavailable', {}),
+                ('Объект недоступен', {}),
             )
             items.append(
                 AdminActivityItem(
                     id=str(comment.comment_id),
                     type='comment',
                     occurred_at=comment.created_at,
-                    title='Comment added',
-                    summary='Added a comment.',
+                    title='Комментарий добавлен',
+                    summary='Добавил комментарий.',
                     target_label=target_label,
                     route=route,
                 )
@@ -189,16 +212,16 @@ class AdminActivityService:
         for vote in votes:
             target_label, route = target_info.get(
                 (vote.content_type_id, str(vote.object_id)),
-                ('Target unavailable', {}),
+                ('Объект недоступен', {}),
             )
-            vote_label = 'upvoted' if vote.vote_type == Vote.VoteType.UPVOTE else 'downvoted'
+            vote_label = 'Голос за' if vote.vote_type == Vote.VoteType.UPVOTE else 'Голос против'
             items.append(
                 AdminActivityItem(
                     id=str(vote.vote_id),
                     type='vote',
                     occurred_at=vote.created_at,
-                    title='Vote recorded',
-                    summary=f'{vote_label.capitalize()} content.',
+                    title='Голос учтён',
+                    summary=f'{vote_label} материал.',
                     target_label=target_label,
                     route=route,
                 )
@@ -215,18 +238,18 @@ class AdminActivityService:
         )
         for edit in queryset:
             if edit.solution_edit_is_approved is True:
-                status = 'approved'
+                status = 'одобрено'
             elif edit.solution_edit_is_approved is False:
-                status = 'rejected'
+                status = 'отклонено'
             else:
-                status = 'pending'
+                status = 'на рассмотрении'
             items.append(
                 AdminActivityItem(
                     id=str(edit.solution_edit_id),
                     type='solution_edit',
                     occurred_at=edit.solution_edit_edited_at,
-                    title='Solution edit proposed',
-                    summary=f'Proposed a solution edit ({status}).',
+                    title='Предложена правка решения',
+                    summary=f'Предложил правку решения ({status}).',
                     target_label=cls._solution_label(edit.solution),
                     route=cls._solution_route(edit.solution),
                 )
@@ -243,18 +266,18 @@ class AdminActivityService:
         )
         for proposal in queryset:
             if proposal.question_edit_is_approved is True:
-                status = 'approved'
+                status = 'одобрено'
             elif proposal.question_edit_is_approved is False:
-                status = 'rejected'
+                status = 'отклонено'
             else:
-                status = 'pending'
+                status = 'на рассмотрении'
             items.append(
                 AdminActivityItem(
                     id=str(proposal.question_edit_id),
                     type='question_edit_proposal',
                     occurred_at=proposal.question_edit_edited_at,
-                    title='Question edit proposed',
-                    summary=f'Proposed a question edit ({status}).',
+                    title='Предложена правка вопроса',
+                    summary=f'Предложил правку вопроса ({status}).',
                     target_label=cls._question_label(proposal.question),
                     route=cls._question_route(proposal.question),
                 )
@@ -268,8 +291,8 @@ class AdminActivityService:
                 id=str(revision.revision_id),
                 type='question_revision',
                 occurred_at=revision.created_at,
-                title='Question revision created',
-                summary=f'Created a question revision from {revision.source}.',
+                title='Создана ревизия вопроса',
+                summary=f'Создал ревизию вопроса из {revision.source}.',
                 target_label=cls._question_label(revision.question),
                 route=cls._question_route(revision.question),
             )
@@ -283,8 +306,8 @@ class AdminActivityService:
                 id=str(event.event_id),
                 type='question_edit_event',
                 occurred_at=event.created_at,
-                title='Question edit event',
-                summary=f'Question edit event: {event.event_type}.',
+                title='Событие правки вопроса',
+                summary=f'Событие правки: {event.event_type}.',
                 target_label=cls._question_label(event.question),
                 route=cls._question_route(event.question),
             )
@@ -293,17 +316,24 @@ class AdminActivityService:
 
     @classmethod
     def _reputation_events(cls, user: CustomUser, limit: int) -> list[AdminActivityItem]:
+        # Localize the reason key if needed, or rely on frontend if the reason is a string token.
+        # But here we format a string. The reason is usually string constants like `solution_upvoted` or `manual_level_override`.
+        # To make it readable without mapping here, let's keep the raw reason but translate the wrapper,
+        # or better yet, since the frontend `formatReputationReason` knows them, it will translate the reason.
+        # Wait! In `AdminUserActivityTimeline.vue`, we have:
+        # <p class="admin-activity__item-summary">{{ item.summary }}</p>
+        # So it just prints `summary`. I should map it here or at least translate the template.
         return [
             AdminActivityItem(
                 id=str(transaction.reputation_transaction_id),
                 type='reputation',
                 occurred_at=transaction.created_at,
-                title='Reputation changed',
+                title='Изменение репутации',
                 summary=(
-                    f'Reputation {transaction.reputation_transaction_reason}: '
-                    f'{transaction.reputation_transaction_amount:+d} by {cls._actor_label(transaction.actor)}.'
+                    f'Причина ({transaction.reputation_transaction_reason}): '
+                    f'{transaction.reputation_transaction_amount:+d} от {cls._actor_label(transaction.actor)}.'
                 ),
-                target_label='Reputation ledger',
+                target_label='Журнал репутации',
                 route={'kind': 'reputation'},
             )
             for transaction in ReputationTransaction.objects.select_related('actor')

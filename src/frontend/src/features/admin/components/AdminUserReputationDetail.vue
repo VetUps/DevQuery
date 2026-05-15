@@ -215,7 +215,7 @@ watch(selectedUserId, () => {
         :hidden="!isActiveTab('ledger')"
         tabindex="0"
       >
-        <AdminReputationLedger v-if="detail && !isLoading && !error" :entries="detail.reputation_ledger" />
+        <AdminReputationLedger :selected-user="selectedUser" />
       </section>
 
       <section
