@@ -1,6 +1,7 @@
 from datetime import timedelta
 from unittest.mock import patch
 
+from django.contrib.contenttypes.models import ContentType
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 from drf_spectacular.generators import SchemaGenerator
@@ -16,6 +17,7 @@ from apps.qa.models import (
     QuestionRevision,
     Solution,
     SolutionEdits,
+    Comment,
     Tag,
     Vote,
 )
@@ -25,6 +27,11 @@ from apps.qa.serializers import (
     QuestionGetSerializer,
     QuestionListSerializer,
     QuestionUpdateCreateSerializer,
+    SolutionCreateResponseSerializer,
+    SolutionListSerializer,
+    CommentCreateResponseSerializer,
+    CommentDetailSerializer,
+    CommentListSerializer,
     TagSerializer,
 )
 from apps.qa.services.question_edit_service import QuestionChangePayload, QuestionEditService
@@ -690,6 +697,50 @@ class QuestionTagResponseSerializerTests(APITestCase):
             [{'name': 'django', 'questions_count': 1}],
         )
         self.assertEqual(response_by_id[str(untagged_question.question_id)]['tags'], [])
+
+    def test_author_reputation_contract_is_available_for_rank_badges(self):
+        self.user.user_reputation_score = 300
+        self.user.save(update_fields=['user_reputation_score'])
+        solution = Solution.objects.create(
+            user=self.user,
+            question=self.question,
+            solution_body='Solution with a master author rank.',
+        )
+        question_content_type = ContentType.objects.get_for_model(Question)
+        comment = Comment.objects.create(
+            user=self.user,
+            content_type=question_content_type,
+            object_id=self.question.pk,
+            body='Comment with a master author rank.',
+        )
+        reply = Comment.objects.create(
+            user=self.user,
+            content_type=question_content_type,
+            object_id=self.question.pk,
+            parent=comment,
+            body='Reply with a master author rank.',
+        )
+
+        payloads = [
+            QuestionListSerializer(self.question).data,
+            QuestionGetSerializer(self.question).data,
+            SolutionListSerializer(solution).data,
+            SolutionCreateResponseSerializer(solution).data,
+            CommentListSerializer(comment).data,
+            CommentCreateResponseSerializer(comment).data,
+            CommentDetailSerializer(comment).data,
+        ]
+
+        for payload in payloads:
+            with self.subTest(serializer=payload):
+                self.assertEqual(payload['user_name'], self.user.user_name)
+                self.assertEqual(payload['user_reputation_score'], 300)
+                self.assertEqual(payload['reputation']['level'], CustomUser.ReputationLevel.MASTER)
+                self.assertEqual(payload['reputation']['level_label'], CustomUser.ReputationLevel.MASTER.label)
+
+        detail_payload = CommentDetailSerializer(comment).data
+        self.assertEqual(detail_payload['replies'][0]['comment_id'], str(reply.comment_id))
+        self.assertEqual(detail_payload['replies'][0]['reputation']['level'], CustomUser.ReputationLevel.MASTER)
 
     def test_question_serializers_expose_protection_metadata_with_safe_defaults(self):
         Question.objects.filter(pk=self.question.pk).update(

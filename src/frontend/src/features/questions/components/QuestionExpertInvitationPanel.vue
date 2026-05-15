@@ -10,6 +10,7 @@ import {
 import { useCreateExpertInvitationsMutation } from '@/features/questions/mutations/useCreateExpertInvitationsMutation'
 import { useEligibleExpertsQuery } from '@/features/questions/queries/useEligibleExpertsQuery'
 import { useInvitedExpertInvitationsQuery } from '@/features/questions/queries/useInvitedExpertInvitationsQuery'
+import ReputationRankIcon from '@/features/users/components/ReputationRankIcon.vue'
 import AppButton from '@/shared/ui/AppButton.vue'
 import AppInput from '@/shared/ui/AppInput.vue'
 import SurfacePanel from '@/shared/ui/SurfacePanel.vue'
@@ -302,7 +303,10 @@ async function sendInvitations() {
               @change="toggleCandidate(candidate)"
             />
             <span class="question-expert-invitation-panel__candidate-copy">
-              <span class="question-expert-invitation-panel__candidate-name">{{ candidate.user_name }}</span>
+              <span class="question-expert-invitation-panel__candidate-identity">
+                <span class="question-expert-invitation-panel__candidate-name">{{ candidate.user_name }}</span>
+                <ReputationRankIcon :level="candidate.reputation_level" />
+              </span>
               <span class="question-expert-invitation-panel__candidate-meta">
                 {{ candidate.reputation_level_label }} · {{ candidate.user_reputation_score }} очков
                 <span v-if="candidate.is_manual_override">· уровень назначен вручную</span>
@@ -371,7 +375,10 @@ async function sendInvitations() {
           :data-testid="`expert-invitation-invited-row-${invitation.recipient_id}`"
         >
           <div class="question-expert-invitation-panel__invited-copy">
-            <span class="question-expert-invitation-panel__candidate-name">{{ invitation.recipient_name }}</span>
+            <span class="question-expert-invitation-panel__candidate-identity">
+              <span class="question-expert-invitation-panel__candidate-name">{{ invitation.recipient_name }}</span>
+              <ReputationRankIcon :level="invitation.reputation_level" />
+            </span>
             <span class="question-expert-invitation-panel__candidate-meta">
               {{ invitation.reputation_level_label }} · {{ invitation.recipient_reputation_score }} очков
             </span>
@@ -541,6 +548,13 @@ async function sendInvitations() {
 
 .question-expert-invitation-panel__candidate-copy {
   display: grid;
+  gap: var(--space-xs);
+}
+
+.question-expert-invitation-panel__candidate-identity {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
   gap: var(--space-xs);
 }
 

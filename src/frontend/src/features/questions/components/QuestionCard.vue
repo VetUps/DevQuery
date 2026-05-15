@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import type { LocationQueryRaw } from 'vue-router'
+
 import { type QuestionListItem } from '@/features/questions/api/questions'
 import ProtectedQuestionChip from '@/features/questions/components/ProtectedQuestionChip.vue'
 import QuestionTagChips from '@/features/questions/components/QuestionTagChips.vue'
@@ -8,6 +10,8 @@ import { formatLongDate, formatQuestionStatus } from '@/shared/libs/formatting'
 const props = defineProps<{
   question: QuestionListItem
   isInvitedForCurrentUser?: boolean
+  tagLinkPath?: string
+  tagLinkQueryBase?: LocationQueryRaw
 }>()
 </script>
 
@@ -18,36 +22,41 @@ const props = defineProps<{
     data-testid="question-card"
     :data-invited-for-current-user="props.isInvitedForCurrentUser ? 'true' : 'false'"
   >
-    <div class="question-card__meta">
-      <span
-        class="question-card__status"
-        :class="`question-card__status--${question.question_status}`"
-      >
-        {{ formatQuestionStatus(question.question_status) }}
-      </span>
-      <ProtectedQuestionChip
-        v-if="question.is_protected"
-        :question="question"
-        test-id="question-card-protection"
-      />
-      <span
-        v-if="props.isInvitedForCurrentUser"
-        class="question-card__invited-badge"
-        data-testid="question-card-invited-badge"
-        aria-label="Вас позвали ответить на этот вопрос"
-      >
-        Вас позвали ответить
-      </span>
-      <AuthorReputationBadge
-        :reputation="question.reputation"
-        :fallback-score="question.user_reputation_score"
-      />
-      <span class="question-card__stamp">
-        Создан {{ formatLongDate(question.question_created_at) }}
-      </span>
-      <span class="question-card__stamp">
-        Обновлён {{ formatLongDate(question.question_updated_at) }}
-      </span>
+    <div class="question-card__header">
+      <div class="question-card__meta">
+        <span
+          class="question-card__status"
+          :class="`question-card__status--${question.question_status}`"
+        >
+          {{ formatQuestionStatus(question.question_status) }}
+        </span>
+        <ProtectedQuestionChip
+          v-if="question.is_protected"
+          :question="question"
+          test-id="question-card-protection"
+        />
+        <span
+          v-if="props.isInvitedForCurrentUser"
+          class="question-card__invited-badge"
+          data-testid="question-card-invited-badge"
+          aria-label="Вас позвали ответить на этот вопрос"
+        >
+          Вас позвали ответить
+        </span>
+        <span class="question-card__author">
+          {{ question.user_name ?? 'Автор вопроса' }}
+        </span>
+        <AuthorReputationBadge
+          :reputation="question.reputation"
+          :fallback-score="question.user_reputation_score"
+        />
+        <span class="question-card__stamp">
+          Создан {{ formatLongDate(question.question_created_at) }}
+        </span>
+        <span class="question-card__stamp">
+          Обновлён {{ formatLongDate(question.question_updated_at) }}
+        </span>
+      </div>
     </div>
 
     <RouterLink
@@ -57,7 +66,11 @@ const props = defineProps<{
       <h2 class="question-card__title">{{ question.question_title }}</h2>
     </RouterLink>
 
-    <QuestionTagChips :tags="question.tags" />
+    <QuestionTagChips
+      :tags="question.tags"
+      :tag-link-path="props.tagLinkPath"
+      :tag-link-query-base="props.tagLinkQueryBase"
+    />
   </article>
 </template>
 
@@ -89,6 +102,14 @@ const props = defineProps<{
   box-shadow: 0 18px 30px rgb(69 58 38 / 0.08);
 }
 
+.question-card__header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-md);
+  align-items: start;
+  min-width: 0;
+}
+
 .question-card__meta {
   display: flex;
   flex-wrap: wrap;
@@ -97,7 +118,12 @@ const props = defineProps<{
   min-width: 0;
 }
 
+.question-card__favorite {
+  justify-self: end;
+}
+
 .question-card__status,
+.question-card__author,
 .question-card__invited-badge,
 .question-card__stamp {
   font-size: 14px;
@@ -122,6 +148,12 @@ const props = defineProps<{
 .question-card__status--closed {
   background: rgb(180 35 24 / 0.1);
   color: #B42318;
+}
+
+.question-card__author {
+  color: var(--color-text);
+  font-weight: 700;
+  overflow-wrap: anywhere;
 }
 
 .question-card__invited-badge {
@@ -158,6 +190,14 @@ const props = defineProps<{
 @media (width <= 640px) {
   .question-card {
     padding: var(--space-lg);
+  }
+
+  .question-card__header {
+    grid-template-columns: 1fr;
+  }
+
+  .question-card__favorite {
+    justify-self: end;
   }
 
   .question-card__title {

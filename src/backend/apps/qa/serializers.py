@@ -8,6 +8,7 @@ from rest_framework.exceptions import PermissionDenied
 
 from apps.knowledge.services import recover_sync_authored_question_activity, sync_question_graph
 from apps.user.models import CustomUser
+from apps.user.services.reputation_service import ReputationService
 from .models import (
     Question,
     QuestionEditEvent,
@@ -206,7 +207,37 @@ class QuestionProtectionMixin:
         )
 
 
-class QuestionGetSerializer(QuestionProtectionMixin, serializers.ModelSerializer):
+class AuthorReputationMixin(serializers.Serializer):
+    author_reputation_field_names = [
+        'user_name',
+        'user_reputation_score',
+        'reputation',
+    ]
+
+    user_name = serializers.SerializerMethodField()
+    user_reputation_score = serializers.SerializerMethodField()
+    reputation = serializers.SerializerMethodField()
+
+    def _get_author_user(self, obj):
+        return getattr(obj, 'user', None)
+
+    def get_user_name(self, obj):
+        user = self._get_author_user(obj)
+        return user.user_name if user else 'Пользователь удалён'
+
+    def get_user_reputation_score(self, obj):
+        user = self._get_author_user(obj)
+        return user.user_reputation_score if user else None
+
+    def get_reputation(self, obj):
+        user = self._get_author_user(obj)
+        if user is None:
+            return None
+
+        return ReputationService.get_progress(user)
+
+
+class QuestionGetSerializer(AuthorReputationMixin, QuestionProtectionMixin, serializers.ModelSerializer):
     upvotes = serializers.IntegerField(source='vote_upvotes', read_only=True)
     downvotes = serializers.IntegerField(source='vote_downvotes', read_only=True)
     score = serializers.IntegerField(source='vote_score', read_only=True)
@@ -238,7 +269,7 @@ class QuestionGetSerializer(QuestionProtectionMixin, serializers.ModelSerializer
         fields = '__all__'
 
 
-class QuestionListSerializer(QuestionProtectionMixin, serializers.ModelSerializer):
+class QuestionListSerializer(AuthorReputationMixin, QuestionProtectionMixin, serializers.ModelSerializer):
     tags = TagSerializer(many=True, read_only=True)
     is_protected = serializers.SerializerMethodField()
     protection_reason_code = serializers.SerializerMethodField()
@@ -270,6 +301,7 @@ class QuestionListSerializer(QuestionProtectionMixin, serializers.ModelSerialize
             'question_status',
             'question_created_at',
             'question_updated_at',
+            *AuthorReputationMixin.author_reputation_field_names,
             'tags',
             *QuestionProtectionMixin.protection_field_names,
         ]
@@ -631,9 +663,8 @@ class QuestionEditEventSerializer(serializers.ModelSerializer):
     def get_actor_name(self, obj: QuestionEditEvent) -> str:
         return obj.actor.user_name if obj.actor else 'Пользователь удалён'
 
-class SolutionListSerializer(serializers.ModelSerializer):
+class SolutionListSerializer(AuthorReputationMixin, serializers.ModelSerializer):
     question_id = serializers.UUIDField(source='question.question_id', read_only=True)
-    user_name = serializers.CharField(source='user.user_name', read_only=True)
     upvotes = serializers.IntegerField(source='vote_upvotes', read_only=True)
     downvotes = serializers.IntegerField(source='vote_downvotes', read_only=True)
     score = serializers.IntegerField(source='vote_score', read_only=True)
@@ -641,7 +672,7 @@ class SolutionListSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Solution
-        fields = ['solution_id', 'user', 'user_name', 'question_id', 'solution_body', 'solution_is_best',
+        fields = ['solution_id', 'user', *AuthorReputationMixin.author_reputation_field_names, 'question_id', 'solution_body', 'solution_is_best',
                   'solution_created_at', 'solution_updated_at', 'upvotes', 'downvotes', 'score', 'user_vote']
 
 class SolutionCreateSerializer(serializers.ModelSerializer):
@@ -680,15 +711,14 @@ class SolutionBestSerializer(serializers.Serializer):
     solution_is_best = serializers.BooleanField()
 
 
-class SolutionCreateResponseSerializer(serializers.ModelSerializer):
-    user_name = serializers.CharField(source='user.user_name', read_only=True)
+class SolutionCreateResponseSerializer(AuthorReputationMixin, serializers.ModelSerializer):
 
     class Meta:
         model = Solution
         fields = [
             'solution_id',
             'user',
-            'user_name',
+            *AuthorReputationMixin.author_reputation_field_names,
             'question',
             'solution_body',
             'solution_is_best',
@@ -788,16 +818,15 @@ class SolutionEditHistorySerializer(serializers.ModelSerializer):
         return build_solution_excerpt(obj.solution_edit_body_before)
 
 
-class CommentListSerializer(serializers.ModelSerializer):
+class CommentListSerializer(AuthorReputationMixin, serializers.ModelSerializer):
     target_type = serializers.CharField(read_only=True)
-    user_name = serializers.CharField(source='user.user_name', read_only=True)
     user_avatar_url = serializers.ImageField(source='user.user_avatar_url', read_only=True)
     parent_id = serializers.UUIDField(source='parent.comment_id', read_only=True)
     target_id = serializers.UUIDField(source='object_id', read_only=True)
 
     class Meta:
         model = Comment
-        fields = ['comment_id', 'user', 'user_name', 'user_avatar_url', 'target_type',
+        fields = ['comment_id', 'user', *AuthorReputationMixin.author_reputation_field_names, 'user_avatar_url', 'target_type',
                   'target_id', 'parent_id', 'body', 'created_at']
 
 
@@ -888,22 +917,20 @@ class CommentCreateSerializer(serializers.ModelSerializer):
         return comment
 
 
-class CommentCreateResponseSerializer(serializers.ModelSerializer):
+class CommentCreateResponseSerializer(AuthorReputationMixin, serializers.ModelSerializer):
     target_type = serializers.CharField(read_only=True)
-    user_name = serializers.CharField(source='user.user_name', read_only=True)
     user_avatar_url = serializers.ImageField(source='user.user_avatar_url', read_only=True)
     parent_id = serializers.UUIDField(source='parent.comment_id', read_only=True)
     target_id = serializers.UUIDField(source='object_id', read_only=True)
 
     class Meta:
         model = Comment
-        fields = ['comment_id', 'user', 'user_name', 'user_avatar_url', 'target_type',
+        fields = ['comment_id', 'user', *AuthorReputationMixin.author_reputation_field_names, 'user_avatar_url', 'target_type',
                   'target_id', 'parent_id', 'body', 'created_at']
 
 
-class CommentDetailSerializer(serializers.ModelSerializer):
+class CommentDetailSerializer(AuthorReputationMixin, serializers.ModelSerializer):
     target_type = serializers.CharField(read_only=True)
-    user_name = serializers.CharField(source='user.user_name', read_only=True)
     user_avatar_url = serializers.ImageField(source='user.user_avatar_url', read_only=True)
     parent_id = serializers.UUIDField(source='parent.comment_id', read_only=True)
     target_id = serializers.UUIDField(source='object_id', read_only=True)
@@ -911,7 +938,7 @@ class CommentDetailSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Comment
-        fields = ['comment_id', 'user', 'user_name', 'user_avatar_url', 'target_type',
+        fields = ['comment_id', 'user', *AuthorReputationMixin.author_reputation_field_names, 'user_avatar_url', 'target_type',
                   'target_id', 'parent_id', 'body', 'created_at', 'replies']
 
     def get_replies(self, obj):

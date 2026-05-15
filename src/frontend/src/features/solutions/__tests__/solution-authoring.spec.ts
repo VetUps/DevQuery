@@ -241,8 +241,11 @@ describe('solution authoring flow', () => {
     const { wrapper } = await mountQuestionDetailPage(false)
 
     expect(wrapper.text()).toContain('Newcomer Nina')
-    const badgeTexts = wrapper.findAll('[data-testid="author-reputation-badge"]').map((badge) => badge.text())
-    expect(badgeTexts.some((text) => text.includes('Newcomer') && text.includes('8'))).toBe(true)
+    const badge = wrapper.findAll('[data-testid="author-reputation-badge"]')
+      .find((candidate) => candidate.text().includes('Newcomer') && candidate.text().includes('8'))
+    expect(badge).toBeTruthy()
+    expect(badge?.get('[data-testid="reputation-rank-icon"]').attributes('data-rank-level')).toBe('newcomer')
+    expect(badge?.findAll('[data-rank-part="arrow-down"]')).toHaveLength(1)
     expect(wrapper.text()).not.toContain('points_to_next_level')
   })
 
