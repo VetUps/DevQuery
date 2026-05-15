@@ -56,6 +56,7 @@ function toggleSemanticEdges(): void {
       type="button"
       data-testid="knowledge-graph-semantic-toggle"
       :aria-pressed="props.showSemanticEdges"
+      @click="toggleSemanticEdges"
     >
       {{ props.showSemanticEdges ? 'Скрыть семантический слой' : 'Показать семантический слой' }}
     </button>
