@@ -137,8 +137,8 @@ async function handleLogout() {
 
 .app-header__wordmark {
   color: color-mix(in srgb, var(--color-text) 82%, transparent);
-  font-size: 18px;
-  font-weight: 600;
+  font-size: 24px;
+  font-weight: 700;
   letter-spacing: -0.035em;
 }
 

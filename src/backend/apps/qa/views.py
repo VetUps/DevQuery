@@ -368,6 +368,16 @@ class QuestionViewSet(mixins.ListModelMixin,
                 location='query', required=False,
                 description='Optional safe username search for eligible expert/master recipients.',
             ),
+            OpenApiParameter(
+                'ordering', OpenApiTypes.STR,
+                location='query', required=False,
+                description='Сортировка: topic_strength, user_reputation_score, -user_reputation_score',
+            ),
+            OpenApiParameter(
+                'page', OpenApiTypes.INT,
+                location='query', required=False,
+                description='Номер страницы',
+            ),
         ],
         responses={200: EligibleExpertsResponseSerializer},
     )
@@ -375,12 +385,14 @@ class QuestionViewSet(mixins.ListModelMixin,
     def eligible_experts(self, request, *args, **kwargs):
         question = self.get_object()
         search = request.query_params.get('search', '').strip()
+        ordering = request.query_params.get('ordering', '').strip()
 
         try:
             result = QuestionExpertInvitationService.get_eligible_experts(
                 question,
                 requester=request.user,
                 search=search,
+                ordering=ordering,
             )
         except DRFValidationError as exc:
             detail = getattr(exc, 'detail', {})

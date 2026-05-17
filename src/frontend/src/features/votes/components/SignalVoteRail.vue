@@ -42,19 +42,19 @@ let particleId = 0
 
 function spawnParticles(event: MouseEvent, type: 'up' | 'down') {
   const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
-  
+
   const count = 4 + Math.floor(Math.random() * 3)
   for (let i = 0; i < count; i++) {
     const id = particleId++
-    
+
     const startX = rect.left + rect.width / 2 + (Math.random() * 30 - 15)
     const startY = rect.top + rect.height / 2 + (Math.random() * 10 - 5)
-    
+
     const tx = Math.random() * 80 - 40;
     const ty = type === 'up' ? -(Math.random() * 60 + 40) : (Math.random() * 60 + 40);
 
     particles.value.push({ id, x: startX, y: startY, tx, ty, type })
-    
+
     setTimeout(() => {
       particles.value = particles.value.filter(p => p.id !== id)
     }, 800)
@@ -86,33 +86,33 @@ async function handleVote(requestedVote: VoteType, event: MouseEvent) {
 
     <div class="signal-vote-rail__core">
       <button
-        v-if="isInteractive"
+        v-if="props.mode === 'interactive'"
         type="button"
         class="signal-vote-rail__action signal-vote-rail__action--up"
         :class="{ 'signal-vote-rail__action--active': userVote === 'up' }"
-        :disabled="voteMutation.isPending.value"
+        :disabled="voteMutation.isPending.value || isOwnContent"
         :aria-pressed="userVote === 'up'"
         @click="handleVote('up', $event)"
       >
-        Поддержать
+        ▲ Поддержать
       </button>
 
       <strong class="signal-vote-rail__score">{{ score }}</strong>
 
       <button
-        v-if="isInteractive && canDownvote"
+        v-if="props.mode === 'interactive' && canDownvote"
         type="button"
         class="signal-vote-rail__action signal-vote-rail__action--down"
         :class="{ 'signal-vote-rail__action--active': userVote === 'down' }"
-        :disabled="voteMutation.isPending.value"
+        :disabled="voteMutation.isPending.value || isOwnContent"
         :aria-pressed="userVote === 'down'"
         @click="handleVote('down', $event)"
       >
-        Против
+        ▼ Против
       </button>
 
       <span
-        v-else-if="isInteractive && downvoteBlocked"
+        v-else-if="props.mode === 'interactive' && downvoteBlocked"
         class="signal-vote-rail__blocked-pill"
         data-testid="vote-downvote-blocked"
       >
@@ -123,9 +123,9 @@ async function handleVote(requestedVote: VoteType, event: MouseEvent) {
     <VoteBalanceMeter :upvotes="upvotes" :downvotes="downvotes" />
 
     <Teleport to="body">
-      <div 
-        v-for="p in particles" 
-        :key="p.id" 
+      <div
+        v-for="p in particles"
+        :key="p.id"
         class="vote-particle"
         :class="`vote-particle--${p.type}`"
         :style="{ left: p.x + 'px', top: p.y + 'px', '--tx': p.tx + 'px', '--ty': p.ty + 'px' }"
@@ -181,7 +181,7 @@ async function handleVote(requestedVote: VoteType, event: MouseEvent) {
   min-height: 34px;
   width: 100%;
   padding: 0 10px;
-  border: 1px solid transparent;
+  border: 1px solid rgb(207 198 180 / 0.6);
   border-radius: 999px;
   background: rgb(255 255 255 / 0.92);
   font-size: 13px;
@@ -190,12 +190,17 @@ async function handleVote(requestedVote: VoteType, event: MouseEvent) {
   transition: transform 0.2s cubic-bezier(0.25, 1, 0.5, 1), background 0.2s, border-color 0.2s;
 }
 
-.signal-vote-rail__action:hover {
+.signal-vote-rail__action:hover:not(:disabled) {
   transform: scale(1.1);
 }
 
-.signal-vote-rail__action:active {
+.signal-vote-rail__action:active:not(:disabled) {
   transform: scale(0.9);
+}
+
+.signal-vote-rail__action:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
 }
 
 .signal-vote-rail__action--up {

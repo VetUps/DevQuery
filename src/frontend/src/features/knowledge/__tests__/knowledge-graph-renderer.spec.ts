@@ -122,6 +122,8 @@ const cytoscapeMock = vi.hoisted(() => {
   const constructor = vi.fn((options: CytoscapeOptions) => {
     const elementStore: MockElement[] = []
     const elementsById = new Map<string, MockElement>()
+    let zoomLevel = 1
+    let panPosition = { x: 0, y: 0 }
     const addElements = (elements: CytoscapeElementInput[] = []) => {
       for (const elementInput of elements) {
         const element = createMockElement(elementInput)
@@ -138,8 +140,22 @@ const cytoscapeMock = vi.hoisted(() => {
 
     const instance = {
       fit: vi.fn(),
-      zoom: vi.fn(),
-      pan: vi.fn(),
+      zoom: vi.fn((nextZoom?: number) => {
+        if (typeof nextZoom === 'number') {
+          zoomLevel = nextZoom
+          return undefined
+        }
+
+        return zoomLevel
+      }),
+      pan: vi.fn((nextPan?: { x: number; y: number }) => {
+        if (nextPan) {
+          panPosition = { ...nextPan }
+          return undefined
+        }
+
+        return { ...panPosition }
+      }),
       destroy: vi.fn(),
       add: vi.fn((elements: CytoscapeElementInput[]) => {
         addElements(elements)
@@ -862,7 +878,10 @@ describe('KnowledgeGraphRenderer', () => {
 
     const instance = cytoscapeMock.instances[0]
     const zoomSetCalls = instance.zoom.mock.calls.filter((call) => call.length > 0)
-    expect(zoomSetCalls).toEqual([[1], [1.18], [0.85]])
+    expect(zoomSetCalls).toHaveLength(3)
+    expect(zoomSetCalls[0][0]).toBe(1)
+    expect(zoomSetCalls[1][0]).toBeCloseTo(1.18)
+    expect(zoomSetCalls[2][0]).toBeCloseTo(1.003)
     expect(instance.pan).toHaveBeenCalledWith({ x: 0, y: 0 })
     expect(instance.fit).toHaveBeenCalledWith(undefined, 32)
   })
@@ -981,6 +1000,37 @@ describe('KnowledgeGraphRenderer', () => {
 
     expect(options.layout).toEqual({ name: 'preset', fit: true, padding: 32 })
     expect(vueNode?.position).toEqual({ x: 120, y: 80 })
+  })
+
+  it('preserves the current viewport when dragged layout positions are reapplied', async () => {
+    const wrapper = mount(KnowledgeGraphRenderer, {
+      props: {
+        nodes: buildNodes(),
+        edges: buildEdges(),
+        isOwner: true,
+      },
+    })
+    await flushPromises()
+
+    const instance = cytoscapeMock.instances[0]
+    instance.zoom(2.25)
+    instance.pan({ x: -120, y: 75 })
+
+    const zoomCallsBeforeLayoutUpdate = instance.zoom.mock.calls.length
+    const panCallsBeforeLayoutUpdate = instance.pan.mock.calls.length
+
+    await wrapper.setProps({
+      layoutPositions: {
+        10: { x: 180, y: 90 },
+        11: { x: 260, y: 120 },
+        12: { x: 320, y: 180 },
+      },
+    })
+    await flushPromises()
+
+    expect(instance.layout).toHaveBeenCalled()
+    expect(instance.zoom.mock.calls.slice(zoomCallsBeforeLayoutUpdate)).toEqual([[], [2.25]])
+    expect(instance.pan.mock.calls.slice(panCallsBeforeLayoutUpdate)).toEqual([[], [{ x: -120, y: 75 }]])
   })
 
   it('emits the numeric concept id when a graph node is tapped', async () => {

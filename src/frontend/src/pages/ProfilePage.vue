@@ -15,6 +15,7 @@ import ProfileEditReviewQueue from '@/features/solutions/components/ProfileEditR
 import ProfileReputationSummary from '@/features/users/components/ProfileReputationSummary.vue'
 import ReputationExplanationPanel from '@/features/users/components/ReputationExplanationPanel.vue'
 import ReputationLedgerList from '@/features/users/components/ReputationLedgerList.vue'
+import ReputationChart from '@/features/users/components/ReputationChart.vue'
 import AppShellLayout from '@/layouts/AppShellLayout.vue'
 import { formatLongDate } from '@/shared/libs/formatting'
 import AppDialog from '@/shared/ui/AppDialog.vue'
@@ -58,6 +59,66 @@ const user = computed(() => profileQuery.data.value)
 const canOpenAdminWorkspace = computed(() => canAccessAdminWorkspace(user.value))
 const reputation = computed(() => user.value?.reputation ?? null)
 const reputationLedger = computed(() => user.value?.reputation_ledger ?? [])
+
+const startDate = ref('')
+const endDate = ref('')
+const chartRef = ref<InstanceType<any> | null>(null)
+
+const filteredReputationLedger = computed(() => {
+  if (!startDate.value && !endDate.value) {
+    return reputationLedger.value
+  }
+
+  const start = startDate.value ? new Date(startDate.value).getTime() : 0
+  const end = endDate.value ? new Date(endDate.value).getTime() : Infinity
+
+  return reputationLedger.value.filter((item) => {
+    const time = new Date(item.created_at).getTime()
+    return time >= start && time <= end
+  })
+})
+
+function onChartRangeChange(start: string, end: string) {
+  startDate.value = start
+  endDate.value = end
+}
+
+function onStartDateInput(event: Event) {
+  const val = (event.target as HTMLInputElement).value
+  if (!val) {
+    startDate.value = ''
+  } else {
+    startDate.value = new Date(val + 'T00:00:00').toISOString()
+  }
+  chartRef.value?.setRange(startDate.value, endDate.value)
+}
+
+function onEndDateInput(event: Event) {
+  const val = (event.target as HTMLInputElement).value
+  if (!val) {
+    endDate.value = ''
+  } else {
+    // Конец дня, чтобы включить все события за этот день
+    endDate.value = new Date(val + 'T23:59:59').toISOString()
+  }
+  chartRef.value?.setRange(startDate.value, endDate.value)
+}
+
+function resetDateRange() {
+  startDate.value = ''
+  endDate.value = ''
+  chartRef.value?.resetZoom()
+}
+
+function formatDateForInput(iso: string): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
 const reputationErrorMessage = computed(() => {
   const error = profileQuery.error.value
 
@@ -180,9 +241,39 @@ async function setActiveTab(tab: ProfileTab) {
               @explain="isReputationDialogOpen = true"
             />
 
+            <div class="profile-page__chart-section">
+              <div class="profile-page__date-filters">
+                <div class="profile-page__date-field">
+                  <label for="start-date">От:</label>
+                  <input
+                    type="date"
+                    id="start-date"
+                    :value="formatDateForInput(startDate)"
+                    @input="onStartDateInput"
+                  />
+                </div>
+                <div class="profile-page__date-field">
+                  <label for="end-date">До:</label>
+                  <input
+                    type="date"
+                    id="end-date"
+                    :value="formatDateForInput(endDate)"
+                    @input="onEndDateInput"
+                  />
+                </div>
+                <button @click="resetDateRange" class="profile-page__reset-btn">Сбросить</button>
+              </div>
+
+              <ReputationChart
+                ref="chartRef"
+                :items="reputationLedger"
+                @range-change="onChartRangeChange"
+              />
+            </div>
+
             <ReputationLedgerList
               class="profile-page__ledger"
-              :items="reputationLedger"
+              :items="filteredReputationLedger"
               :is-pending="profileQuery.isPending.value"
               :is-error="showReputationFallback"
               :error-message="reputationErrorMessage"
@@ -348,6 +439,56 @@ async function setActiveTab(tab: ProfileTab) {
 
 .profile-page__ledger {
   grid-column: 1 / -1;
+}
+
+.profile-page__chart-section {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: var(--space-md);
+}
+
+.profile-page__date-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-md);
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.profile-page__date-field {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.profile-page__date-field label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-muted);
+}
+
+.profile-page__date-field input {
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid rgb(207 198 180 / 0.78);
+  border-radius: var(--radius-md);
+  background: rgb(255 255 255 / 0.88);
+  font-family: inherit;
+  font-size: 14px;
+}
+
+.profile-page__reset-btn {
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: rgb(14 116 144 / 0.08);
+  color: var(--color-accent);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.profile-page__reset-btn:hover {
+  background: rgb(14 116 144 / 0.12);
 }
 
 .profile-page__review-grid {
