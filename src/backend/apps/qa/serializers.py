@@ -535,6 +535,8 @@ class EligibleExpertCandidateSerializer(serializers.Serializer):
     reputation_level = serializers.ChoiceField(choices=CustomUser.ReputationLevel.choices, read_only=True)
     reputation_level_label = serializers.CharField(read_only=True)
     is_manual_override = serializers.BooleanField(read_only=True)
+    topic_score = serializers.DecimalField(max_digits=12, decimal_places=4, read_only=True)
+    topic_match_count = serializers.IntegerField(read_only=True)
 
 
 class EligibleExpertsResponseSerializer(serializers.Serializer):

@@ -60,6 +60,12 @@ vi.mock('@/features/solutions/components/ProfileEditHistoryTab.vue', () => ({
   },
 }))
 
+vi.mock('@/features/users/components/ReputationChart.vue', () => ({
+  default: {
+    template: '<div data-testid="mock-reputation-chart"></div>',
+  },
+}))
+
 async function mountProfilePage(initialQuery?: Record<string, string | string[]>) {
   const pinia = createPinia()
   setActivePinia(pinia)

@@ -6,10 +6,14 @@ from uuid import UUID
 from django.db import transaction
 from rest_framework.exceptions import ValidationError
 
+from django.db.models import Sum, Q, Value, DecimalField, Count
+from django.db.models.functions import Coalesce, Cast
+
+from apps.knowledge.models import QuestionConceptEdge, UserConceptActivity
 from apps.notifications.models import Notification
 from apps.notifications.serializers import NotificationSerializer
 from apps.notifications.services import NotificationService
-from apps.qa.models import Question
+from apps.qa.models import Question, Solution
 from apps.qa.services.question_protection_service import QuestionProtectionService
 from apps.user.models import CustomUser
 from apps.user.services.reputation_service import ReputationService
@@ -50,6 +54,8 @@ class QuestionExpertInvitationService:
         CustomUser.ReputationLevel.MASTER,
     }
 
+    ALLOWED_ORDERINGS = {'topic_strength', 'user_reputation_score', '-user_reputation_score'}
+
     @classmethod
     def build_dedupe_key(cls, question_id, recipient_id) -> str:
         return f'expert-invitation:{question_id}:{recipient_id}'
@@ -61,19 +67,33 @@ class QuestionExpertInvitationService:
         *,
         requester: CustomUser | None = None,
         search: str | None = None,
+        ordering: str | None = None,
     ) -> EligibleExpertsResult:
         if requester is not None:
             cls._validate_author(question, requester)
             cls._validate_protection_state(question)
+
+        if ordering not in cls.ALLOWED_ORDERINGS:
+            ordering = 'topic_strength'
 
         invited_ids = cls._existing_invitation_queryset(question).values_list('recipient_id', flat=True)
         candidates = CustomUser.objects.filter(is_active=True).exclude(pk=question.user_id).exclude(pk__in=invited_ids)
         if search:
             candidates = candidates.filter(user_name__icontains=search)
 
+        annotations = cls._get_topic_score_annotations(question)
+        candidates = candidates.annotate(**annotations)
+
+        if ordering == 'topic_strength':
+            sort_order = ('-topic_score', '-user_reputation_score', 'user_name')
+        elif ordering == 'user_reputation_score':
+            sort_order = ('user_reputation_score', 'user_name')
+        else: # -user_reputation_score
+            sort_order = ('-user_reputation_score', 'user_name')
+
         serialized_candidates = [
             cls._serialize_candidate(user, resolution)
-            for user in candidates.order_by('-user_reputation_score', 'user_name')
+            for user in candidates.order_by(*sort_order)
             if (resolution := ReputationService.resolve_level(user=user)).value in cls.ELIGIBLE_LEVELS
         ]
 
@@ -261,6 +281,44 @@ class QuestionExpertInvitationService:
             'reputation_level': resolution.value,
             'reputation_level_label': resolution.label,
             'is_manual_override': resolution.is_manual_override,
+            'topic_score': float(getattr(user, 'topic_score', 0)),
+            'topic_match_count': int(getattr(user, 'topic_match_count', 0)),
+        }
+
+    @classmethod
+    def _get_topic_score_annotations(cls, question: Question):
+        concept_ids = list(QuestionConceptEdge.objects.filter(question=question).values_list('concept_id', flat=True))
+
+        if concept_ids:
+            return {
+                'topic_score': Coalesce(
+                    Sum('concept_activities__weight_delta', filter=Q(concept_activities__concept_id__in=concept_ids)),
+                    Value(0, output_field=DecimalField())
+                ),
+                'topic_match_count': Count(
+                    'concept_activities',
+                    filter=Q(concept_activities__concept_id__in=concept_ids),
+                    distinct=True
+                )
+            }
+
+        # Fallback to tag overlap
+        tag_ids = list(question.tags.values_list('id', flat=True))
+        if tag_ids:
+            return {
+                'topic_score': Cast(
+                    Count('solution', filter=Q(solution__question__tags__id__in=tag_ids), distinct=True),
+                    output_field=DecimalField()
+                ),
+                'topic_match_count': Cast(
+                    Count('solution__question__tags', filter=Q(solution__question__tags__id__in=tag_ids), distinct=True),
+                    output_field=DecimalField()
+                )
+            }
+
+        return {
+            'topic_score': Value(0, output_field=DecimalField()),
+            'topic_match_count': Value(0, output_field=DecimalField())
         }
 
     @classmethod

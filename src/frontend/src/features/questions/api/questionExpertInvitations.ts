@@ -7,6 +7,8 @@ export interface EligibleExpertCandidate {
   reputation_level: string
   reputation_level_label: string
   is_manual_override: boolean
+  topic_score: number
+  topic_match_count: number
 }
 
 export interface EligibleExpertsEnvelope {
@@ -173,6 +175,8 @@ export function parseEligibleExpertCandidate(value: unknown): EligibleExpertCand
     reputation_level: assertString(candidate.reputation_level, 'results.reputation_level'),
     reputation_level_label: assertString(candidate.reputation_level_label, 'results.reputation_level_label'),
     is_manual_override: assertBoolean(candidate.is_manual_override, 'results.is_manual_override'),
+    topic_score: Number(candidate.topic_score ?? 0),
+    topic_match_count: Number(candidate.topic_match_count ?? 0),
   }
 }
 
@@ -270,10 +274,16 @@ export function normalizeExpertInvitationError(error: unknown): string {
   return 'Не удалось обновить приглашения экспертов. Попробуйте ещё раз.'
 }
 
-export async function fetchEligibleExperts(questionId: string, options: { search?: string } = {}) {
-  const search = options.search?.trim()
-  const requestOptions = search ? { params: { search } } : undefined
-  const response = await http.get<unknown>(`/question/${questionId}/eligible-experts/`, requestOptions)
+export async function fetchEligibleExperts(
+  questionId: string,
+  options: { search?: string; ordering?: string; page?: number } = {},
+) {
+  const params: Record<string, string | number> = {}
+  if (options.search?.trim()) params.search = options.search.trim()
+  if (options.ordering) params.ordering = options.ordering
+  if (options.page && options.page > 1) params.page = options.page
+
+  const response = await http.get<unknown>(`/question/${questionId}/eligible-experts/`, { params })
 
   return parseEligibleExpertsEnvelope(response.data)
 }

@@ -10,6 +10,7 @@ from rest_framework import status
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.test import APITestCase
 
+from apps.knowledge.models import KnowledgeConcept, QuestionConceptEdge, UserConceptActivity
 from apps.notifications.models import Notification
 from apps.qa.models import (
     Question,
@@ -926,6 +927,109 @@ class QuestionExpertInvitationServiceTests(APITestCase):
                 )
 
         self.assertFalse(Notification.objects.filter(source_question=self.question).exists())
+
+
+class QuestionExpertInvitationRankingTests(APITestCase):
+    def setUp(self):
+        self.author = CustomUser.objects.create_user(
+            user_email='ranking-author@example.com',
+            user_name='ranking-author',
+            password='password',
+        )
+        self.expert_low_rep = CustomUser.objects.create_user(
+            user_email='low-rep-expert@example.com',
+            user_name='LowRepExpert',
+            password='password',
+        )
+        self.expert_low_rep.user_reputation_score = 100
+        self.expert_low_rep.save()
+
+        self.expert_high_rep = CustomUser.objects.create_user(
+            user_email='high-rep-expert@example.com',
+            user_name='HighRepExpert',
+            password='password',
+        )
+        self.expert_high_rep.user_reputation_score = 500
+        self.expert_high_rep.save()
+
+        self.question = Question.objects.create(
+            user=self.author,
+            question_title='Ranking question',
+            question_body='Question for ranking tests.',
+        )
+        # Make question protected
+        from apps.user.models import ReputationPolicyConfig
+        ReputationPolicyConfig.objects.get_or_create(protected_newcomer_window_hours=12)
+
+        # Create a concept and link it to the question
+        self.concept = KnowledgeConcept.objects.create(name='Django', slug='django')
+        QuestionConceptEdge.objects.create(question=self.question, concept=self.concept)
+
+        # Give low-rep expert some activity in this concept
+        UserConceptActivity.objects.create(
+            user=self.expert_low_rep,
+            concept=self.concept,
+            activity_type=UserConceptActivity.ActivityType.POSTED_SOLUTION,
+            weight_delta=50.0,
+            source=UserConceptActivity.Source.SOLUTION,
+            source_content_type=ContentType.objects.get_for_model(Question),
+            source_object_id=self.question.pk,
+            idempotency_key='test-activity-1'
+        )
+
+    def test_default_ordering_prefers_topic_strength_over_reputation(self):
+        result = QuestionExpertInvitationService.get_eligible_experts(self.question)
+        candidates = result.candidates
+
+        # LowRepExpert should be first because of topic_score=50, HighRepExpert has topic_score=0
+        self.assertEqual(candidates[0]['user_id'], str(self.expert_low_rep.pk))
+        self.assertEqual(candidates[1]['user_id'], str(self.expert_high_rep.pk))
+        self.assertEqual(candidates[0]['topic_score'], 50.0)
+        self.assertEqual(candidates[1]['topic_score'], 0.0)
+
+    def test_explicit_reputation_ordering_overrides_topic_strength(self):
+        # Rep ascending
+        result_asc = QuestionExpertInvitationService.get_eligible_experts(self.question, ordering='user_reputation_score')
+        self.assertEqual(result_asc.candidates[0]['user_id'], str(self.expert_low_rep.pk))
+        self.assertEqual(result_asc.candidates[1]['user_id'], str(self.expert_high_rep.pk))
+
+        # Rep descending
+        result_desc = QuestionExpertInvitationService.get_eligible_experts(self.question, ordering='-user_reputation_score')
+        self.assertEqual(result_desc.candidates[0]['user_id'], str(self.expert_high_rep.pk))
+        self.assertEqual(result_desc.candidates[1]['user_id'], str(self.expert_low_rep.pk))
+
+    def test_tag_fallback_when_no_concepts(self):
+        # Create another question with same tag but no concept edges
+        tag = Tag.objects.create(name='vue')
+        self.question.tags.add(tag)
+        QuestionConceptEdge.objects.filter(question=self.question).delete()
+
+        # Create another question with vue tag and a solution by high-rep expert
+        q2 = Question.objects.create(user=self.author, question_title='Vue question')
+        q2.tags.add(tag)
+        Solution.objects.create(user=self.expert_high_rep, question=q2, solution_body='vue solution')
+
+        result = QuestionExpertInvitationService.get_eligible_experts(self.question)
+        # HighRepExpert should be first now because of tag overlap (1 solution)
+        self.assertEqual(result.candidates[0]['user_id'], str(self.expert_high_rep.pk))
+        self.assertEqual(result.candidates[0]['topic_score'], 1.0)
+
+    def test_api_ordering_and_pagination(self):
+        self.client.force_authenticate(self.author)
+        # Default (topic strength)
+        response = self.client.get(f'/question/{self.question.question_id}/eligible-experts/')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['results'][0]['user_id'], str(self.expert_low_rep.pk))
+
+        # Explicit reputation
+        response = self.client.get(f'/question/{self.question.question_id}/eligible-experts/', {'ordering': '-user_reputation_score'})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['results'][0]['user_id'], str(self.expert_high_rep.pk))
+
+        # Pagination envelope
+        self.assertIn('count', response.data)
+        self.assertIn('next', response.data)
+        self.assertIn('results', response.data)
 
 
 class QuestionTagModelTests(APITestCase):

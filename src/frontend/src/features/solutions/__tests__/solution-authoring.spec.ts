@@ -245,7 +245,7 @@ describe('solution authoring flow', () => {
       .find((candidate) => candidate.text().includes('Newcomer') && candidate.text().includes('8'))
     expect(badge).toBeTruthy()
     expect(badge?.get('[data-testid="reputation-rank-icon"]').attributes('data-rank-level')).toBe('newcomer')
-    expect(badge?.findAll('[data-rank-part="arrow-down"]')).toHaveLength(1)
+    expect(badge?.findAll('[data-rank-part="star"]')).toHaveLength(1)
     expect(wrapper.text()).not.toContain('points_to_next_level')
   })
 
@@ -465,7 +465,7 @@ describe('solution authoring flow', () => {
     await flushPromises()
 
     expect(createSolutionMutationState.mutateAsync).toHaveBeenCalled()
-    expect(wrapper.text()).toContain('Решение добавлено. Мы перенесли вас к нему ниже.')
+    expect(wrapper.text()).toContain('Решение добавлено.')
     expect(wrapper.find('#solution-solution-new').exists()).toBe(true)
     expect(wrapper.find('.solution-read-card--fresh').exists()).toBe(true)
     expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalled()

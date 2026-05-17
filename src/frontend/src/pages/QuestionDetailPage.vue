@@ -219,7 +219,7 @@ async function focusSolution(solutionId: string) {
 
 async function handleSolutionSubmitted(createdSolution: CreateSolutionResponse) {
   isComposerOpen.value = false
-  solutionSuccessMessage.value = 'Решение добавлено. Мы перенесли вас к нему ниже.'
+  solutionSuccessMessage.value = 'Решение добавлено.'
   freshSolutionId.value = createdSolution.solution_id
 
   await solutionsQuery.refetch()
@@ -231,7 +231,8 @@ async function handleSolutionSubmitted(createdSolution: CreateSolutionResponse) 
 
   clearFreshSolutionTimer = setTimeout(() => {
     freshSolutionId.value = null
-  }, 2400)
+    solutionSuccessMessage.value = ''
+  }, 5000)
 }
 
 watch(

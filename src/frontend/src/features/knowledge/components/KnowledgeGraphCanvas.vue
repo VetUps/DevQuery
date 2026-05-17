@@ -18,6 +18,11 @@ interface Emits {
   'layout-changed': [positions: Record<string, KnowledgeGraphLayoutPosition>]
 }
 
+interface GraphViewport {
+  zoom: number
+  pan: { x: number; y: number }
+}
+
 const props = withDefaults(defineProps<{
   nodes: KnowledgeGraphNode[]
   edges: KnowledgeGraphEdge[]
@@ -591,6 +596,29 @@ function syncGrabState(): void {
   cyInstance.value?.autoungrabify(!props.isLayoutEditable)
 }
 
+function captureViewport(cy: Core): GraphViewport | null {
+  const zoom = cy.zoom()
+  const pan = cy.pan()
+
+  if (!Number.isFinite(zoom) || !Number.isFinite(pan.x) || !Number.isFinite(pan.y)) {
+    return null
+  }
+
+  return {
+    zoom,
+    pan: { x: pan.x, y: pan.y },
+  }
+}
+
+function restoreViewport(cy: Core, viewport: GraphViewport | null): void {
+  if (!viewport) {
+    return
+  }
+
+  cy.zoom(viewport.zoom)
+  cy.pan(viewport.pan)
+}
+
 function collectCurrentPositions(): Record<string, KnowledgeGraphLayoutPosition> {
   const positions: Record<string, KnowledgeGraphLayoutPosition> = {}
   const cy = cyInstance.value
@@ -625,11 +653,14 @@ function updateGraphElements(): void {
     return
   }
 
+  const viewport = captureViewport(cy)
+
   cy.elements().remove()
   cy.add(graphElements.value)
   syncGrabState()
   syncHighlightClasses()
   runLayout()
+  restoreViewport(cy, viewport)
 }
 
 function createGraph(): void {
