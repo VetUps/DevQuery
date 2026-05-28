@@ -1,5 +1,9 @@
-from rest_framework import serializers
+from pathlib import Path
+
 from django.http import QueryDict
+from django.utils import timezone
+from rest_framework import serializers
+
 from .models import CustomUser, ReputationPolicyConfig, ReputationTransaction
 from .services.admin_activity_service import AdminActivityService
 from .services.reputation_service import ReputationService
@@ -64,6 +68,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
             'user_role',
             'user_reputation_score',
             'user_avatar_url',
+            'user_avatar_updated_at',
             'user_bio',
             'user_created_at',
             'reputation',
@@ -91,6 +96,7 @@ class PublicUserProfileSerializer(serializers.ModelSerializer):
             'user_role',
             'user_reputation_score',
             'user_avatar_url',
+            'user_avatar_updated_at',
             'user_bio',
             'user_created_at',
             'reputation',
@@ -242,6 +248,50 @@ class AdminUserReputationDetailSerializer(serializers.ModelSerializer):
         transactions = obj.reputation_transactions.select_related('actor').order_by('-created_at')[:limit]
         return ReputationLedgerEntrySerializer(transactions, many=True).data
 
+
+class UserAvatarUploadSerializer(serializers.ModelSerializer):
+    allowed_extensions = {'.jpg', '.jpeg', '.png', '.webp', '.gif'}
+    extension_by_content_type = {
+        'image/jpeg': '.jpg',
+        'image/png': '.png',
+        'image/webp': '.webp',
+        'image/gif': '.gif',
+    }
+
+    class Meta:
+        model = CustomUser
+        fields = ('user_avatar_url',)
+
+    def _avatar_extension(self, uploaded_file) -> str:
+        suffix = Path(uploaded_file.name or '').suffix.lower()
+        if suffix in self.allowed_extensions:
+            return '.jpg' if suffix == '.jpeg' else suffix
+
+        content_type = getattr(uploaded_file, 'content_type', '')
+        extension = self.extension_by_content_type.get(content_type)
+        if extension:
+            return extension
+
+        raise serializers.ValidationError(
+            {'user_avatar_url': 'Поддерживаются только изображения jpg, png, webp или gif.'}
+        )
+
+    def update(self, instance: CustomUser, validated_data):
+        avatar = validated_data.get('user_avatar_url')
+        if avatar is None:
+            return instance
+
+        extension = self._avatar_extension(avatar)
+        next_name = f'avatars/{instance.user_id}{extension}'
+        previous_name = instance.user_avatar_url.name if instance.user_avatar_url else ''
+
+        if previous_name and previous_name != next_name:
+            instance.user_avatar_url.storage.delete(previous_name)
+
+        instance.user_avatar_url.save(next_name, avatar, save=False)
+        instance.user_avatar_updated_at = timezone.now()
+        instance.save(update_fields=['user_avatar_url', 'user_avatar_updated_at'])
+        return instance
 
 class UserLoginSerializer(serializers.Serializer):
     user_email = serializers.CharField(max_length=255, required=True)

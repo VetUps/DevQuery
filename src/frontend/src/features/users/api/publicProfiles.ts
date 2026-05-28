@@ -6,6 +6,7 @@ export interface PublicUserProfile {
   user_name: string
   user_reputation_score: number
   user_avatar_url: string | null
+  user_avatar_updated_at: string | null
   user_bio: string | null
   user_created_at: string
   reputation: ReputationSummary
@@ -45,16 +46,22 @@ function parsePublicProfile(value: unknown): PublicUserProfile {
     throw new Error('Malformed public profile response: expected object')
   }
 
-  return {
+  const profile: PublicUserProfile = {
     user_id: assertString(value.user_id, 'user_id'),
     user_name: assertString(value.user_name, 'user_name'),
     user_reputation_score: assertNumber(value.user_reputation_score, 'user_reputation_score'),
     user_avatar_url: assertNullableString(value.user_avatar_url, 'user_avatar_url'),
+    user_avatar_updated_at: assertNullableString(value.user_avatar_updated_at, 'user_avatar_updated_at'),
     user_bio: assertNullableString(value.user_bio, 'user_bio'),
     user_created_at: assertString(value.user_created_at, 'user_created_at'),
     reputation: parseReputationSummary(value.reputation),
-    weekly_score: typeof value.weekly_score === 'number' ? value.weekly_score : undefined,
   }
+
+  if (typeof value.weekly_score === 'number') {
+    profile.weekly_score = value.weekly_score
+  }
+
+  return profile
 }
 
 export async function fetchPublicProfile(userId: string) {

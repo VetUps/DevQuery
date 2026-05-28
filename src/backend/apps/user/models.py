@@ -45,6 +45,13 @@ class CustomUserManager(BaseUserManager):
         return self.create_user(user_email, user_name, password, **extra_fields)
 
 
+def user_avatar_upload_to(instance, filename):
+    extension = filename.rsplit('.', 1)[-1].lower() if '.' in filename else 'jpg'
+    if extension == 'jpeg':
+        extension = 'jpg'
+    return f'avatars/{instance.user_id}.{extension}'
+
+
 class CustomUser(AbstractBaseUser, PermissionsMixin):
     """
     Кастомная модель данных пользователя
@@ -76,8 +83,10 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
         null=True,
         help_text='Ручной уровень репутации, если администратор переопределил расчетный уровень',
     )
-    user_avatar_url =       models.ImageField(blank=True, null=True,
+    user_avatar_url =       models.ImageField(upload_to=user_avatar_upload_to, blank=True, null=True,
                                               help_text='Аватар пользователя')
+    user_avatar_updated_at = models.DateTimeField(blank=True, null=True,
+                                                  help_text='Дата последнего обновления аватара')
     user_bio =              models.TextField(blank=True, null=True,
                                              help_text='Дополнительная информация о пользователе')
     user_created_at =       models.DateTimeField(auto_now_add=True,

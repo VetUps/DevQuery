@@ -6,6 +6,7 @@ import ProtectedQuestionChip from '@/features/questions/components/ProtectedQues
 import QuestionFavoriteAction from '@/features/questions/components/QuestionFavoriteAction.vue'
 import QuestionTagChips from '@/features/questions/components/QuestionTagChips.vue'
 import AuthorReputationBadge from '@/features/users/components/AuthorReputationBadge.vue'
+import UserAvatar from '@/shared/ui/UserAvatar.vue'
 import { formatLongDate, formatQuestionStatus } from '@/shared/libs/formatting'
 
 const props = defineProps<{
@@ -45,13 +46,16 @@ const props = defineProps<{
         >
           Вас позвали ответить
         </span>
-        <span class="question-card__author">
-          {{ question.user_name ?? 'Автор вопроса' }}
-        </span>
-        <AuthorReputationBadge
-          :reputation="question.reputation"
-          :fallback-score="question.user_reputation_score"
-        />
+        <div class="question-card__author-wrapper">
+          <UserAvatar :url="question.user_avatar_url" :version="question.user_avatar_updated_at" size="sm" class="question-card__author-avatar" />
+          <span class="question-card__author">
+            {{ question.user_name ?? 'Автор вопроса' }}
+          </span>
+          <AuthorReputationBadge
+            :reputation="question.reputation"
+            :fallback-score="question.user_reputation_score"
+          />
+        </div>
         <span class="question-card__stamp">
           Создан {{ formatLongDate(question.question_created_at) }}
         </span>
@@ -157,6 +161,16 @@ const props = defineProps<{
 .question-card__status--closed {
   background: rgb(180 35 24 / 0.1);
   color: #B42318;
+}
+
+.question-card__author-wrapper {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.question-card__author-avatar {
+  flex-shrink: 0;
 }
 
 .question-card__author {

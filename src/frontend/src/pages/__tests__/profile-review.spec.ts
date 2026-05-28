@@ -17,6 +17,13 @@ vi.mock('@/features/auth/queries/useCurrentUserQuery', () => ({
   useCurrentUserQuery: vi.fn(() => profileState),
 }))
 
+vi.mock('@/features/auth/mutations/useUploadAvatarMutation', () => ({
+  useUploadAvatarMutation: vi.fn(() => ({
+    mutateAsync: vi.fn(),
+    isPending: ref(false),
+  })),
+}))
+
 vi.mock('@/features/solutions/components/ProfileEditReviewQueue.vue', () => ({
   default: {
     template: '<div data-testid="solution-review-workspace">Здесь появится очередь правок к вашим решениям.</div>',

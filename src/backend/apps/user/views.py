@@ -1,5 +1,5 @@
 from django.db.models import Q
-from rest_framework import viewsets, status, mixins
+from rest_framework import viewsets, status, mixins, parsers
 from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
@@ -23,6 +23,7 @@ from .serializers import (
     PublicUserProfileSerializer,
     UserLoginResponseSerializer,
     UserLogoutSerializer,
+    UserAvatarUploadSerializer,
 )
 from .services.user_service import UserService
 from .services.reputation_service import ReputationService
@@ -42,6 +43,8 @@ class UserViewSet(viewsets.GenericViewSet):
             return UserLogoutSerializer
         if self.action == 'profile':
             return UserProfileSerializer
+        if self.action == 'avatar':
+            return UserAvatarUploadSerializer
         if self.action == 'public_profile':
             return PublicUserProfileSerializer
         return self.serializer_class
@@ -100,6 +103,21 @@ class UserViewSet(viewsets.GenericViewSet):
         user = UserService.get_user_profile(request.user)
         serializer = self.get_serializer(instance=user)
         return Response(serializer.data, status=status.HTTP_200_OK)
+
+    @extend_schema(
+        request=UserAvatarUploadSerializer,
+        responses={200: UserProfileSerializer}
+    )
+    @action(detail=False, methods=['patch'], permission_classes=[IsAuthenticated], url_path='profile/avatar', parser_classes=[parsers.MultiPartParser, parsers.FormParser])
+    def avatar(self, request):
+        user = request.user
+        serializer = self.get_serializer(instance=user, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        # Return updated profile
+        profile_user = UserService.get_user_profile(user)
+        response_serializer = UserProfileSerializer(instance=profile_user)
+        return Response(response_serializer.data, status=status.HTTP_200_OK)
 
     @extend_schema(
         responses={200: PublicUserProfileSerializer}

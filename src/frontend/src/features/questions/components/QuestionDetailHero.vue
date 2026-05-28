@@ -5,6 +5,7 @@ import QuestionFavoriteAction from '@/features/questions/components/QuestionFavo
 import QuestionTagChips from '@/features/questions/components/QuestionTagChips.vue'
 import ProtectedQuestionChip from '@/features/questions/components/ProtectedQuestionChip.vue'
 import AuthorReputationBadge from '@/features/users/components/AuthorReputationBadge.vue'
+import UserAvatar from '@/shared/ui/UserAvatar.vue'
 import SignalVoteRail from '@/features/votes/components/SignalVoteRail.vue'
 import { formatLongDate, formatQuestionStatus } from '@/shared/libs/formatting'
 import AppButton from '@/shared/ui/AppButton.vue'
@@ -80,6 +81,7 @@ const emit = defineEmits<{
         <div>
           <p class="question-detail-hero__author-label">Автор вопроса</p>
           <div class="question-detail-hero__author-identity">
+            <UserAvatar :url="author?.user_avatar_url" :version="author?.user_avatar_updated_at" size="md" class="question-detail-hero__author-avatar" />
             <p class="question-detail-hero__author-name">
               {{ author?.user_name ?? 'Профиль автора загружается' }}
             </p>

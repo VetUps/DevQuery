@@ -337,6 +337,15 @@ onBeforeUnmount(clearSearchDebounceTimer)
   align-content: start;
 }
 
+.home-page__sidebar {
+  position: sticky;
+  top: calc(64px + var(--space-lg));
+  align-self: start;
+  max-height: calc(100vh - 64px - (var(--space-lg) * 2));
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
 .home-page__list-section {
   display: grid;
   gap: var(--space-lg);
@@ -383,6 +392,13 @@ onBeforeUnmount(clearSearchDebounceTimer)
 @media (width <= 980px) {
   .home-page__content {
     grid-template-columns: 1fr;
+  }
+
+  .home-page__sidebar {
+    position: static;
+    max-height: none;
+    overflow-y: visible;
+    scrollbar-gutter: auto;
   }
 }
 

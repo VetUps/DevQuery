@@ -1,5 +1,6 @@
 import { afterEach, vi } from 'vitest'
 import { config } from '@vue/test-utils'
+import { VueQueryPlugin } from '@tanstack/vue-query'
 
 class ResizeObserverStub {
   observe() {}
@@ -56,3 +57,5 @@ config.global.stubs = {
   transition: false,
   'transition-group': false,
 }
+
+config.global.plugins = [VueQueryPlugin]

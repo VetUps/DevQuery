@@ -9,6 +9,7 @@ export interface CommentListItem {
   user: string
   user_name: string
   user_avatar_url: string | null
+  user_avatar_updated_at?: string | null
   user_reputation_score?: number | null
   reputation?: ReputationSummary | null
   target_type: CommentTargetType

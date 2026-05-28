@@ -1218,7 +1218,9 @@ class QuestionTagResponseSerializerTests(APITestCase):
 
     def test_author_reputation_contract_is_available_for_rank_badges(self):
         self.user.user_reputation_score = 300
-        self.user.save(update_fields=['user_reputation_score'])
+        self.user.user_avatar_url = 'avatars/master.jpg'
+        self.user.user_avatar_updated_at = timezone.now()
+        self.user.save(update_fields=['user_reputation_score', 'user_avatar_url', 'user_avatar_updated_at'])
         solution = Solution.objects.create(
             user=self.user,
             question=self.question,
@@ -1252,6 +1254,9 @@ class QuestionTagResponseSerializerTests(APITestCase):
         for payload in payloads:
             with self.subTest(serializer=payload):
                 self.assertEqual(payload['user_name'], self.user.user_name)
+                self.assertIn('user_avatar_url', payload)
+                self.assertIn('user_avatar_updated_at', payload)
+                self.assertIn('avatars/master.jpg', str(payload['user_avatar_url']))
                 self.assertEqual(payload['user_reputation_score'], 300)
                 self.assertEqual(payload['reputation']['level'], CustomUser.ReputationLevel.MASTER)
                 self.assertEqual(payload['reputation']['level_label'], CustomUser.ReputationLevel.MASTER.label)

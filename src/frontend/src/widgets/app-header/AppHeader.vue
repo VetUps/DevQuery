@@ -7,6 +7,7 @@ import { canAccessAdminWorkspace as canProfileAccessAdminWorkspace } from '@/fea
 import { useCurrentUserQuery } from '@/features/auth/queries/useCurrentUserQuery'
 import { useSessionStore } from '@/features/auth/stores/session'
 import HeaderNotificationMenu from '@/features/notifications/components/HeaderNotificationMenu.vue'
+import logoUrl from '@/shared/assets/brand/logo.png'
 import AppButton from '@/shared/ui/AppButton.vue'
 
 import AccountMenu from './AccountMenu.vue'
@@ -23,14 +24,20 @@ const isSignedIn = computed(() => isAuthenticated.value)
 const askQuestionTarget = computed(() => (isSignedIn.value ? '/questions/ask' : '/register'))
 let accountLabel = computed(() => 'Аккаунт')
 let hasAdminWorkspaceAccess = computed(() => false)
+let avatarUrl = computed<string | null>(() => null)
+let avatarVersion = computed<string | null>(() => null)
 
 try {
   const currentUserQuery = useCurrentUserQuery()
 
   accountLabel = computed(() => currentUserQuery.data.value?.user_name?.trim() || 'Аккаунт')
+  avatarUrl = computed(() => currentUserQuery.data.value?.user_avatar_url ?? null)
+  avatarVersion = computed(() => currentUserQuery.data.value?.user_avatar_updated_at ?? null)
   hasAdminWorkspaceAccess = computed(() => canProfileAccessAdminWorkspace(currentUserQuery.data.value))
 } catch {
   accountLabel = computed(() => 'Аккаунт')
+  avatarUrl = computed(() => null)
+  avatarVersion = computed(() => null)
   hasAdminWorkspaceAccess = computed(() => false)
 }
 
@@ -69,8 +76,11 @@ async function handleLogout() {
 <template>
   <header class="app-header" data-testid="app-header">
     <div class="app-header__inner">
-      <RouterLink class="app-header__wordmark" to="/">
-        DevQuery
+      <RouterLink class="app-header__wordmark" to="/" aria-label="DevQuery">
+        <img class="app-header__logo" :src="logoUrl" alt="" aria-hidden="true" />
+        <span class="app-header__brand-text" aria-hidden="true">
+          <span class="app-header__brand-text-dev">Dev</span><span class="app-header__brand-text-query">Query</span>
+        </span>
       </RouterLink>
 
       <nav class="app-header__nav" aria-label="Основная навигация" data-testid="app-header-nav">
@@ -91,6 +101,8 @@ async function handleLogout() {
           <AccountMenu
             :can-access-admin-workspace="hasAdminWorkspaceAccess"
             :label="accountLabel"
+            :avatar-url="avatarUrl"
+            :avatar-version="avatarVersion"
             :open="isAccountMenuOpen"
             @close="handleAccountMenuToggle"
             @logout="handleLogout"
@@ -136,10 +148,33 @@ async function handleLogout() {
 }
 
 .app-header__wordmark {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+  min-width: 0;
   color: color-mix(in srgb, var(--color-text) 82%, transparent);
+}
+
+.app-header__logo {
+  display: block;
+  width: auto;
+  height: 36px;
+  object-fit: contain;
+}
+
+.app-header__brand-text {
   font-size: 24px;
   font-weight: 700;
   letter-spacing: -0.035em;
+  line-height: 1;
+}
+
+.app-header__brand-text-dev {
+  color: #0e7691;
+}
+
+.app-header__brand-text-query {
+  color: #1a1a1a;
 }
 
 .app-header__nav {
@@ -178,6 +213,14 @@ async function handleLogout() {
     width: 100%;
     justify-content: flex-end;
     flex-wrap: wrap;
+  }
+
+  .app-header__logo {
+    height: 32px;
+  }
+
+  .app-header__brand-text {
+    font-size: 22px;
   }
 }
 </style>

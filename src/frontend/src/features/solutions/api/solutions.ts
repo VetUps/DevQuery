@@ -6,6 +6,8 @@ export interface SolutionListItem extends VoteContext {
   solution_id: string
   user: string
   user_name: string
+  user_avatar_url?: string | null
+  user_avatar_updated_at?: string | null
   user_reputation_score?: number | null
   reputation?: ReputationSummary | null
   question_id?: string
@@ -24,6 +26,8 @@ export interface CreateSolutionResponse {
   solution_id: string
   user: string
   user_name: string
+  user_avatar_url?: string | null
+  user_avatar_updated_at?: string | null
   question: string
   solution_body: string
   solution_is_best: boolean

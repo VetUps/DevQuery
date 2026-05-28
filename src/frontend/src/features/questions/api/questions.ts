@@ -103,6 +103,8 @@ export interface QuestionListItem extends QuestionProtectionSnapshot {
   question_id: string
   user: string
   user_name?: string
+  user_avatar_url?: string | null
+  user_avatar_updated_at?: string | null
   user_reputation_score?: number | null
   reputation?: ReputationSummary | null
   question_title: string
@@ -283,6 +285,8 @@ export function normalizeQuestionListItem(value: unknown): QuestionListItem {
     question_id: typeof question.question_id === 'string' ? question.question_id : '',
     user: typeof question.user === 'string' ? question.user : '',
     user_name: typeof question.user_name === 'string' ? question.user_name : undefined,
+    user_avatar_url: typeof question.user_avatar_url === 'string' ? question.user_avatar_url : null,
+    user_avatar_updated_at: typeof question.user_avatar_updated_at === 'string' ? question.user_avatar_updated_at : null,
     user_reputation_score: typeof question.user_reputation_score === 'number' ? question.user_reputation_score : null,
     reputation: (question.reputation as ReputationSummary | null | undefined) ?? null,
     question_title: typeof question.question_title === 'string' ? question.question_title : '',

@@ -210,11 +210,15 @@ class QuestionProtectionMixin:
 class AuthorReputationMixin(serializers.Serializer):
     author_reputation_field_names = [
         'user_name',
+        'user_avatar_url',
+        'user_avatar_updated_at',
         'user_reputation_score',
         'reputation',
     ]
 
     user_name = serializers.SerializerMethodField()
+    user_avatar_url = serializers.ImageField(source='user.user_avatar_url', read_only=True)
+    user_avatar_updated_at = serializers.DateTimeField(source='user.user_avatar_updated_at', read_only=True)
     user_reputation_score = serializers.SerializerMethodField()
     reputation = serializers.SerializerMethodField()
 
@@ -846,13 +850,12 @@ class SolutionEditHistorySerializer(serializers.ModelSerializer):
 
 class CommentListSerializer(AuthorReputationMixin, serializers.ModelSerializer):
     target_type = serializers.CharField(read_only=True)
-    user_avatar_url = serializers.ImageField(source='user.user_avatar_url', read_only=True)
     parent_id = serializers.UUIDField(source='parent.comment_id', read_only=True)
     target_id = serializers.UUIDField(source='object_id', read_only=True)
 
     class Meta:
         model = Comment
-        fields = ['comment_id', 'user', *AuthorReputationMixin.author_reputation_field_names, 'user_avatar_url', 'target_type',
+        fields = ['comment_id', 'user', *AuthorReputationMixin.author_reputation_field_names, 'target_type',
                   'target_id', 'parent_id', 'body', 'created_at']
 
 
@@ -945,26 +948,24 @@ class CommentCreateSerializer(serializers.ModelSerializer):
 
 class CommentCreateResponseSerializer(AuthorReputationMixin, serializers.ModelSerializer):
     target_type = serializers.CharField(read_only=True)
-    user_avatar_url = serializers.ImageField(source='user.user_avatar_url', read_only=True)
     parent_id = serializers.UUIDField(source='parent.comment_id', read_only=True)
     target_id = serializers.UUIDField(source='object_id', read_only=True)
 
     class Meta:
         model = Comment
-        fields = ['comment_id', 'user', *AuthorReputationMixin.author_reputation_field_names, 'user_avatar_url', 'target_type',
+        fields = ['comment_id', 'user', *AuthorReputationMixin.author_reputation_field_names, 'target_type',
                   'target_id', 'parent_id', 'body', 'created_at']
 
 
 class CommentDetailSerializer(AuthorReputationMixin, serializers.ModelSerializer):
     target_type = serializers.CharField(read_only=True)
-    user_avatar_url = serializers.ImageField(source='user.user_avatar_url', read_only=True)
     parent_id = serializers.UUIDField(source='parent.comment_id', read_only=True)
     target_id = serializers.UUIDField(source='object_id', read_only=True)
     replies = serializers.SerializerMethodField()
 
     class Meta:
         model = Comment
-        fields = ['comment_id', 'user', *AuthorReputationMixin.author_reputation_field_names, 'user_avatar_url', 'target_type',
+        fields = ['comment_id', 'user', *AuthorReputationMixin.author_reputation_field_names, 'target_type',
                   'target_id', 'parent_id', 'body', 'created_at', 'replies']
 
     def get_replies(self, obj):

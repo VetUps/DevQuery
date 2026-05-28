@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onUnmounted, ref, shallowRef, watch } from 'vue'
 import { isAxiosError } from 'axios'
 import { useRoute, useRouter } from 'vue-router'
 
 import { useCurrentUserQuery } from '@/features/auth/queries/useCurrentUserQuery'
+import { useUploadAvatarMutation } from '@/features/auth/mutations/useUploadAvatarMutation'
 import { useSessionStore } from '@/features/auth/stores/session'
 import { canAccessAdminWorkspace } from '@/features/admin/libs/admin-access'
 import ProfileKnowledgeGraphTab from '@/features/knowledge/components/ProfileKnowledgeGraphTab.vue'
@@ -21,6 +22,8 @@ import { formatLongDate } from '@/shared/libs/formatting'
 import AppDialog from '@/shared/ui/AppDialog.vue'
 import InlineFeedbackPanel from '@/shared/ui/InlineFeedbackPanel.vue'
 import SurfacePanel from '@/shared/ui/SurfacePanel.vue'
+
+import UserAvatar from '@/shared/ui/UserAvatar.vue'
 
 type ProfileTab = 'overview' | 'favorites' | 'knowledge' | 'review' | 'history' | 'notifications'
 
@@ -59,6 +62,46 @@ const user = computed(() => profileQuery.data.value)
 const canOpenAdminWorkspace = computed(() => canAccessAdminWorkspace(user.value))
 const reputation = computed(() => user.value?.reputation ?? null)
 const reputationLedger = computed(() => user.value?.reputation_ledger ?? [])
+
+const uploadAvatarMutation = useUploadAvatarMutation()
+const fileInput = ref<HTMLInputElement | null>(null)
+const avatarPreviewUrl = shallowRef<string | null>(null)
+const displayedAvatarUrl = computed(() => avatarPreviewUrl.value ?? user.value?.user_avatar_url ?? null)
+const displayedAvatarVersion = computed(() => avatarPreviewUrl.value ? null : user.value?.user_avatar_updated_at ?? null)
+
+function revokeAvatarPreview() {
+  if (avatarPreviewUrl.value) {
+    URL.revokeObjectURL(avatarPreviewUrl.value)
+    avatarPreviewUrl.value = null
+  }
+}
+
+function triggerAvatarUpload() {
+  fileInput.value?.click()
+}
+
+async function onAvatarSelected(event: Event) {
+  const target = event.target as HTMLInputElement
+  const file = target.files?.[0]
+
+  if (!file) {
+    return
+  }
+
+  revokeAvatarPreview()
+  avatarPreviewUrl.value = URL.createObjectURL(file)
+
+  try {
+    await uploadAvatarMutation.mutateAsync(file)
+    revokeAvatarPreview()
+  } catch {
+    revokeAvatarPreview()
+  } finally {
+    target.value = ''
+  }
+}
+
+onUnmounted(revokeAvatarPreview)
 
 const startDate = ref('')
 const endDate = ref('')
@@ -190,20 +233,43 @@ async function setActiveTab(tab: ProfileTab) {
 
       <template v-else-if="user">
         <SurfacePanel class="profile-page__summary" padding="lg">
-          <div class="profile-page__summary-copy">
-            <p class="profile-page__eyebrow">Профиль</p>
-            <h1 class="profile-page__title">{{ user.user_name }}</h1>
-            <p class="profile-page__email">{{ user.user_email }}</p>
+          <div class="profile-page__summary-header">
+            <div class="profile-page__avatar-section">
+              <button 
+                class="profile-page__avatar-btn" 
+                @click="triggerAvatarUpload" 
+                :disabled="uploadAvatarMutation.isPending.value"
+                aria-label="Изменить аватар"
+              >
+                <UserAvatar :url="displayedAvatarUrl" :version="displayedAvatarVersion" size="xl" />
+                <div class="profile-page__avatar-overlay">
+                  <span>{{ uploadAvatarMutation.isPending.value ? 'Загрузка...' : 'Изменить' }}</span>
+                </div>
+              </button>
+              <input 
+                type="file" 
+                ref="fileInput" 
+                accept="image/*" 
+                class="profile-page__file-input" 
+                @change="onAvatarSelected" 
+              />
+            </div>
+            
+            <div class="profile-page__summary-copy">
+              <p class="profile-page__eyebrow">Профиль</p>
+              <h1 class="profile-page__title">{{ user.user_name }}</h1>
+              <p class="profile-page__email">{{ user.user_email }}</p>
 
-            <RouterLink
-              v-if="canOpenAdminWorkspace"
-              class="profile-page__admin-link"
-              data-testid="profile-admin-link"
-              to="/admin"
-            >
-              <span class="profile-page__admin-link-eyebrow">Инструменты администратора</span>
-              <span class="profile-page__admin-link-title">Администрирование</span>
-            </RouterLink>
+              <RouterLink
+                v-if="canOpenAdminWorkspace"
+                class="profile-page__admin-link"
+                data-testid="profile-admin-link"
+                to="/admin"
+              >
+                <span class="profile-page__admin-link-eyebrow">Инструменты администратора</span>
+                <span class="profile-page__admin-link-title">Администрирование</span>
+              </RouterLink>
+            </div>
           </div>
 
           <dl class="profile-page__facts">
@@ -317,6 +383,54 @@ async function setActiveTab(tab: ProfileTab) {
 .profile-page__summary {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: end;
+}
+
+.profile-page__summary-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xl);
+}
+
+.profile-page__avatar-section {
+  position: relative;
+}
+
+.profile-page__avatar-btn {
+  position: relative;
+  border: none;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  border-radius: 50%;
+  overflow: hidden;
+}
+
+.profile-page__avatar-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 600;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.profile-page__avatar-btn:hover .profile-page__avatar-overlay {
+  opacity: 1;
+}
+
+.profile-page__avatar-btn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.profile-page__file-input {
+  display: none;
 }
 
 .profile-page__summary-copy,

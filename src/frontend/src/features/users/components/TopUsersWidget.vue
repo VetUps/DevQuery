@@ -4,6 +4,7 @@ import { useTopUsersQuery, type TopUsersPeriod } from '@/features/users/queries/
 import SurfacePanel from '@/shared/ui/SurfacePanel.vue'
 import AppButton from '@/shared/ui/AppButton.vue'
 import ContentSkeleton from '@/shared/ui/ContentSkeleton.vue'
+import UserAvatar from '@/shared/ui/UserAvatar.vue'
 
 const period = ref<TopUsersPeriod>('global')
 const page = ref(1)
@@ -31,10 +32,6 @@ function prevPage() {
   if (hasPreviousPage.value) {
     page.value--
   }
-}
-
-function getAvatarUrl(url: string | null) {
-  return url || 'https://api.dicebear.com/7.x/identicon/svg?seed=fallback'
 }
 
 function getMedalClass(index: number) {
@@ -83,7 +80,7 @@ function getMedalClass(index: number) {
         <li v-for="(user, index) in users" :key="user.user_id" class="top-users-widget__item">
           <div class="top-users-widget__user">
             <div class="top-users-widget__avatar-wrapper" :class="getMedalClass(index)">
-              <img :src="getAvatarUrl(user.user_avatar_url)" alt="" class="top-users-widget__avatar" />
+              <UserAvatar :url="user.user_avatar_url" :version="user.user_avatar_updated_at" :alt="user.user_name" size="sm" class="top-users-widget__avatar" />
             </div>
             <div class="top-users-widget__info">
               <span class="top-users-widget__name">{{ user.user_name }}</span>

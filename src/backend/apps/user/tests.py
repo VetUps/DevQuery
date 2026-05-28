@@ -1,9 +1,13 @@
 from datetime import timedelta
+from pathlib import Path
+import shutil
+import tempfile
 
 from django.contrib import admin
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.test import RequestFactory, TestCase
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import RequestFactory, TestCase, override_settings
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 from rest_framework.test import APIClient
@@ -89,6 +93,7 @@ class UserRegisterEndpointTests(TestCase):
                 'user_role',
                 'user_reputation_score',
                 'user_avatar_url',
+                'user_avatar_updated_at',
                 'user_bio',
                 'user_created_at',
                 'reputation',
@@ -103,6 +108,74 @@ class UserRegisterEndpointTests(TestCase):
         self.assertEqual(response.data['reputation_ledger'], [])
         self.assertNotIn('password', response.data)
         self.assertNotIn('password_confirm', response.data)
+
+
+class UserAvatarUploadEndpointTests(TestCase):
+    def setUp(self):
+        self.media_root = tempfile.mkdtemp()
+        self.client = APIClient()
+        self.user = CustomUser.objects.create_user(
+            user_email='avatar@example.com',
+            user_name='avatar-user',
+            password='password123',
+        )
+        self.client.force_authenticate(user=self.user)
+
+    def tearDown(self):
+        shutil.rmtree(self.media_root, ignore_errors=True)
+
+    def _settings_override(self):
+        return override_settings(
+            STORAGES={
+                'default': {
+                    'BACKEND': 'django.core.files.storage.FileSystemStorage',
+                    'OPTIONS': {'location': self.media_root},
+                },
+                'staticfiles': {
+                    'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage',
+                },
+            },
+        )
+
+    def test_avatar_upload_uses_stable_user_uuid_key_and_updates_cache_buster(self):
+        image = SimpleUploadedFile(
+            'first.gif',
+            b'GIF89a\x01\x00\x01\x00\x80\x00\x00\x00\x00\x00\xff\xff\xff!\xf9\x04\x01\x00\x00\x00\x00,\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02D\x01\x00;',
+            content_type='image/gif',
+        )
+
+        with self._settings_override():
+            response = self.client.patch('/user/profile/avatar/', {'user_avatar_url': image}, format='multipart')
+
+        self.assertEqual(response.status_code, 200, response.data)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.user_avatar_url.name, f'avatars/{self.user.user_id}.gif')
+        self.assertIsNotNone(self.user.user_avatar_updated_at)
+        self.assertIn(str(self.user.user_id), response.data['user_avatar_url'])
+        self.assertIsNotNone(response.data['user_avatar_updated_at'])
+
+    def test_avatar_upload_removes_previous_extension_object_when_extension_changes(self):
+        first_image = SimpleUploadedFile(
+            'first.gif',
+            b'GIF89a\x01\x00\x01\x00\x80\x00\x00\x00\x00\x00\xff\xff\xff!\xf9\x04\x01\x00\x00\x00\x00,\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02D\x01\x00;',
+            content_type='image/gif',
+        )
+        second_image = SimpleUploadedFile(
+            'second.png',
+            b'GIF89a\x01\x00\x01\x00\x80\x00\x00\x00\x00\x00\xff\xff\xff!\xf9\x04\x01\x00\x00\x00\x00,\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02D\x01\x00;',
+            content_type='image/png',
+        )
+
+        with self._settings_override():
+            first_response = self.client.patch('/user/profile/avatar/', {'user_avatar_url': first_image}, format='multipart')
+            second_response = self.client.patch('/user/profile/avatar/', {'user_avatar_url': second_image}, format='multipart')
+
+        self.assertEqual(first_response.status_code, 200, first_response.data)
+        self.assertEqual(second_response.status_code, 200, second_response.data)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.user_avatar_url.name, f'avatars/{self.user.user_id}.png')
+        self.assertFalse((Path(self.media_root) / 'avatars' / f'{self.user.user_id}.gif').exists())
+        self.assertTrue((Path(self.media_root) / 'avatars' / f'{self.user.user_id}.png').exists())
 
 
 class TokenRefreshTests(TestCase):
@@ -1013,7 +1086,7 @@ class AdminApiActivityTimelineTests(TestCase):
 
         self.assertEqual(response.status_code, 200, response.data)
         self.assertEqual(response.data['count'], 9)
-        self.assertEqual(response.data['limit'], 25)
+        self.assertEqual(response.data['limit'], 10)
         items = response.data['items']
         self.assertEqual(
             [item['type'] for item in items],
@@ -1085,7 +1158,8 @@ class AdminApiActivityTimelineTests(TestCase):
 
         self.assertEqual(response.status_code, 200, response.data)
         self.assertEqual(response.data['limit'], 50)
-        self.assertEqual(response.data['count'], 50)
+        self.assertEqual(len(response.data['items']), 50)
+        self.assertEqual(response.data['count'], 60)
         self.assertEqual(len(response.data['items']), 50)
         serialized = str(response.data).lower()
         for forbidden in ['full raw body', 'password', 'token', 'content_type', 'object_id']:

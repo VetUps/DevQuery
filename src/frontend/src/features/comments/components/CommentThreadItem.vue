@@ -8,6 +8,7 @@ import type {
 } from '@/features/comments/api/comments'
 import CommentComposer from '@/features/comments/components/CommentComposer.vue'
 import AuthorReputationBadge from '@/features/users/components/AuthorReputationBadge.vue'
+import UserAvatar from '@/shared/ui/UserAvatar.vue'
 import { useCreateCommentMutation } from '@/features/comments/mutations/useCreateCommentMutation'
 import {
   extractCommentFieldErrors,
@@ -125,6 +126,7 @@ async function handleReplySubmit(body: string) {
   >
     <div class="comment-thread-item__meta">
       <span class="comment-thread-item__identity">
+        <UserAvatar :url="comment.user_avatar_url" :version="comment.user_avatar_updated_at" size="sm" class="comment-thread-item__avatar" />
         <strong class="comment-thread-item__author">{{ comment.user_name }}</strong>
         <AuthorReputationBadge
           :reputation="comment.reputation"
@@ -239,6 +241,10 @@ async function handleReplySubmit(body: string) {
   align-items: center;
   gap: var(--space-xs);
   min-width: 0;
+}
+
+.comment-thread-item__avatar {
+  flex-shrink: 0;
 }
 
 .comment-thread-item__author {

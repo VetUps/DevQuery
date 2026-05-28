@@ -1,4 +1,4 @@
-import { nextTick, toValue, type MaybeRefOrGetter } from 'vue'
+import { nextTick, toValue, ref, type MaybeRefOrGetter } from 'vue'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -46,6 +46,13 @@ const mountedWrappers: VueWrapper[] = []
 
 vi.mock('@/features/auth/queries/useCurrentUserQuery', () => ({
   useCurrentUserQuery: vi.fn(() => currentUserState),
+}))
+
+vi.mock('@/features/auth/mutations/useUploadAvatarMutation', () => ({
+  useUploadAvatarMutation: vi.fn(() => ({
+    mutateAsync: vi.fn(),
+    isPending: ref(false),
+  })),
 }))
 
 vi.mock('@/features/questions/queries/useQuestionListQuery', () => ({

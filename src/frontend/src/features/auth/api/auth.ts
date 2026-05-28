@@ -17,6 +17,7 @@ export interface UserProfile {
   user_role: UserRole
   user_reputation_score: number
   user_avatar_url: string | null
+  user_avatar_updated_at: string | null
   user_bio: string | null
   user_created_at: string
   reputation: ReputationSummary
@@ -96,6 +97,7 @@ function parseUserProfile(value: unknown): UserProfile {
     user_role: assertUserRole(value.user_role),
     user_reputation_score: assertNumber(value.user_reputation_score, 'user_reputation_score'),
     user_avatar_url: assertNullableString(value.user_avatar_url, 'user_avatar_url'),
+    user_avatar_updated_at: assertNullableString(value.user_avatar_updated_at, 'user_avatar_updated_at'),
     user_bio: assertNullableString(value.user_bio, 'user_bio'),
     user_created_at: assertString(value.user_created_at, 'user_created_at'),
     reputation: parseReputationSummary(value.reputation),
@@ -152,6 +154,19 @@ export async function logoutUser(payload: LogoutPayload, accessToken: string) {
 export async function fetchProfile(accessToken: string) {
   const response = await authTransport.get<unknown>('/user/profile/', {
     headers: createAuthHeaders(accessToken),
+  })
+  return parseUserProfile(response.data)
+}
+
+export async function uploadAvatar(file: File, accessToken: string) {
+  const formData = new FormData()
+  formData.append('user_avatar_url', file)
+
+  const response = await authTransport.patch<unknown>('/user/profile/avatar/', formData, {
+    headers: {
+      ...createAuthHeaders(accessToken),
+      'Content-Type': 'multipart/form-data',
+    },
   })
   return parseUserProfile(response.data)
 }
