@@ -89,6 +89,7 @@ const showSemanticEdges = shallowRef(true)
 const graphProjectionMode = shallowRef<KnowledgeGraphProjectionMode>('structural')
 const isRecommendationsDialogOpen = shallowRef(false)
 const isSemanticGroupsDialogOpen = shallowRef(false)
+const isKnowledgeGraphHelpDialogOpen = shallowRef(false)
 
 const graph = computed<UserKnowledgeGraphResponse | undefined>(() => graphQuery.data.value)
 const hasGraph = computed(() => Boolean(graph.value))
@@ -747,6 +748,14 @@ function closeSemanticGroupsDialog(): void {
   isSemanticGroupsDialogOpen.value = false
 }
 
+function openKnowledgeGraphHelpDialog(): void {
+  isKnowledgeGraphHelpDialogOpen.value = true
+}
+
+function closeKnowledgeGraphHelpDialog(): void {
+  isKnowledgeGraphHelpDialogOpen.value = false
+}
+
 watch(
   () => `${graph.value?.user_id ?? ''}:${graph.value?.layout?.updated_at ?? ''}:${Object.keys(graph.value?.layout?.positions ?? {}).join('|')}`,
   () => {
@@ -816,7 +825,19 @@ watch(
       <SurfacePanel variant="accent" padding="xl">
         <div class="knowledge-tab__hero">
           <div>
-            <p class="knowledge-tab__eyebrow">Граф знаний</p>
+            <div class="knowledge-tab__eyebrow-row">
+              <p class="knowledge-tab__eyebrow">Граф знаний</p>
+              <button
+                type="button"
+                class="knowledge-tab__help-button"
+                data-testid="knowledge-graph-help-open"
+                aria-label="Открыть справку о графе знаний"
+                aria-haspopup="dialog"
+                @click="openKnowledgeGraphHelpDialog"
+              >
+                ?
+              </button>
+            </div>
             <h2 class="knowledge-tab__title">Карта ваших сильных тем</h2>
           </div>
 
@@ -1198,6 +1219,41 @@ watch(
     />
 
     <AppDialog
+      :open="isKnowledgeGraphHelpDialogOpen"
+      title="Как работает граф знаний"
+      description="Короткая справка о структурном и семантическом представлении вашей активности."
+      data-testid="knowledge-graph-help-dialog"
+      @close="closeKnowledgeGraphHelpDialog"
+    >
+      <section class="knowledge-tab__help-modal" aria-label="Справка о графе знаний">
+        <div class="knowledge-tab__help-card">
+          <h3>Зачем нужен граф</h3>
+          <p>
+            Граф знаний показывает, в каких темах вы чаще всего проявляете себя: задаёте вопросы, отвечаете,
+            получаете оценки и участвуете в обсуждениях. Так проще понять, где у вас уже сильные области
+            и какие темы можно развивать дальше.
+          </p>
+        </div>
+
+        <div class="knowledge-tab__help-card">
+          <h3>Структурный граф</h3>
+          <p>
+            Структурный граф строится по вашим реальным действиям на сайте. Темы связываются между собой,
+            если они встречаются в одних и тех же вопросах или часто появляются рядом в вашей активности.
+          </p>
+        </div>
+
+        <div class="knowledge-tab__help-card">
+          <h3>Семантический граф</h3>
+          <p>
+            Семантический граф смотрит не только на прямые совпадения, но и на смысловую близость тем.
+            Он объединяет похожие области в кластеры, чтобы было легче увидеть более широкие направления знаний.
+          </p>
+        </div>
+      </section>
+    </AppDialog>
+
+    <AppDialog
       v-if="canShowInsights && hasConcepts && graph"
       :open="isSemanticGroupsDialogOpen"
       title="Семантические кластеры"
@@ -1494,6 +1550,71 @@ watch(
   grid-template-columns: minmax(0, 1fr) auto;
   gap: var(--space-xl);
   align-items: start;
+}
+
+.knowledge-tab__eyebrow-row {
+  display: inline-flex;
+  gap: var(--space-sm);
+  align-items: center;
+}
+
+.knowledge-tab__help-button {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgb(14 116 144 / 0.28);
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.78);
+  color: var(--color-accent);
+  cursor: pointer;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1;
+  transition: transform 160ms cubic-bezier(0.2, 0, 0, 1), border-color 160ms, box-shadow 160ms, background-color 160ms;
+}
+
+.knowledge-tab__help-button:hover,
+.knowledge-tab__help-button:focus-visible {
+  border-color: rgb(14 116 144 / 0.56);
+  background: rgb(236 254 255 / 0.8);
+  box-shadow: 0 8px 18px rgb(14 116 144 / 0.14);
+  outline: 2px solid rgb(14 116 144 / 0.18);
+  outline-offset: 2px;
+}
+
+.knowledge-tab__help-button:active {
+  transform: scale(0.94);
+}
+
+.knowledge-tab__help-modal {
+  display: grid;
+  gap: var(--space-md);
+}
+
+.knowledge-tab__help-card {
+  display: grid;
+  gap: var(--space-xs);
+  padding: var(--space-md);
+  border: 1px solid rgb(14 116 144 / 0.12);
+  border-radius: var(--radius-md);
+  background: rgb(255 255 255 / 0.62);
+}
+
+.knowledge-tab__help-card h3,
+.knowledge-tab__help-card p {
+  margin: 0;
+}
+
+.knowledge-tab__help-card h3 {
+  font-size: 18px;
+}
+
+.knowledge-tab__help-card p {
+  color: var(--color-muted);
+  line-height: 1.65;
 }
 
 .knowledge-tab__eyebrow,

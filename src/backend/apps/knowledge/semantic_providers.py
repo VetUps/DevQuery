@@ -202,6 +202,14 @@ class KnowledgeGraphSemanticConfig:
             raise KnowledgeGraphProviderBudgetExceeded('Knowledge graph rebuild budget cap would be exceeded.')
 
 
+def _django_settings_gigachat_verify_ssl_certs() -> bool:
+    """Read the GigaChat TLS flag while keeping local .env overrides out of SQLite tests."""
+
+    if bool(getattr(settings, 'DJANGO_TEST_SQLITE', False)):
+        return True
+    return bool(getattr(settings, 'KNOWLEDGE_GRAPH_GIGACHAT_VERIFY_SSL_CERTS', True))
+
+
 @dataclass(frozen=True)
 class KnowledgeGraphEmbeddingConfig:
     api_key: str | None
@@ -229,7 +237,7 @@ class KnowledgeGraphEmbeddingConfig:
             provider=str(getattr(settings, 'KNOWLEDGE_GRAPH_EMBEDDING_PROVIDER', LIVE_EMBEDDING_PROVIDER_GIGACHAT)).strip().lower(),
             gigachat_scope=str(getattr(settings, 'KNOWLEDGE_GRAPH_GIGACHAT_SCOPE', 'GIGACHAT_API_PERS')).strip() or 'GIGACHAT_API_PERS',
             gigachat_auth_url=_blank_to_none(getattr(settings, 'KNOWLEDGE_GRAPH_GIGACHAT_AUTH_URL', None)),
-            gigachat_verify_ssl_certs=bool(getattr(settings, 'KNOWLEDGE_GRAPH_GIGACHAT_VERIFY_SSL_CERTS', True)),
+            gigachat_verify_ssl_certs=_django_settings_gigachat_verify_ssl_certs(),
             gigachat_ca_bundle_file=_blank_to_none(getattr(settings, 'KNOWLEDGE_GRAPH_GIGACHAT_CA_BUNDLE_FILE', None)),
             gigachat_max_retries=int(getattr(settings, 'KNOWLEDGE_GRAPH_GIGACHAT_MAX_RETRIES', 0)),
         )

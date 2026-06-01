@@ -210,21 +210,23 @@ class ReputationService:
 
             locked_user.manual_reputation_level = normalized_level
 
-            # When a level is being set (not cleared), adjust the score
-            # to match the minimum required for that level.
+            # Manual overrides normally move the score to the target level floor so admin views,
+            # ledgers, and derived progress stay consistent. The newcomer override is different:
+            # it is used as a temporary capability gate and must not erase earned reputation.
             score_delta = 0
             update_fields = ['manual_reputation_level']
             if normalized_level is not None:
                 target_score = cls._minimum_score_for_level(normalized_level)
                 previous_score = locked_user.user_reputation_score
-                score_delta = target_score - previous_score
-                locked_user.user_reputation_score = target_score
-                update_fields.append('user_reputation_score')
+                should_adjust_score = normalized_level != CustomUser.ReputationLevel.NEWCOMER
+                if should_adjust_score and target_score != previous_score:
+                    score_delta = target_score - previous_score
+                    locked_user.user_reputation_score = target_score
+                    update_fields.append('user_reputation_score')
 
             locked_user.save(update_fields=update_fields)
             user.manual_reputation_level = normalized_level
-            if normalized_level is not None:
-                user.user_reputation_score = locked_user.user_reputation_score
+            user.user_reputation_score = locked_user.user_reputation_score
 
             note_lines = []
             if previous_manual_level:

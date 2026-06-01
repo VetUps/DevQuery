@@ -337,12 +337,17 @@ class SemanticGroupingPersistenceBoundaryTests(TestCase):
 
         group = UserKnowledgeGraphSemanticGroup.objects.get(user=self.owner)
         self.assertEqual(group.label, 'Связанные темы')
-        self.assertEqual(group.group_key, 'backend-django')
-        self.assertEqual(group.confidence, Decimal('0.9100'))
+        self.assertTrue(group.group_key.startswith('semantic-cluster-'))
+        self.assertNotEqual(group.group_key, 'backend-django')
+        self.assertEqual(group.confidence, Decimal('1.0000'))
+        self.assertTrue(group.member_signature)
+        self.assertEqual(group.member_slug_signature, 'django-grouping|drf-grouping')
+        self.assertEqual(group.top_member_slugs, ['django-grouping', 'drf-grouping'])
+        self.assertIn('deterministic_clustering', repr(group.evidence))
         memberships = list(group.memberships.order_by('rank'))
         self.assertEqual([membership.concept.slug for membership in memberships], ['django-grouping', 'drf-grouping'])
-        self.assertEqual([membership.confidence for membership in memberships], [Decimal('0.9100'), Decimal('0.9100')])
-        self.assertIn('candidate_count', repr(memberships[0].evidence))
+        self.assertEqual([membership.confidence for membership in memberships], [Decimal('1.0000'), Decimal('1.0000')])
+        self.assertIn('concept_slug', repr(memberships[0].evidence))
         self.assertEqual(list(KnowledgeConcept.objects.order_by('id').values_list('id', 'slug', 'name')), original_concepts)
 
     def test_no_semantic_candidates_skips_grouping_provider_and_persists_zero_group_counters(self):

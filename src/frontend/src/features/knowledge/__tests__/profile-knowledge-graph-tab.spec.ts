@@ -543,6 +543,33 @@ describe('ProfileKnowledgeGraphTab', () => {
     expect(wrapper.text()).not.toContain('Traceback')
   })
 
+  it('opens a concise knowledge graph help dialog from the hero eyebrow', async () => {
+    setQueryState({ data: buildGraph() })
+
+    const wrapper = await mountTab()
+
+    const helpButton = wrapper.get('[data-testid="knowledge-graph-help-open"]')
+    expect(helpButton.attributes('aria-label')).toBe('Открыть справку о графе знаний')
+    expect(document.body.querySelector('[data-testid="knowledge-graph-help-dialog"]')).toBeNull()
+
+    await helpButton.trigger('click')
+    await flushPromises()
+    await nextTick()
+
+    const dialog = getBodyByTestId('knowledge-graph-help-dialog')
+    expect(dialog.textContent).toContain('Как работает граф знаний')
+    expect(dialog.textContent).toContain('Структурный граф')
+    expect(dialog.textContent).toContain('Семантический граф')
+    expect(dialog.textContent).toContain('реальным действиям на сайте')
+    expect(dialog.textContent).toContain('смысловую близость тем')
+
+    dialog.querySelector<HTMLButtonElement>('.app-dialog__close')?.click()
+    await flushPromises()
+    await nextTick()
+
+    expect(document.body.querySelector('[data-testid="knowledge-graph-help-dialog"]')).toBeNull()
+  })
+
   it('defaults to graph mode and switches to the accessible list fallback', async () => {
     const graph = buildGraph()
     setQueryState({ data: graph })
