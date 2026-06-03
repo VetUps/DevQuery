@@ -283,7 +283,10 @@ export async function fetchEligibleExperts(
   if (options.ordering) params.ordering = options.ordering
   if (options.page && options.page > 1) params.page = options.page
 
-  const response = await http.get<unknown>(`/question/${questionId}/eligible-experts/`, { params })
+  const response = await http.get<unknown>(
+    `/question/${questionId}/eligible-experts/`,
+    Object.keys(params).length > 0 ? { params } : undefined,
+  )
 
   return parseEligibleExpertsEnvelope(response.data)
 }

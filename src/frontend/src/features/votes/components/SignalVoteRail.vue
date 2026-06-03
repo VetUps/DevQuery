@@ -120,6 +120,10 @@ async function handleVote(requestedVote: VoteType, event: MouseEvent) {
       </span>
     </div>
 
+    <p v-if="props.mode === 'readonly'" class="signal-vote-rail__readonly-note">
+      Чтобы голосовать, войдите в аккаунт.
+    </p>
+
     <VoteBalanceMeter :upvotes="upvotes" :downvotes="downvotes" />
 
     <Teleport to="body">
@@ -242,6 +246,14 @@ async function handleVote(requestedVote: VoteType, event: MouseEvent) {
   .signal-vote-rail {
     max-width: none;
   }
+}
+
+.signal-vote-rail__readonly-note {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 13px;
+  line-height: 1.35;
+  text-align: center;
 }
 
 .vote-particle {

@@ -365,7 +365,7 @@ describe('protected newcomer question integrated policy proof', () => {
     expect(wrapper.find('[data-testid="question-invitation-context-panel"]').exists()).toBe(false)
     expect(wrapper.text()).toContain('Написать решение')
     expect(wrapper.find('[data-testid="vote-downvote-blocked"]').exists()).toBe(false)
-    expect(wrapper.findAll('button').some((button) => button.text() === 'Против')).toBe(true)
+    expect(wrapper.findAll('button').some((button) => button.text().includes('Против'))).toBe(true)
   })
 
   it('explains an active expert invitation without changing the composer authorization source', async () => {

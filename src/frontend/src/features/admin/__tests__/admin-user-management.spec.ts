@@ -4,12 +4,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   fetchAdminUserActivityTimeline,
   fetchAdminUserDetail,
+  fetchAdminUserReputationLedger,
   fetchAdminUsers,
   updateAdminUserManualOverride,
   type AdminUserActivityItem,
   type AdminUserActivityTimeline,
   type AdminUserDetail,
   type AdminUserListRow,
+  type AdminUserReputationLedgerPage,
 } from '@/features/admin/api/admin'
 import type { ReputationLedgerEntry, ReputationSummary } from '@/features/users/api/reputation'
 import AdminUserManagement from '@/features/admin/components/AdminUserManagement.vue'
@@ -21,6 +23,7 @@ vi.mock('@/features/admin/api/admin', async (importOriginal) => {
     ...actual,
     fetchAdminUsers: vi.fn(),
     fetchAdminUserDetail: vi.fn(),
+    fetchAdminUserReputationLedger: vi.fn(),
     fetchAdminUserActivityTimeline: vi.fn(),
     updateAdminUserManualOverride: vi.fn(),
   }
@@ -35,6 +38,7 @@ vi.mock('@/shared/ui/SurfacePanel.vue', () => ({
 
 const mockedFetchAdminUsers = vi.mocked(fetchAdminUsers)
 const mockedFetchAdminUserDetail = vi.mocked(fetchAdminUserDetail)
+const mockedFetchAdminUserReputationLedger = vi.mocked(fetchAdminUserReputationLedger)
 const mockedFetchAdminUserActivityTimeline = vi.mocked(fetchAdminUserActivityTimeline)
 const mockedUpdateAdminUserManualOverride = vi.mocked(updateAdminUserManualOverride)
 
@@ -104,8 +108,19 @@ function buildActivityTimeline(overrides: Partial<AdminUserActivityTimeline> = {
   return {
     items: [buildActivityItem()],
     count: 1,
-    limit: 25,
+    page: 1,
+    limit: 10,
     available_types: ['question', 'comment', 'reputation'],
+    ...overrides,
+  }
+}
+
+function buildLedgerPage(overrides: Partial<AdminUserReputationLedgerPage> = {}): AdminUserReputationLedgerPage {
+  return {
+    count: 1,
+    next: null,
+    previous: null,
+    results: [buildLedgerEntry()],
     ...overrides,
   }
 }
@@ -174,6 +189,7 @@ describe('AdminUserManagement', () => {
     vi.clearAllMocks()
     mockedFetchAdminUsers.mockResolvedValue([buildUser()])
     mockedFetchAdminUserDetail.mockResolvedValue(buildDetail())
+    mockedFetchAdminUserReputationLedger.mockResolvedValue(buildLedgerPage())
     mockedFetchAdminUserActivityTimeline.mockResolvedValue(buildActivityTimeline())
     mockedUpdateAdminUserManualOverride.mockResolvedValue(buildDetail())
   })
@@ -418,6 +434,7 @@ describe('AdminUserManagement', () => {
 
   it('keeps selected row context visible while selected detail load fails and retries', async () => {
     mockedFetchAdminUserDetail.mockRejectedValueOnce(new Error('raw exception with password'))
+    mockedFetchAdminUserReputationLedger.mockResolvedValue(buildLedgerPage({ count: 0, results: [] }))
 
     const wrapper = await mountManagement()
 
@@ -465,6 +482,9 @@ describe('AdminUserManagement', () => {
     })
     mockedFetchAdminUserDetail.mockResolvedValueOnce(initialDetail)
     mockedUpdateAdminUserManualOverride.mockResolvedValueOnce(refreshedDetail)
+    mockedFetchAdminUserReputationLedger
+      .mockResolvedValueOnce(buildLedgerPage({ results: initialDetail.reputation_ledger }))
+      .mockResolvedValueOnce(buildLedgerPage({ results: refreshedDetail.reputation_ledger }))
 
     const wrapper = await mountManagement()
 
@@ -488,6 +508,8 @@ describe('AdminUserManagement', () => {
     expect(modalText('admin-manual-override-feedback')).toContain('Ручной уровень сохранён')
 
     await modalWrapper('admin-user-detail-tab-ledger').trigger('click')
+    mockedFetchAdminUserReputationLedger.mockResolvedValue(buildLedgerPage({ results: refreshedDetail.reputation_ledger }))
+    await modalControl('[data-testid="admin-reputation-ledger"] button').trigger('click')
     await flushPromises()
 
     expect(modalText('admin-reputation-ledger')).toContain('0')
@@ -557,6 +579,9 @@ describe('AdminUserManagement', () => {
       reputation: buildReputationSummary({ score: 250, level_label: 'Эксперт' }),
       reputation_ledger: [buildLedgerEntry({ note: 'Старое значение.' })],
     }))
+    mockedFetchAdminUserReputationLedger.mockResolvedValueOnce(buildLedgerPage({
+      results: [buildLedgerEntry({ note: 'Старое значение.' })],
+    }))
     mockedUpdateAdminUserManualOverride.mockRejectedValueOnce(new Error('403 token password object_id'))
 
     const wrapper = await mountManagement()
@@ -618,7 +643,7 @@ describe('AdminUserManagement', () => {
     await modalWrapper('admin-user-detail-tab-activity').trigger('click')
     await flushPromises()
 
-    expect(mockedFetchAdminUserActivityTimeline).toHaveBeenCalledWith({ userId: 'user-1', types: [], limit: 25 })
+    expect(mockedFetchAdminUserActivityTimeline).toHaveBeenCalledWith({ userId: 'user-1', types: [], limit: 10, page: 1 })
     expect(modalText('admin-user-activity-selected-context')).toContain('alice@example.com')
     expect(modalText('admin-user-activity-count')).toContain('Найдено событий: 3')
     expect(modalText('admin-user-activity-item-question-q-1')).toContain('Краткое описание вопроса')
@@ -647,7 +672,8 @@ describe('AdminUserManagement', () => {
     expect(mockedFetchAdminUserActivityTimeline).toHaveBeenLastCalledWith({
       userId: 'user-1',
       types: ['comment', 'reputation'],
-      limit: 25,
+      limit: 10,
+      page: 1,
     })
     expect(modalWrapper('admin-user-activity-filter-comment').attributes('aria-pressed')).toBe('true')
     expect(modalWrapper('admin-user-activity-filter-reputation').attributes('aria-pressed')).toBe('true')

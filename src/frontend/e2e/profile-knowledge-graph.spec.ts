@@ -733,15 +733,19 @@ test.describe('profile knowledge graph smoke', () => {
     await expect(page.getByTestId('knowledge-graph-semantic-toggle')).toHaveAccessibleName('Скрыть семантический слой')
     await expect(page.getByTestId('knowledge-graph-canvas')).toHaveAttribute('aria-label', /1 семантических соседей/)
 
+    await page.getByTestId('knowledge-semantic-groups-open').click()
     await expect(page.getByTestId('knowledge-semantic-groups-panel')).toBeVisible()
     await expect(page.getByTestId('knowledge-semantic-groups-count')).toHaveText('1')
     await expect(page.getByTestId('knowledge-semantic-groups-status')).toContainText('Граф может быть устаревшим')
     await expect(page.getByTestId('knowledge-semantic-group-card-vue-state-cache')).toContainText('Vue state and cache')
     await expect(page.getByTestId('knowledge-semantic-group-card-vue-state-cache')).toContainText('2 из 2 концептов')
-    await expect(page.getByTestId('knowledge-semantic-group-selected-details')).toContainText('Агрегированные сигналы')
+    await page.getByTestId('knowledge-semantic-group-card-vue-state-cache').click()
+    await expect(page.getByTestId('knowledge-semantic-group-details-vue-state-cache')).toContainText('Подтверждения')
     await expect(page.getByTestId('knowledge-semantic-group-members')).toContainText('Vue Query')
     await expect(page.getByTestId('knowledge-semantic-group-members')).toContainText('Pinia')
 
+    await page.getByRole('button', { name: 'Закрыть' }).click()
+    await page.getByTestId('knowledge-recommendations-open').click()
     await expect(page.getByTestId('knowledge-recommendation-card-rec-v2-vue-query-bridge')).toBeVisible()
     await expect(page.getByTestId('knowledge-recommendation-rank-rec-v2-vue-query-bridge')).toContainText('Ранг 1')
     await expect(page.getByTestId('knowledge-recommendation-rank-rec-v2-vue-query-bridge')).toContainText('Уверенность 0,81')
@@ -750,6 +754,7 @@ test.describe('profile knowledge graph smoke', () => {
     await expect(page.getByTestId('knowledge-recommendation-target-rec-v2-vue-query-bridge')).toContainText('Pinia')
     await expect(page.getByTestId('knowledge-recommendation-evidence-rec-v2-vue-query-bridge')).toContainText('Сходство тем')
     await expect(page.getByTestId('knowledge-recommendation-action-rec-v2-vue-query-bridge')).toHaveAttribute('href', /tag=vue-query/)
+    await page.getByRole('button', { name: 'Закрыть' }).click()
 
     await page.getByTestId('knowledge-graph-semantic-toggle').click()
     await expect(page.getByTestId('knowledge-graph-semantic-toggle')).toHaveAttribute('aria-pressed', 'false')
@@ -782,6 +787,7 @@ test.describe('profile knowledge graph smoke', () => {
 
     await page.goto('/profile?tab=knowledge')
 
+    await page.getByTestId('knowledge-recommendations-open').click()
     await expect(page.getByTestId('knowledge-recommendation-action-rec-vue-query-private-redaction')).toBeVisible()
     await expectNoPrivateMarkers(page)
 

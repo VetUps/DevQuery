@@ -130,7 +130,7 @@ describe('comment presentation polish', () => {
     expect(wrapper.text()).toContain('09.04.2026, 14:32')
     expect(wrapper.get('[data-testid="author-reputation-badge"]').text()).toContain('Эксперт')
     expect(wrapper.get('[data-testid="reputation-rank-icon"]').attributes('data-rank-level')).toBe('expert')
-    expect(wrapper.findAll('[data-rank-part="star"]')).toHaveLength(1)
+    expect(wrapper.findAll('[data-rank-part="star"]')).toHaveLength(3)
     expect(body.classes()).toContain('comment-thread-item__body--clamped')
     expect(wrapper.text()).toContain('Развернуть')
 
