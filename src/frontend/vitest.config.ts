@@ -1,3 +1,4 @@
+// Кратко: настраивает запуск frontend-тестов.
 import { fileURLToPath, URL } from 'node:url'
 
 import vue from '@vitejs/plugin-vue'

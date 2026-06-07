@@ -1,3 +1,4 @@
+// Кратко: держит основную логику этого файла.
 import { afterEach, vi } from 'vitest'
 import { config } from '@vue/test-utils'
 import { VueQueryPlugin } from '@tanstack/vue-query'

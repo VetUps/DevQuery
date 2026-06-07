@@ -1,3 +1,4 @@
+// Кратко: выполняет запросы к backend и нормализует ответ.
 import axios from 'axios'
 
 import {

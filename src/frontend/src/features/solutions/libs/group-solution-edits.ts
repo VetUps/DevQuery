@@ -1,3 +1,4 @@
+// Кратко: держит основную логику этого файла.
 import type { SolutionEditRecord } from '@/features/solutions/api/solutionEdits'
 
 export interface SolutionEditGroup {

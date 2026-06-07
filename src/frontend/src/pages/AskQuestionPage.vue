@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// Кратко: собирает страницу из данных и компонентов.
 import QuestionCreateForm from '@/features/questions/components/QuestionCreateForm.vue'
 import AppShellLayout from '@/layouts/AppShellLayout.vue'
 import SurfacePanel from '@/shared/ui/SurfacePanel.vue'

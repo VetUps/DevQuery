@@ -1,3 +1,4 @@
+// Кратко: отвечает за часть интерфейса.
 import type {
   KnowledgeGraphNode,
   KnowledgeGraphSemanticGraphMetadata,

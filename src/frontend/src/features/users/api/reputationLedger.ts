@@ -1,3 +1,4 @@
+// Кратко: выполняет запросы к backend и нормализует ответ.
 import { fetchProfile } from '@/features/auth/api/auth'
 import type { ReputationLedgerEntry } from '@/features/users/api/reputation'
 

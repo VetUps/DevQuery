@@ -1,3 +1,4 @@
+// Кратко: выполняет запросы к backend и нормализует ответ.
 import axios, { AxiosHeaders, type AxiosError, type InternalAxiosRequestConfig } from 'axios'
 
 import { refreshSession } from '@/features/auth/libs/refresh-session'

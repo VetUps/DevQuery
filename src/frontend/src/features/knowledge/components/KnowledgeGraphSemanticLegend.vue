@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// Кратко: отвечает за часть интерфейса.
 const props = withDefaults(defineProps<{
   semanticEdgeCount: number
   showSemanticEdges: boolean

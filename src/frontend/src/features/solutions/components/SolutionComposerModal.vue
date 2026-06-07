@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// Кратко: отвечает за часть интерфейса.
 import { reactive, ref, watch } from 'vue'
 
 import { useCreateSolutionMutation } from '@/features/solutions/mutations/useCreateSolutionMutation'

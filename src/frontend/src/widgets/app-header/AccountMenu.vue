@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// Кратко: держит основную логику этого файла.
 import { computed } from 'vue'
 
 import AppButton from '@/shared/ui/AppButton.vue'

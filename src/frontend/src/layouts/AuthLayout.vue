@@ -10,6 +10,7 @@
 </template>
 
 <script setup lang="ts">
+// Кратко: задаёт общую разметку для группы страниц.
 import AppHeader from '@/widgets/app-header/AppHeader.vue'
 </script>
 

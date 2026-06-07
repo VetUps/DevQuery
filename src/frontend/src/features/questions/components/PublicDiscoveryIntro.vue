@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// Кратко: отвечает за часть интерфейса.
 import SurfacePanel from '@/shared/ui/SurfacePanel.vue'
 
 defineProps<{

@@ -1,3 +1,4 @@
+// Кратко: держит основную логику этого файла.
 import axios from 'axios'
 
 export interface SolutionEditFieldErrors {

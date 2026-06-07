@@ -1,3 +1,4 @@
+// Кратко: отвечает за часть интерфейса.
 import type { LocationQueryRaw, RouteLocationRaw } from 'vue-router'
 
 import type {

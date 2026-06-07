@@ -1,3 +1,4 @@
+// Кратко: держит основную логику этого файла.
 import { useMutation, useQueryClient } from '@tanstack/vue-query'
 import { uploadAvatar } from '../api/auth'
 import { CURRENT_USER_QUERY_KEY } from '../queries/useCurrentUserQuery'

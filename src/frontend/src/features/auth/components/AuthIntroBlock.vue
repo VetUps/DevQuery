@@ -1,3 +1,4 @@
+<!-- Кратко: отвечает за часть интерфейса. -->
 <template>
   <section class="auth-intro">
     <p class="auth-intro__eyebrow">Для разработчиков</p>

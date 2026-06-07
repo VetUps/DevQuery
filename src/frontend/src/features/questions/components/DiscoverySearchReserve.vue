@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// Кратко: отвечает за часть интерфейса.
 import { ArrowDownUp, Search } from 'lucide-vue-next'
 
 import type { QuestionOrdering } from '@/features/questions/api/questions'

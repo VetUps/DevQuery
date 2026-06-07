@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// Кратко: отвечает за часть интерфейса.
 interface Props {
   variant?: 'default' | 'muted' | 'accent'
   padding?: 'md' | 'lg' | 'xl'

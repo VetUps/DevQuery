@@ -1,3 +1,4 @@
+// Кратко: держит основную логику этого файла.
 import { useMutation } from '@tanstack/vue-query'
 
 import type { UserProfile } from '@/features/auth/api/auth'

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// Кратко: отвечает за часть интерфейса.
 import { computed, nextTick, ref, useTemplateRef } from 'vue'
 
 import MarkdownContent from '@/shared/ui/MarkdownContent.vue'

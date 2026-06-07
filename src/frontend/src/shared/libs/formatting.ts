@@ -1,3 +1,4 @@
+// Кратко: держит основную логику этого файла.
 export function formatLongDate(value: string) {
   return new Date(value).toLocaleDateString('ru-RU', {
     day: 'numeric',

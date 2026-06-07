@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// Кратко: отвечает за часть интерфейса.
 type MarkdownMode = 'editor' | 'preview'
 
 const mode = defineModel<MarkdownMode>({ required: true })

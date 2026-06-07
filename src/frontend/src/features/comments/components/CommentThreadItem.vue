@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// Кратко: отвечает за часть интерфейса.
 import { computed, nextTick, ref, useTemplateRef, watch } from 'vue'
 
 import type {

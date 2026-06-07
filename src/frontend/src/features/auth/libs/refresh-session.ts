@@ -1,3 +1,4 @@
+// Кратко: держит основную логику этого файла.
 import { requestTokenRefresh, type AuthTokens } from '@/features/auth/api/auth'
 
 import { clearStoredTokens, loadStoredTokens, saveStoredTokens } from './token-storage'

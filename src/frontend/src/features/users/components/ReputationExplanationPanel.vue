@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// Кратко: отвечает за часть интерфейса.
 import type { ReputationLevel, ReputationSummary } from '@/features/users/api/reputation'
 import ReputationRankIcon from '@/features/users/components/ReputationRankIcon.vue'
 import SurfacePanel from '@/shared/ui/SurfacePanel.vue'

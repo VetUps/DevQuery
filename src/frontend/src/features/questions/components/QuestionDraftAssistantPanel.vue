@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// Кратко: отвечает за часть интерфейса.
 import { computed } from 'vue'
 
 import type { DraftAssistantFindingSeverity, DraftAssistantResponse } from '@/features/questions/api/questionDraftAssistant'

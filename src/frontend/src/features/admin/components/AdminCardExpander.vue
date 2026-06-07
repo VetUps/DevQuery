@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// Кратко: отвечает за часть интерфейса.
 import { ref, onMounted, onBeforeUnmount } from 'vue'
 
 const props = withDefaults(defineProps<{

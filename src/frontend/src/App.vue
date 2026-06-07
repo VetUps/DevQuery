@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// Кратко: держит корневую оболочку frontend.
 import { RouterView } from 'vue-router'
 
 import { useSessionStore } from '@/features/auth/stores/session'

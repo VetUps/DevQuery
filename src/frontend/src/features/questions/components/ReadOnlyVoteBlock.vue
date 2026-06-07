@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// Кратко: отвечает за часть интерфейса.
 import { computed } from 'vue'
 
 import VoteBalanceMeter from '@/features/questions/components/VoteBalanceMeter.vue'

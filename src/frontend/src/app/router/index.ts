@@ -1,3 +1,4 @@
+// Кратко: описывает переходы между страницами.
 import {
   createMemoryHistory,
   createRouter,

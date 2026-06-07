@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// Кратко: собирает страницу из данных и компонентов.
 import { computed, onBeforeUnmount, shallowRef, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useRoute, useRouter } from 'vue-router'

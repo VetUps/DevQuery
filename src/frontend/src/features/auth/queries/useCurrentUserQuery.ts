@@ -1,3 +1,4 @@
+// Кратко: выполняет запросы к backend и нормализует ответ.
 import { computed } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useQuery } from '@tanstack/vue-query'

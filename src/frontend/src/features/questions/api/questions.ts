@@ -1,3 +1,4 @@
+// Кратко: выполняет запросы к backend и нормализует ответ.
 import { http } from '@/shared/api/http'
 import type { ReputationSummary } from '@/features/users/api/reputation'
 

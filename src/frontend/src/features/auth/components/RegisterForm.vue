@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// Кратко: отвечает за часть интерфейса.
 import { computed, reactive, ref, shallowRef } from 'vue'
 import { useRouter } from 'vue-router'
 

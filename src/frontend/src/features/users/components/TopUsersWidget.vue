@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// Кратко: отвечает за часть интерфейса.
 import { computed, ref } from 'vue'
 import { useTopUsersQuery, type TopUsersPeriod } from '@/features/users/queries/useTopUsersQuery'
 import SurfacePanel from '@/shared/ui/SurfacePanel.vue'

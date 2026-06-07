@@ -1,3 +1,4 @@
+// Кратко: хранит состояние и действия для экрана.
 import { readonly, shallowRef } from 'vue'
 
 export type AppToastTone = 'default' | 'danger' | 'success'

@@ -1,3 +1,4 @@
+// Кратко: выполняет запросы к backend и нормализует ответ.
 import type { UserRole } from '@/features/auth/api/auth'
 import {
   MalformedReputationResponseError,

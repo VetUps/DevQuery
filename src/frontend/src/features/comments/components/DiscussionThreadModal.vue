@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// Кратко: отвечает за часть интерфейса.
 import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
 
 import type { CommentTargetType } from '@/features/comments/api/comments'

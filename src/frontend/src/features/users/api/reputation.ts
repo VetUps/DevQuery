@@ -1,3 +1,4 @@
+// Кратко: выполняет запросы к backend и нормализует ответ.
 export type ReputationLevel = 'newcomer' | 'participant' | 'expert' | 'master'
 export type ReputationRankPart = 'star'
 

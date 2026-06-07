@@ -1,3 +1,4 @@
+// Кратко: держит основную логику этого файла.
 import type { UserProfile } from '@/features/auth/api/auth'
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -10,6 +10,7 @@
 </template>
 
 <script setup lang="ts">
+// Кратко: собирает страницу из данных и компонентов.
 import RegisterForm from '@/features/auth/components/RegisterForm.vue'
 import AuthLayout from '@/layouts/AuthLayout.vue'
 </script>

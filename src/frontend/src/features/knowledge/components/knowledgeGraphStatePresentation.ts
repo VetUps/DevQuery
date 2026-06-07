@@ -1,3 +1,4 @@
+// Кратко: отвечает за часть интерфейса.
 import type { KnowledgeGraphInsightConceptEntry } from '@/features/knowledge/api/knowledgeGraph'
 
 export type KnowledgeGraphSemanticState = 'strong' | 'growing' | 'weak' | 'stale' | 'isolated' | 'unknown'

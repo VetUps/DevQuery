@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// Кратко: отвечает за часть интерфейса.
 import { shallowRef } from 'vue'
 
 import QuestionRevisionHistoryModal from '@/features/questions/components/QuestionRevisionHistoryModal.vue'

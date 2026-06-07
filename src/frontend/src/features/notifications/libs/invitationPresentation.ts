@@ -1,3 +1,4 @@
+// Кратко: держит основную логику этого файла.
 import type { NotificationItem } from '@/features/notifications/api/notifications'
 import { formatDateTime } from '@/shared/libs/formatting'
 

@@ -1,3 +1,4 @@
+// Кратко: настраивает сборку frontend через Vite.
 import { fileURLToPath, URL } from 'node:url'
 
 import vue from '@vitejs/plugin-vue'

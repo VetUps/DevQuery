@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// Кратко: отвечает за часть интерфейса.
 import { ref, watch } from 'vue'
 
 import type { CreateSolutionEditResponse } from '@/features/solutions/api/solutionEdits'

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// Кратко: держит основную логику этого файла.
 import { storeToRefs } from 'pinia'
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
