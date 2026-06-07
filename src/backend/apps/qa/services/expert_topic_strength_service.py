@@ -8,6 +8,9 @@ from apps.knowledge.models import QuestionConceptEdge
 from apps.qa.models import Question
 
 
+TOPIC_SCORE_FIELD = DecimalField(max_digits=12, decimal_places=4)
+
+
 class ExpertTopicStrengthService:
     """Готовит данные для ранжирования экспертов по силе темы."""
 
@@ -20,7 +23,8 @@ class ExpertTopicStrengthService:
             return {
                 'topic_score': Coalesce(
                     Sum('concept_activities__weight_delta', filter=Q(concept_activities__concept_id__in=topic_ids)),
-                    Value(0, output_field=DecimalField()),
+                    Value(0, output_field=TOPIC_SCORE_FIELD),
+                    output_field=TOPIC_SCORE_FIELD,
                 ),
                 'topic_match_count': Count(
                     'concept_activities',
@@ -34,15 +38,16 @@ class ExpertTopicStrengthService:
             return {
                 'topic_score': Cast(
                     Count('solution', filter=Q(solution__question__tags__id__in=tag_ids), distinct=True),
-                    output_field=DecimalField(),
+                    output_field=TOPIC_SCORE_FIELD,
                 ),
-                'topic_match_count': Cast(
-                    Count('solution__question__tags', filter=Q(solution__question__tags__id__in=tag_ids), distinct=True),
-                    output_field=DecimalField(),
+                'topic_match_count': Count(
+                    'solution__question__tags',
+                    filter=Q(solution__question__tags__id__in=tag_ids),
+                    distinct=True,
                 ),
             }
 
         return {
-            'topic_score': Value(0, output_field=DecimalField()),
-            'topic_match_count': Value(0, output_field=DecimalField()),
+            'topic_score': Value(0, output_field=TOPIC_SCORE_FIELD),
+            'topic_match_count': Value(0),
         }
