@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// Кратко: отвечает за часть интерфейса.
 import type { LocationQueryRaw } from 'vue-router'
 
 import { type QuestionListItem } from '@/features/questions/api/questions'
@@ -66,8 +67,8 @@ const props = defineProps<{
       <QuestionFavoriteAction
         class="question-card__favorite"
         :question-id="question.question_id"
-        :is-favorited="question.is_favorited"
-        :favorites-count="question.favorites_count"
+        :is-favorited="question.is_favorited ?? false"
+        :favorites-count="question.favorites_count ?? 0"
         :is-authenticated="props.isAuthenticated"
       />
     </div>

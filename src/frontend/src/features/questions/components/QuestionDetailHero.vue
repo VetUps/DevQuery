@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// Кратко: отвечает за часть интерфейса.
 import type { QuestionDetail } from '@/features/questions/api/questions'
 import type { PublicUserProfile } from '@/features/users/api/publicProfiles'
 import QuestionFavoriteAction from '@/features/questions/components/QuestionFavoriteAction.vue'
@@ -51,8 +52,8 @@ const emit = defineEmits<{
       <div class="question-detail-hero__actions">
         <QuestionFavoriteAction
           :question-id="question.question_id"
-          :is-favorited="question.is_favorited"
-          :favorites-count="question.favorites_count"
+          :is-favorited="question.is_favorited ?? false"
+          :favorites-count="question.favorites_count ?? 0"
           :is-authenticated="isAuthenticated"
           variant="large"
         />

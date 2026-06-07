@@ -3,7 +3,6 @@ import { createPinia, setActivePinia } from 'pinia'
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMemoryHistory, createRouter } from 'vue-router'
-import { VueQueryPlugin } from '@tanstack/vue-query'
 
 import { queryClient } from '@/app/query-client'
 import { useSessionStore } from '@/features/auth/stores/session'
@@ -319,6 +318,7 @@ async function mountQuestionDetailPage(authenticated = false) {
     routes: [
       { path: '/', component: { template: '<div>home</div>' } },
       { path: '/login', component: { template: '<div>login</div>' } },
+      { path: '/register', component: { template: '<div>register</div>' } },
       { path: '/questions/:questionId', component: QuestionDetailPage },
     ],
   })
@@ -329,7 +329,7 @@ async function mountQuestionDetailPage(authenticated = false) {
   const wrapper = mount(QuestionDetailPage, {
     attachTo: document.body,
     global: {
-      plugins: [pinia, router, [VueQueryPlugin, { queryClient }]],
+      plugins: [pinia, router],
       stubs: {
         teleport: true,
       },

@@ -31,7 +31,7 @@ function mountFavoriteAction(props: Partial<InstanceType<typeof QuestionFavorite
       stubs: {
         RouterLink: {
           props: ['to'],
-          template: '<a :href="to" data-router-link><slot /></a>',
+          template: '<a :href="to" data-router-link @click.prevent><slot /></a>',
         },
       },
     },
