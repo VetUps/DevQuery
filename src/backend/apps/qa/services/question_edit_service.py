@@ -1,3 +1,4 @@
+# Кратко: работает с вопросами и их состоянием.
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -26,18 +27,22 @@ class QuestionEditService:
 
     @staticmethod
     def _base_proposal_queryset() -> QuerySet[QuestionEditProposal]:
+        """Обрабатывает base proposal queryset."""
         return QuestionEditProposal.objects.select_related('question__user', 'author')
 
     @staticmethod
     def _base_revision_queryset() -> QuerySet[QuestionRevision]:
+        """Обрабатывает base версию queryset."""
         return QuestionRevision.objects.select_related('question__user', 'actor').prefetch_related('tags')
 
     @staticmethod
     def _base_event_queryset() -> QuerySet[QuestionEditEvent]:
+        """Обрабатывает base event queryset."""
         return QuestionEditEvent.objects.select_related('question__user', 'actor', 'proposal')
 
     @staticmethod
     def get_proposal(proposal_id: str) -> QuestionEditProposal:
+        """Возвращает данные proposal."""
         try:
             return QuestionEditService._base_proposal_queryset().get(question_edit_id=proposal_id)
         except QuestionEditProposal.DoesNotExist:
@@ -45,6 +50,7 @@ class QuestionEditService:
 
     @staticmethod
     def get_question(question_id: str) -> Question:
+        """Возвращает данные вопроса."""
         try:
             return Question.objects.select_related('user').prefetch_related('tags').get(question_id=question_id)
         except Question.DoesNotExist:
@@ -53,6 +59,7 @@ class QuestionEditService:
     @staticmethod
     @transaction.atomic
     def direct_edit(*, question: Question, actor: CustomUser, payload: QuestionChangePayload) -> Question:
+        """Обрабатывает direct правку."""
         QuestionEditService._assert_question_author(question, actor)
         before_title = question.question_title
         before_body = question.question_body
@@ -82,6 +89,7 @@ class QuestionEditService:
     @staticmethod
     @transaction.atomic
     def create_proposal(*, question: Question, actor: CustomUser, payload: QuestionChangePayload) -> QuestionEditProposal:
+        """Создаёт данные proposal."""
         if question.user == actor:
             raise ValidationError('Автор вопроса может редактировать вопрос напрямую')
 
@@ -114,6 +122,7 @@ class QuestionEditService:
     @staticmethod
     @transaction.atomic
     def change_proposal_approval(*, proposal_id: str, actor: CustomUser, approved: bool) -> QuestionEditProposal:
+        """Обрабатывает change proposal approval."""
         proposal = QuestionEditService.get_proposal(proposal_id)
         QuestionEditService._assert_question_author(proposal.question, actor)
         QuestionEditService._assert_proposal_pending(proposal)
@@ -170,11 +179,13 @@ class QuestionEditService:
 
     @staticmethod
     def proposal_history(question_id: str) -> QuerySet[QuestionEditProposal]:
+        """Обрабатывает proposal history."""
         question = QuestionEditService.get_question(question_id)
         return QuestionEditService._base_proposal_queryset().filter(question=question).order_by('-question_edit_edited_at')
 
     @staticmethod
     def pending_proposals(question_id: str, actor: CustomUser) -> QuerySet[QuestionEditProposal]:
+        """Обрабатывает pending proposals."""
         question = QuestionEditService.get_question(question_id)
         QuestionEditService._assert_question_author(question, actor)
         return QuestionEditService._base_proposal_queryset().filter(
@@ -184,6 +195,7 @@ class QuestionEditService:
 
     @staticmethod
     def review_queue(actor: CustomUser) -> QuerySet[QuestionEditProposal]:
+        """Возвращает очередь правок на проверку."""
         return QuestionEditService._base_proposal_queryset().filter(
             question__user=actor,
             question_edit_is_approved__isnull=True,
@@ -191,26 +203,31 @@ class QuestionEditService:
 
     @staticmethod
     def event_history(question_id: str) -> QuerySet[QuestionEditEvent]:
+        """Обрабатывает event history."""
         question = QuestionEditService.get_question(question_id)
         return QuestionEditService._base_event_queryset().filter(question=question).order_by('created_at')
 
     @staticmethod
     def revision_history(question_id: str) -> QuerySet[QuestionRevision]:
+        """Обрабатывает версию history."""
         question = QuestionEditService.get_question(question_id)
         return QuestionEditService._base_revision_queryset().filter(question=question).order_by('created_at')
 
     @staticmethod
     def _assert_question_author(question: Question, actor: CustomUser) -> None:
+        """Обрабатывает assert вопрос автора."""
         if question.user != actor:
             raise PermissionDenied('Вы не автор этого вопроса')
 
     @staticmethod
     def _assert_proposal_pending(proposal: QuestionEditProposal) -> None:
+        """Обрабатывает assert proposal pending."""
         if proposal.question_edit_is_approved is not None:
             raise ValidationError('Правка вопроса уже была одобрена или отклонена')
 
     @staticmethod
     def _apply_current_state(question: Question, payload: QuestionChangePayload) -> None:
+        """Обрабатывает current состояние."""
         question.question_title = payload.title
         question.question_body = payload.body
         question.save(update_fields=['question_title', 'question_body', 'question_updated_at'])
@@ -220,6 +237,7 @@ class QuestionEditService:
 
     @staticmethod
     def _replace_question_tags(question: Question, normalized_tag_names: list[str]) -> None:
+        """Обрабатывает replace вопрос теги."""
         current_names = set(question.tags.values_list('name', flat=True))
         next_names = set(normalized_tag_names)
 
@@ -253,6 +271,7 @@ class QuestionEditService:
         after_tags: list[str],
         proposal: QuestionEditProposal | None = None,
     ) -> QuestionRevision:
+        """Создаёт revision."""
         revision = QuestionRevision.objects.create(
             question=question,
             actor=actor,
@@ -279,6 +298,7 @@ class QuestionEditService:
         proposal: QuestionEditProposal | None,
         revision: QuestionRevision | None,
     ) -> QuestionEditEvent:
+        """Создаёт event."""
         return QuestionEditEvent.objects.create(
             question=question,
             actor=actor,
@@ -289,4 +309,5 @@ class QuestionEditService:
 
     @staticmethod
     def _extract_tag_names(tags: Iterable[Tag]) -> list[str]:
+        """Разбирает тег names."""
         return [tag.name for tag in tags]

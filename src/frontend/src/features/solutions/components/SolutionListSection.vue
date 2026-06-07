@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// Кратко: отвечает за часть интерфейса.
 import { computed } from 'vue'
 
 import type { SolutionListItem } from '@/features/solutions/api/solutions'
@@ -50,10 +51,6 @@ const orderedSolutions = computed(() => {
       <p class="solution-list-section__meta">{{ solutions.length }} шт.</p>
     </div>
 
-    <p v-if="successMessage" class="solution-list-section__success">
-      {{ successMessage }}
-    </p>
-
     <p v-if="isPending" class="solution-list-section__muted">Загружаем решения…</p>
 
     <div v-else-if="isError" class="solution-list-section__feedback">
@@ -68,19 +65,24 @@ const orderedSolutions = computed(() => {
     </p>
 
     <div v-else class="solution-list-section__list">
-      <SolutionReadCard
-        v-for="solution in orderedSolutions"
-        :key="solution.solution_id"
-        :solution="solution"
-        :question-id="questionId"
-        :viewer-user-id="viewerUserId"
-        :is-authenticated="isAuthenticated"
-        :can-mark-best="canMarkBest"
-        :active-composer-key="activeComposerKey"
-        :featured="solution.solution_is_best"
-        :is-fresh="solution.solution_id === freshSolutionId"
-        @request-composer="$emit('requestComposer', $event)"
-      />
+      <template v-for="solution in orderedSolutions" :key="solution.solution_id">
+        <Transition name="solution-list-section__fade">
+          <p v-if="successMessage && solution.solution_id === freshSolutionId" class="solution-list-section__success">
+            {{ successMessage }}
+          </p>
+        </Transition>
+        <SolutionReadCard
+          :solution="solution"
+          :question-id="questionId"
+          :viewer-user-id="viewerUserId"
+          :is-authenticated="isAuthenticated"
+          :can-mark-best="canMarkBest"
+          :active-composer-key="activeComposerKey"
+          :featured="solution.solution_is_best"
+          :is-fresh="solution.solution_id === freshSolutionId"
+          @request-composer="$emit('requestComposer', $event)"
+        />
+      </template>
     </div>
   </section>
 </template>
@@ -146,5 +148,16 @@ const orderedSolutions = computed(() => {
   border-radius: var(--radius-md);
   background: rgb(47 133 90 / 0.1);
   color: #2F855A;
+}
+
+.solution-list-section__fade-enter-active,
+.solution-list-section__fade-leave-active {
+  transition: opacity 0.5s ease, transform 0.5s ease;
+}
+
+.solution-list-section__fade-enter-from,
+.solution-list-section__fade-leave-to {
+  opacity: 0;
+  transform: translateY(-10px);
 }
 </style>

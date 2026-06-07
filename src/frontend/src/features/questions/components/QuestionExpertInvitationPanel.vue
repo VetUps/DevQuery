@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// Кратко: отвечает за часть интерфейса.
 import { computed, shallowRef, watch } from 'vue'
 
 import {
@@ -10,6 +11,7 @@ import {
 import { useCreateExpertInvitationsMutation } from '@/features/questions/mutations/useCreateExpertInvitationsMutation'
 import { useEligibleExpertsQuery } from '@/features/questions/queries/useEligibleExpertsQuery'
 import { useInvitedExpertInvitationsQuery } from '@/features/questions/queries/useInvitedExpertInvitationsQuery'
+import ReputationRankIcon from '@/features/users/components/ReputationRankIcon.vue'
 import AppButton from '@/shared/ui/AppButton.vue'
 import AppInput from '@/shared/ui/AppInput.vue'
 import SurfacePanel from '@/shared/ui/SurfacePanel.vue'
@@ -22,6 +24,8 @@ interface Props {
 const props = defineProps<Props>()
 
 const search = shallowRef('')
+const ordering = shallowRef('topic_strength')
+const page = shallowRef(1)
 const selectedIds = shallowRef<string[]>([])
 const mutationError = shallowRef('')
 const successMessage = shallowRef('')
@@ -29,6 +33,8 @@ const successMessage = shallowRef('')
 const eligibleExpertsQuery = useEligibleExpertsQuery(
   () => props.questionId,
   search,
+  ordering,
+  page,
   () => props.enabled,
 )
 const invitedExpertsQuery = useInvitedExpertInvitationsQuery(() => props.questionId, () => props.enabled)
@@ -73,8 +79,14 @@ watch(
     selectedIds.value = []
     mutationError.value = ''
     successMessage.value = ''
+    page.value = 1
+    search.value = ''
   },
 )
+
+watch([search, ordering], () => {
+  page.value = 1
+})
 
 function normalizeSelectorError(error: unknown) {
   if (!error) {
@@ -243,13 +255,24 @@ async function sendInvitations() {
         <p class="question-expert-invitation-panel__section-note">Поиск влияет только на этот список.</p>
       </div>
 
-      <AppInput
-        id="expert-invitation-search"
-        v-model="search"
-        label="Поиск по имени эксперта"
-        placeholder="Например, Vue или Alice"
-        data-testid="expert-invitation-search"
-      />
+      <div class="question-expert-invitation-panel__search-row">
+        <AppInput
+          id="expert-invitation-search"
+          v-model="search"
+          label="Поиск по имени эксперта"
+          placeholder="Например, Alice"
+          data-testid="expert-invitation-search"
+        />
+
+        <div class="question-expert-invitation-panel__ordering">
+          <label for="expert-ordering" class="question-expert-invitation-panel__control-label">Сортировка</label>
+          <select id="expert-ordering" v-model="ordering" class="question-expert-invitation-panel__select">
+            <option value="topic_strength">По силе темы</option>
+            <option value="-user_reputation_score">По репутации (убыв.)</option>
+            <option value="user_reputation_score">По репутации (возр.)</option>
+          </select>
+        </div>
+      </div>
 
       <p
         v-if="eligibleExpertsQuery.isPending.value"
@@ -302,15 +325,41 @@ async function sendInvitations() {
               @change="toggleCandidate(candidate)"
             />
             <span class="question-expert-invitation-panel__candidate-copy">
-              <span class="question-expert-invitation-panel__candidate-name">{{ candidate.user_name }}</span>
+              <span class="question-expert-invitation-panel__candidate-identity">
+                <span class="question-expert-invitation-panel__candidate-name">{{ candidate.user_name }}</span>
+                <ReputationRankIcon :level="candidate.reputation_level" />
+              </span>
               <span class="question-expert-invitation-panel__candidate-meta">
                 {{ candidate.reputation_level_label }} · {{ candidate.user_reputation_score }} очков
-                <span v-if="candidate.is_manual_override">· уровень назначен вручную</span>
+                <span v-if="candidate.topic_score > 0" class="question-expert-invitation-panel__topic-score">
+                  · Тема: {{ candidate.topic_score.toFixed(1) }} ({{ candidate.topic_match_count }})
+                </span>
+                <span v-if="candidate.is_manual_override"> · уровень назначен вручную</span>
               </span>
             </span>
           </label>
         </li>
       </ul>
+
+      <div v-if="envelope && (page > 1 || envelope.next)" class="question-expert-invitation-panel__pagination">
+        <AppButton
+          variant="secondary"
+          size="compact"
+          :disabled="page <= 1"
+          @click="page--"
+        >
+          ← Назад
+        </AppButton>
+        <span class="question-expert-invitation-panel__page-indicator">Страница {{ page }}</span>
+        <AppButton
+          variant="secondary"
+          size="compact"
+          :disabled="!envelope.next"
+          @click="page++"
+        >
+          Вперёд →
+        </AppButton>
+      </div>
     </section>
 
     <section
@@ -371,7 +420,10 @@ async function sendInvitations() {
           :data-testid="`expert-invitation-invited-row-${invitation.recipient_id}`"
         >
           <div class="question-expert-invitation-panel__invited-copy">
-            <span class="question-expert-invitation-panel__candidate-name">{{ invitation.recipient_name }}</span>
+            <span class="question-expert-invitation-panel__candidate-identity">
+              <span class="question-expert-invitation-panel__candidate-name">{{ invitation.recipient_name }}</span>
+              <ReputationRankIcon :level="invitation.reputation_level" />
+            </span>
             <span class="question-expert-invitation-panel__candidate-meta">
               {{ invitation.reputation_level_label }} · {{ invitation.recipient_reputation_score }} очков
             </span>
@@ -426,7 +478,9 @@ async function sendInvitations() {
 .question-expert-invitation-panel__state,
 .question-expert-invitation-panel__selection,
 .question-expert-invitation-panel__section-kicker,
-.question-expert-invitation-panel__section-note {
+.question-expert-invitation-panel__section-note,
+.question-expert-invitation-panel__control-label,
+.question-expert-invitation-panel__page-indicator {
   margin: 0;
 }
 
@@ -454,7 +508,9 @@ async function sendInvitations() {
 .question-expert-invitation-panel__description,
 .question-expert-invitation-panel__slots,
 .question-expert-invitation-panel__selection,
-.question-expert-invitation-panel__section-note {
+.question-expert-invitation-panel__section-note,
+.question-expert-invitation-panel__control-label,
+.question-expert-invitation-panel__page-indicator {
   color: var(--color-muted);
   line-height: 1.6;
 }
@@ -473,6 +529,59 @@ async function sendInvitations() {
   align-items: flex-start;
   justify-content: space-between;
   gap: var(--space-md);
+}
+
+.question-expert-invitation-panel__search-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: flex-end;
+  gap: var(--space-md);
+}
+
+.question-expert-invitation-panel__ordering {
+  display: grid;
+  gap: var(--space-xs);
+}
+
+.question-expert-invitation-panel__control-label {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.question-expert-invitation-panel__select {
+  height: 3.25rem;
+  padding: 0 var(--space-md);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: white;
+  font-family: inherit;
+  font-size: 14px;
+  cursor: pointer;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.question-expert-invitation-panel__select:focus {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 4px rgb(49 130 206 / 0.1);
+}
+
+.question-expert-invitation-panel__pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-lg);
+  padding-top: var(--space-sm);
+}
+
+.question-expert-invitation-panel__page-indicator {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.question-expert-invitation-panel__topic-score {
+  color: #2F855A;
+  font-weight: 500;
 }
 
 .question-expert-invitation-panel__feedback,
@@ -541,6 +650,13 @@ async function sendInvitations() {
 
 .question-expert-invitation-panel__candidate-copy {
   display: grid;
+  gap: var(--space-xs);
+}
+
+.question-expert-invitation-panel__candidate-identity {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
   gap: var(--space-xs);
 }
 

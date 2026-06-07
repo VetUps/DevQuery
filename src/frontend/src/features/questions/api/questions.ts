@@ -1,3 +1,4 @@
+// Кратко: выполняет запросы к backend и нормализует ответ.
 import { http } from '@/shared/api/http'
 import type { ReputationSummary } from '@/features/users/api/reputation'
 
@@ -103,12 +104,16 @@ export interface QuestionListItem extends QuestionProtectionSnapshot {
   question_id: string
   user: string
   user_name?: string
+  user_avatar_url?: string | null
+  user_avatar_updated_at?: string | null
   user_reputation_score?: number | null
   reputation?: ReputationSummary | null
   question_title: string
   question_status: 'open' | 'closed' | 'solved' | string
   question_created_at: string
   question_updated_at: string
+  favorites_count: number
+  is_favorited: boolean
   tags: QuestionTag[]
 }
 
@@ -158,6 +163,12 @@ export interface CreateQuestionResponse {
   question_created_at: string
   question_updated_at: string
   tags: QuestionTag[]
+}
+
+export interface QuestionFavoriteMutationResponse {
+  question_id: string
+  favorites_count: number
+  is_favorited: boolean
 }
 
 const DEFAULT_QUESTION_PROTECTION_SNAPSHOT: QuestionProtectionSnapshot = {
@@ -275,12 +286,18 @@ export function normalizeQuestionListItem(value: unknown): QuestionListItem {
     question_id: typeof question.question_id === 'string' ? question.question_id : '',
     user: typeof question.user === 'string' ? question.user : '',
     user_name: typeof question.user_name === 'string' ? question.user_name : undefined,
+    user_avatar_url: typeof question.user_avatar_url === 'string' ? question.user_avatar_url : null,
+    user_avatar_updated_at: typeof question.user_avatar_updated_at === 'string' ? question.user_avatar_updated_at : null,
     user_reputation_score: typeof question.user_reputation_score === 'number' ? question.user_reputation_score : null,
     reputation: (question.reputation as ReputationSummary | null | undefined) ?? null,
     question_title: typeof question.question_title === 'string' ? question.question_title : '',
     question_status: typeof question.question_status === 'string' ? question.question_status : 'open',
     question_created_at: typeof question.question_created_at === 'string' ? question.question_created_at : '',
     question_updated_at: typeof question.question_updated_at === 'string' ? question.question_updated_at : '',
+    favorites_count: typeof question.favorites_count === 'number' && Number.isFinite(question.favorites_count)
+      ? Math.max(0, question.favorites_count)
+      : 0,
+    is_favorited: typeof question.is_favorited === 'boolean' ? question.is_favorited : false,
     tags: Array.isArray(question.tags) ? question.tags.filter(isQuestionTag) : [],
   }, question)
 }
@@ -292,6 +309,15 @@ export function normalizeQuestionTags(tags: readonly unknown[] = []) {
     .filter((tag) => tag.length > 0)
 
   return [...new Set(normalizedTags)]
+}
+
+function normalizeQuestionListResponse(data: PaginatedResponse<unknown>) {
+  return {
+    ...data,
+    results: Array.isArray(data.results)
+      ? data.results.map((item) => normalizeQuestionListItem(item))
+      : [],
+  } satisfies PaginatedResponse<QuestionListItem>
 }
 
 export async function fetchQuestionList(params: QuestionListParams) {
@@ -308,12 +334,24 @@ export async function fetchQuestionList(params: QuestionListParams) {
     },
   })
 
-  return {
-    ...response.data,
-    results: Array.isArray(response.data.results)
-      ? response.data.results.map((item) => normalizeQuestionListItem(item))
-      : [],
-  } satisfies PaginatedResponse<QuestionListItem>
+  return normalizeQuestionListResponse(response.data)
+}
+
+export async function fetchFavoriteQuestionList(params: QuestionListParams) {
+  const normalizedTags = normalizeQuestionTags(params.tags)
+  const response = await http.get<PaginatedResponse<unknown>>('/question/favorites/', {
+    params: {
+      page: params.page,
+      search: params.search?.trim() || undefined,
+      ordering: params.ordering,
+      tag: normalizedTags.length > 0 ? normalizedTags : undefined,
+    },
+    paramsSerializer: {
+      indexes: null,
+    },
+  })
+
+  return normalizeQuestionListResponse(response.data)
 }
 
 export async function fetchQuestionDetail(questionId: string) {
@@ -394,6 +432,41 @@ function normalizeQuestionDetail(value: unknown): QuestionDetail {
         ? question.user_vote
         : null,
   }
+}
+
+export function normalizeQuestionFavoriteMutationResponse(value: unknown): QuestionFavoriteMutationResponse {
+  if (!value || typeof value !== 'object') {
+    throw new Error('Malformed question favorite response')
+  }
+
+  const response = value as Record<string, unknown>
+
+  if (
+    typeof response.question_id !== 'string' ||
+    typeof response.favorites_count !== 'number' ||
+    !Number.isFinite(response.favorites_count) ||
+    typeof response.is_favorited !== 'boolean'
+  ) {
+    throw new Error('Malformed question favorite response')
+  }
+
+  return {
+    question_id: response.question_id,
+    favorites_count: Math.max(0, response.favorites_count),
+    is_favorited: response.is_favorited,
+  }
+}
+
+export async function addQuestionFavorite(questionId: string) {
+  const response = await http.post<unknown>(`/question/${questionId}/favorite/`)
+
+  return normalizeQuestionFavoriteMutationResponse(response.data)
+}
+
+export async function removeQuestionFavorite(questionId: string) {
+  const response = await http.delete<unknown>(`/question/${questionId}/favorite/`)
+
+  return normalizeQuestionFavoriteMutationResponse(response.data)
 }
 
 export async function updateQuestion(questionId: string, payload: UpdateQuestionPayload) {

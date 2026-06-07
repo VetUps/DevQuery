@@ -146,6 +146,7 @@ describe('reputation API contract', () => {
       user_name: 'alice',
       user_reputation_score: 125,
       user_avatar_url: null,
+      user_avatar_updated_at: null,
       user_bio: 'Backend and frontend developer',
       user_created_at: '2026-05-01T10:00:00Z',
       reputation: buildReputationSummary({
@@ -173,6 +174,7 @@ describe('reputation API contract', () => {
       user_email: 'alice@example.com',
       user_reputation_score: 125,
       user_avatar_url: null,
+      user_avatar_updated_at: null,
       user_bio: null,
       user_created_at: '2026-05-01T10:00:00Z',
       reputation: buildReputationSummary({

@@ -1,3 +1,4 @@
+<!-- Кратко: отвечает за часть интерфейса. -->
 <template>
   <aside class="ask-question-sidebar">
     <section class="ask-question-sidebar__panel">

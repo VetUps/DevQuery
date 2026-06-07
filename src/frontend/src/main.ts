@@ -1,3 +1,4 @@
+// Кратко: создаёт Vue-приложение и подключает общие модули.
 import '@fontsource/ibm-plex-sans/400.css'
 import '@fontsource/ibm-plex-sans/600.css'
 

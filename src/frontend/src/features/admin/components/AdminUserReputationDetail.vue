@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// Кратко: отвечает за часть интерфейса.
 import { computed, shallowRef, watch } from 'vue'
 
 import type { ReputationLevel } from '@/features/users/api/reputation'
@@ -215,7 +216,7 @@ watch(selectedUserId, () => {
         :hidden="!isActiveTab('ledger')"
         tabindex="0"
       >
-        <AdminReputationLedger v-if="detail && !isLoading && !error" :entries="detail.reputation_ledger" />
+        <AdminReputationLedger :selected-user="selectedUser" />
       </section>
 
       <section

@@ -1,3 +1,4 @@
+# Кратко: считает изменения репутации.
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -43,6 +44,7 @@ class ReputationService:
 
     @classmethod
     def _thresholds(cls) -> list[ReputationLevelThreshold]:
+        """Обрабатывает thresholds."""
         thresholds = list(ReputationLevelThreshold.objects.filter(is_active=True).order_by('minimum_score'))
         if thresholds:
             cls.validate_thresholds(thresholds)
@@ -55,6 +57,7 @@ class ReputationService:
 
     @classmethod
     def get_policy_config(cls) -> ReputationPolicyConfig:
+        """Возвращает данные policy настроек."""
         config = ReputationPolicyConfig.objects.order_by('created_at').first()
         if config is not None:
             config.full_clean()
@@ -64,14 +67,17 @@ class ReputationService:
 
     @classmethod
     def get_protected_newcomer_window(cls):
+        """Возвращает данные protected newcomer window."""
         return cls.get_policy_config().protected_newcomer_window
 
     @classmethod
     def get_protected_newcomer_window_hours(cls) -> int:
+        """Возвращает данные protected newcomer window hours."""
         return cls.get_policy_config().protected_newcomer_window_hours
 
     @classmethod
     def update_protected_newcomer_window_hours(cls, protected_newcomer_window_hours: int) -> ReputationPolicyConfig:
+        """Обновляет данные protected newcomer window hours."""
         with transaction.atomic():
             config = ReputationPolicyConfig.objects.select_for_update().filter(singleton_key='default').first()
             if config is None:
@@ -87,16 +93,19 @@ class ReputationService:
 
     @classmethod
     def _level_label(cls, level: str) -> str:
+        """Обрабатывает level метку."""
         return CustomUser.ReputationLevel(level).label
 
     @classmethod
     def _minimum_score_for_level(cls, level: str) -> int:
+        """Обрабатывает minimum оценку level."""
         return next(
             threshold.minimum_score for threshold in cls._thresholds() if threshold.level == level
         )
 
     @classmethod
     def _resolve_level_from_score(cls, score: int) -> ResolvedReputationLevel:
+        """Обрабатывает resolve level оценку."""
         matching_threshold = cls._thresholds()[0]
         for threshold in cls._thresholds():
             if score >= threshold.minimum_score:
@@ -117,6 +126,7 @@ class ReputationService:
 
     @classmethod
     def validate_thresholds(cls, thresholds: Iterable[ReputationLevelThreshold]) -> None:
+        """Проверяет поле thresholds перед сохранением."""
         ordered_thresholds = sorted(thresholds, key=lambda threshold: threshold.minimum_score)
         seen_levels = {threshold.level for threshold in ordered_thresholds}
         expected_levels = set(cls.LEVEL_ORDER)
@@ -139,6 +149,7 @@ class ReputationService:
 
     @classmethod
     def resolve_level(cls, *, score: int | None = None, user: CustomUser | None = None) -> ResolvedReputationLevel:
+        """Обрабатывает resolve level."""
         if user is not None:
             derived_resolution = cls._resolve_level_from_score(user.user_reputation_score)
             if user.manual_reputation_level:
@@ -163,6 +174,7 @@ class ReputationService:
 
     @classmethod
     def get_progress(cls, user: CustomUser) -> dict:
+        """Возвращает данные progress."""
         thresholds = cls._thresholds()
         resolved_level = cls.resolve_level(user=user)
         progression_level = resolved_level.derived_level or resolved_level.value
@@ -194,6 +206,7 @@ class ReputationService:
         actor: CustomUser | None = None,
         note: str = '',
     ) -> CustomUser:
+        """Обновляет данные manual level override."""
         if manual_level in {'', None}:
             normalized_level = None
         else:
@@ -209,8 +222,24 @@ class ReputationService:
                 return locked_user
 
             locked_user.manual_reputation_level = normalized_level
-            locked_user.save(update_fields=['manual_reputation_level'])
+
+            # Manual overrides normally move the score to the target level floor so admin views,
+            # ledgers, and derived progress stay consistent. The newcomer override is different:
+            # it is used as a temporary capability gate and must not erase earned reputation.
+            score_delta = 0
+            update_fields = ['manual_reputation_level']
+            if normalized_level is not None:
+                target_score = cls._minimum_score_for_level(normalized_level)
+                previous_score = locked_user.user_reputation_score
+                should_adjust_score = normalized_level != CustomUser.ReputationLevel.NEWCOMER
+                if should_adjust_score and target_score != previous_score:
+                    score_delta = target_score - previous_score
+                    locked_user.user_reputation_score = target_score
+                    update_fields.append('user_reputation_score')
+
+            locked_user.save(update_fields=update_fields)
             user.manual_reputation_level = normalized_level
+            user.user_reputation_score = locked_user.user_reputation_score
 
             note_lines = []
             if previous_manual_level:
@@ -228,13 +257,15 @@ class ReputationService:
                 f'Расчетный уровень по очкам: {resolved_after_change.derived_level_label or resolved_after_change.label}.'
             )
             note_lines.append(f'Текущий счет репутации: {locked_user.user_reputation_score}.')
+            if score_delta != 0:
+                note_lines.append(f'Изменение очков: {score_delta:+d}.')
             if note:
                 note_lines.append(note)
 
             ReputationTransaction.objects.create(
                 user=locked_user,
                 actor=actor,
-                reputation_transaction_amount=0,
+                reputation_transaction_amount=score_delta,
                 reputation_transaction_reason=ReputationTransaction.TransactionReason.MANUAL_LEVEL_OVERRIDE,
                 note=' '.join(note_lines),
             )
@@ -252,6 +283,7 @@ class ReputationService:
         source=None,
         note: str = '',
     ) -> ReputationTransaction:
+        """Обрабатывает record транзакцию."""
         if amount == 0:
             raise ValidationError('Изменение репутации не может быть нулевым.')
 

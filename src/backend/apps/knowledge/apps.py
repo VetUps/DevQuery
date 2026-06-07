@@ -1,3 +1,4 @@
+# Кратко: регистрирует приложение графа знаний в Django.
 from django.apps import AppConfig
 
 

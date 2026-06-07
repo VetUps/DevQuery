@@ -1,4 +1,46 @@
+// Кратко: выполняет запросы к backend и нормализует ответ.
 export type ReputationLevel = 'newcomer' | 'participant' | 'expert' | 'master'
+export type ReputationRankPart = 'star'
+
+export interface ReputationRankDescriptor {
+  level: ReputationLevel
+  label: string
+  parts: ReputationRankPart[]
+  ariaDescription: string
+}
+
+export const REPUTATION_RANKS: Record<ReputationLevel, ReputationRankDescriptor> = {
+  newcomer: {
+    level: 'newcomer',
+    label: 'Новичок',
+    parts: ['star'],
+    ariaDescription: 'одна небольшая звезда',
+  },
+  participant: {
+    level: 'participant',
+    label: 'Участник',
+    parts: ['star', 'star'],
+    ariaDescription: 'две звезды с декоративными завитками',
+  },
+  expert: {
+    level: 'expert',
+    label: 'Эксперт',
+    parts: ['star', 'star', 'star'],
+    ariaDescription: 'три звезды пирамидой: большая сверху и две меньшие снизу',
+  },
+  master: {
+    level: 'master',
+    label: 'Мастер',
+    parts: ['star', 'star', 'star'],
+    ariaDescription: 'три звезды',
+  },
+}
+
+export function getReputationRankDescriptor(level: string | null | undefined) {
+  return level === 'newcomer' || level === 'participant' || level === 'expert' || level === 'master'
+    ? REPUTATION_RANKS[level]
+    : null
+}
 
 export interface ReputationProgress {
   score: number

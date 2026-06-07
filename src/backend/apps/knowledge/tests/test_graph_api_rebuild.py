@@ -1,9 +1,12 @@
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
+from django.apps import apps
+from django.test import override_settings
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from apps.knowledge.models import UserConceptActivity, UserKnowledgeGraphState
+from apps.knowledge.models import UserConceptActivity, UserKnowledgeGraphSemanticState, UserKnowledgeGraphState
+from apps.knowledge.semantic_providers import KnowledgeGraphEmbeddingResult, KnowledgeGraphProviderMetadata
 from apps.knowledge.services import mark_user_graph_failed, sync_question_graph
 from apps.qa.models import Question, Solution, Tag
 from apps.user.models import CustomUser
@@ -16,7 +19,30 @@ UNSAFE_ERROR = (
 )
 
 
-class KnowledgeGraphRebuildAPITests(APITestCase):
+class APISemanticEmbeddingProvider:
+    metadata = KnowledgeGraphProviderMetadata(provider='api-recording-embedding', model='api-snapshot-model', dimensions=3)
+
+    def __init__(self):
+        self.requests = []
+
+    def embed(self, request):
+        self.requests.append(request)
+        return KnowledgeGraphEmbeddingResult(
+            vectors=[[1.0, 0.0, 0.0] for _ in request.texts],
+            metadata=self.metadata,
+            estimated_tokens=5 * len(request.texts),
+        )
+
+
+@override_settings(
+    DJANGO_TEST_SQLITE=True,
+    KNOWLEDGE_GRAPH_EMBEDDING_PROVIDER='fake-knowledge-graph-embedding',
+    KNOWLEDGE_GRAPH_CHAT_PROVIDER='fake-knowledge-graph-grouping',
+    KNOWLEDGE_GRAPH_GIGACHAT_AUTH_URL=None,
+    KNOWLEDGE_GRAPH_GIGACHAT_VERIFY_SSL_CERTS=True,
+    KNOWLEDGE_GRAPH_GIGACHAT_CA_BUNDLE_FILE=None,
+)
+class GraphApiRebuildTests(APITestCase):
     def setUp(self):
         self.owner = CustomUser.objects.create_user(
             user_email='api-owner@example.com',
@@ -51,6 +77,9 @@ class KnowledgeGraphRebuildAPITests(APITestCase):
         self.assertNotIn('idempotency_key', rendered)
         self.assertNotIn('raw_events', rendered)
         self.assertNotIn('sk_live_123', rendered)
+        self.assertNotIn('vector_payload', rendered)
+        self.assertNotIn('content_hash', rendered)
+        self.assertNotIn('source_id', rendered)
         self.assertNotIn('Traceback', rendered)
         self.assertNotIn('activity_service.py', rendered)
 
@@ -138,6 +167,164 @@ class KnowledgeGraphRebuildAPITests(APITestCase):
         self.assertIsNotNone(second_response.data['state']['last_rebuild_finished_at'])
         self.assert_safe_payload(first_response.data)
         self.assert_safe_payload(second_response.data)
+
+    @override_settings(
+        KNOWLEDGE_GRAPH_AI_ENABLED=False,
+        KNOWLEDGE_GRAPH_AI_DRY_RUN=True,
+        KNOWLEDGE_GRAPH_REBUILD_BUDGET_CAP=0.0,
+        KNOWLEDGE_GRAPH_EMBEDDING_PRICE_PER_1K_TOKENS=0.0,
+        KNOWLEDGE_GRAPH_CHAT_PRICE_PER_1K_TOKENS=0.0,
+    )
+    def test_successful_rebuild_includes_owner_only_disabled_semantic_diagnostics(self):
+        question = self._create_question_with_graph(author=self.owner)
+        Solution.objects.create(
+            user=self.owner,
+            question=question,
+            solution_body='Owner solution source body remains private.',
+        )
+        self.client.force_authenticate(self.owner)
+        embedding_factory = Mock(side_effect=AssertionError('disabled semantic rebuild must not create providers'))
+
+        with patch(
+            'apps.knowledge.services.semantic_rebuild_service.create_source_provider',
+            embedding_factory,
+        ):
+            response = self.client.post(
+                '/knowledge-graph/me/rebuild/',
+                {'user_id': str(self.other_user.pk)},
+                format='json',
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual(response.data['user_id'], str(self.owner.pk))
+        self.assertEqual(response.data['state']['status'], UserKnowledgeGraphState.Status.FRESH)
+        self.assertEqual(response.data['semantic']['status'], UserKnowledgeGraphSemanticState.Status.DISABLED)
+        self.assertEqual(response.data['semantic']['reason_code'], 'ai_disabled')
+        self.assertFalse(response.data['semantic']['enabled'])
+        self.assertTrue(response.data['semantic']['dry_run'])
+        self.assertGreater(response.data['semantic']['source_item_count'], 0)
+        embedding_factory.assert_not_called()
+        self.assert_safe_payload(response.data)
+
+    @override_settings(
+        KNOWLEDGE_GRAPH_AI_ENABLED=True,
+        KNOWLEDGE_GRAPH_AI_DRY_RUN=False,
+        KNOWLEDGE_GRAPH_REBUILD_BUDGET_CAP=100.0,
+        KNOWLEDGE_GRAPH_EMBEDDING_API_KEY='key',
+        KNOWLEDGE_GRAPH_EMBEDDING_BASE_URL='https://example.test/embeddings',
+        KNOWLEDGE_GRAPH_EMBEDDING_MODEL='embedding-model',
+        KNOWLEDGE_GRAPH_EMBEDDING_DIMENSIONS=3,
+        KNOWLEDGE_GRAPH_EMBEDDING_PRICE_PER_1K_TOKENS=0.0,
+        KNOWLEDGE_GRAPH_CHAT_API_KEY='key',
+        KNOWLEDGE_GRAPH_CHAT_BASE_URL='https://example.test/chat',
+        KNOWLEDGE_GRAPH_CHAT_MODEL='chat-model',
+        KNOWLEDGE_GRAPH_CHAT_PRICE_PER_1K_TOKENS=0.0,
+    )
+    def test_successful_rebuild_triggers_s03_snapshot_storage_and_aggregate_diagnostics(self):
+        question = self._create_question_with_graph(author=self.owner)
+        Solution.objects.create(
+            user=self.owner,
+            question=question,
+            solution_body='Owner solution source body remains private.',
+        )
+        self.client.force_authenticate(self.owner)
+        provider = APISemanticEmbeddingProvider()
+
+        with patch(
+            'apps.knowledge.services.semantic_rebuild_service.create_source_provider',
+            Mock(return_value=provider),
+        ):
+            response = self.client.post('/knowledge-graph/me/rebuild/', {}, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual(response.data['state']['status'], UserKnowledgeGraphState.Status.FRESH)
+        self.assertEqual(response.data['semantic']['status'], UserKnowledgeGraphSemanticState.Status.SUCCEEDED)
+        self.assertGreater(response.data['semantic']['total_source_count'], 0)
+        self.assertEqual(response.data['semantic']['changed_source_count'], response.data['semantic']['total_source_count'])
+        self.assertEqual(response.data['semantic']['provider_called_source_count'], response.data['semantic']['total_source_count'])
+        self.assertGreater(response.data['semantic']['persisted_snapshot_count'], 0)
+        self.assertIn('neighbour_candidate_count', response.data['semantic'])
+        self.assertNotIn('snapshots', response.data['semantic'])
+        self.assertNotIn('candidates', response.data['semantic'])
+        self.assertNotIn('vectors', response.data['semantic'])
+        self.assertGreaterEqual(len(provider.requests), 1)
+        Snapshot = apps.get_model('knowledge', 'UserKnowledgeGraphEmbeddingSnapshot')
+        self.assertGreater(Snapshot.objects.filter(user=self.owner).count(), 0)
+        self.assert_safe_payload(response.data)
+
+    @override_settings(
+        KNOWLEDGE_GRAPH_AI_ENABLED=True,
+        KNOWLEDGE_GRAPH_AI_DRY_RUN=False,
+        KNOWLEDGE_GRAPH_REBUILD_BUDGET_CAP=0.000001,
+        KNOWLEDGE_GRAPH_EMBEDDING_API_KEY='key',
+        KNOWLEDGE_GRAPH_EMBEDDING_BASE_URL='https://example.test/embeddings',
+        KNOWLEDGE_GRAPH_EMBEDDING_MODEL='embedding-model',
+        KNOWLEDGE_GRAPH_EMBEDDING_PRICE_PER_1K_TOKENS=100.0,
+        KNOWLEDGE_GRAPH_CHAT_API_KEY='key',
+        KNOWLEDGE_GRAPH_CHAT_BASE_URL='https://example.test/chat',
+        KNOWLEDGE_GRAPH_CHAT_MODEL='chat-model',
+        KNOWLEDGE_GRAPH_CHAT_PRICE_PER_1K_TOKENS=100.0,
+    )
+    def test_semantic_budget_failure_keeps_base_rebuild_200_and_skips_providers(self):
+        question = self._create_question_with_graph(author=self.owner)
+        Solution.objects.create(
+            user=self.owner,
+            question=question,
+            solution_body='Owner solution source body remains private.',
+        )
+        self.client.force_authenticate(self.owner)
+        embedding_factory = Mock(side_effect=AssertionError('over-budget semantic rebuild must not create providers'))
+
+        with patch(
+            'apps.knowledge.services.semantic_rebuild_service.create_source_provider',
+            embedding_factory,
+        ):
+            response = self.client.post('/knowledge-graph/me/rebuild/', {}, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual(response.data['state']['status'], UserKnowledgeGraphState.Status.FRESH)
+        self.assertEqual(response.data['semantic']['status'], UserKnowledgeGraphSemanticState.Status.BUDGET_EXCEEDED)
+        self.assertEqual(response.data['semantic']['reason_code'], 'budget_exceeded')
+        self.assertEqual(response.data['semantic']['phase'], 'budget')
+        embedding_factory.assert_not_called()
+        self.assert_safe_payload(response.data)
+
+    def test_unexpected_semantic_exception_is_redacted_and_does_not_break_base_rebuild(self):
+        question = self._create_question_with_graph(author=self.owner)
+        Solution.objects.create(
+            user=self.owner,
+            question=question,
+            solution_body='Owner solution source body remains private.',
+        )
+        self.client.force_authenticate(self.owner)
+
+        with patch(
+            'apps.knowledge.services.semantic_rebuild_service.run_owner_semantic_boundary',
+            side_effect=RuntimeError(UNSAFE_ERROR),
+        ):
+            response = self.client.post('/knowledge-graph/me/rebuild/', {}, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual(response.data['state']['status'], UserKnowledgeGraphState.Status.FRESH)
+        self.assertEqual(response.data['semantic']['status'], UserKnowledgeGraphSemanticState.Status.PROVIDER_ERROR)
+        self.assertEqual(response.data['semantic']['reason_code'], 'provider_error')
+        self.assertEqual(response.data['semantic']['phase'], 'semantic_boundary')
+        self.assert_safe_payload(response.data)
+
+    def test_public_graph_get_does_not_include_semantic_diagnostics_or_create_providers(self):
+        self._create_question_with_graph(author=self.owner)
+        self.client.force_authenticate(self.other_user)
+
+        with patch(
+            'apps.knowledge.services.semantic_rebuild_service.create_source_provider',
+            side_effect=AssertionError('public graph GET must not touch semantic providers'),
+        ):
+            response = self.client.get(f'/knowledge-graph/users/{self.owner.pk}/', format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertNotIn('semantic', response.data)
+        self.assertFalse(UserKnowledgeGraphSemanticState.objects.filter(user=self.owner).exists())
+        self.assert_safe_payload(response.data)
 
     def test_empty_owner_graph_rebuild_returns_fresh_zero_summary(self):
         self.client.force_authenticate(self.owner)

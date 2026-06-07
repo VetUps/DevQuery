@@ -1,10 +1,12 @@
 <script setup lang="ts">
+// Кратко: отвечает за часть интерфейса.
 import { computed } from 'vue'
 
 import {
   buildReputationProgress,
   type ReputationSummary,
 } from '@/features/users/api/reputation'
+import ReputationRankIcon from '@/features/users/components/ReputationRankIcon.vue'
 import SurfacePanel from '@/shared/ui/SurfacePanel.vue'
 
 const props = defineProps<{
@@ -28,9 +30,7 @@ const progressLabel = computed(() => {
   return `До уровня ${props.reputation.next_level_label} осталось ${props.reputation.points_to_next_level} очк.`
 })
 const statusLabel = computed(() => (
-  props.reputation.is_manual_override
-    ? 'Уровень закреплён вручную администратором.'
-    : 'Уровень рассчитывается автоматически по накопленной репутации.'
+  props.reputation.is_manual_override ? 'Уровень закреплён вручную администратором.' : ''
 ))
 </script>
 
@@ -49,7 +49,10 @@ const statusLabel = computed(() => (
             Как работает репутация
           </button>
         </div>
-        <h2 class="profile-reputation-summary__title">{{ reputation.level_label }}</h2>
+        <div class="profile-reputation-summary__title-row">
+          <ReputationRankIcon :level="reputation.level" size="profile" />
+          <h2 class="profile-reputation-summary__title">{{ reputation.level_label }}</h2>
+        </div>
       </div>
       <div class="profile-reputation-summary__score-block">
         <span class="profile-reputation-summary__score">{{ reputation.score }}</span>
@@ -89,7 +92,7 @@ const statusLabel = computed(() => (
       </div>
       <div class="profile-reputation-summary__progress-meta">
         <span>{{ Math.round(progress.percent) }}%</span>
-        <span>{{ statusLabel }}</span>
+        <span v-if="statusLabel">{{ statusLabel }}</span>
       </div>
     </div>
   </SurfacePanel>
@@ -153,8 +156,15 @@ const statusLabel = computed(() => (
   outline: none;
 }
 
-.profile-reputation-summary__title {
+.profile-reputation-summary__title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
   margin-top: var(--space-xs);
+}
+
+.profile-reputation-summary__title {
   font-size: clamp(24px, 3vw, 32px);
   line-height: 1.08;
 }

@@ -1,3 +1,4 @@
+// Кратко: держит основную логику этого файла.
 import { computed, readonly, ref, shallowRef } from 'vue'
 
 import {

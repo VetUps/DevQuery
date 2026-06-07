@@ -20,6 +20,7 @@ class DeferredKnowledgeGraphScopeContractTests(SimpleTestCase):
     def test_r162_r164_knowledge_urls_expose_only_aggregate_graph_endpoints(self):
         expected_route_names = {
             'own-user-graph',
+            'own-user-graph-insights',
             'own-user-graph-layout',
             'own-user-graph-rebuild',
             'public-user-graph',
@@ -43,7 +44,7 @@ class DeferredKnowledgeGraphScopeContractTests(SimpleTestCase):
         self.assertEqual(
             actual_route_names,
             expected_route_names,
-            'R162-R164: apps.knowledge must expose only aggregate graph endpoints until deferred graph layers are scoped.',
+            'R162-R164/M015: apps.knowledge must expose only aggregate graph endpoints plus owner-only rule-based insights.',
         )
         leaked_route_names = {
             route_name
@@ -63,7 +64,12 @@ class DeferredKnowledgeGraphScopeContractTests(SimpleTestCase):
             'ConceptTagMapping',
             'QuestionConceptEdge',
             'UserConceptActivity',
+            'UserKnowledgeGraphEmbeddingSnapshot',
             'UserKnowledgeGraphLayout',
+            'UserKnowledgeGraphSemanticCandidate',
+            'UserKnowledgeGraphSemanticGroup',
+            'UserKnowledgeGraphSemanticGroupMembership',
+            'UserKnowledgeGraphSemanticState',
             'UserKnowledgeGraphState',
         }
         knowledge_models = apps.get_app_config('knowledge').get_models()
@@ -85,12 +91,16 @@ class DeferredKnowledgeGraphScopeContractTests(SimpleTestCase):
         self.assertEqual(
             actual_model_names,
             expected_model_names,
-            'R162-R168: knowledge app models must remain foundation graph models only.',
+            'R162-R168: knowledge app models must remain foundation graph models plus M016 aggregate semantic diagnostics only.',
         )
 
+        allowed_s03_model_names = {
+            'UserKnowledgeGraphEmbeddingSnapshot',
+            'UserKnowledgeGraphSemanticCandidate',
+        }
         leaked_model_names = {
             model_name
-            for model_name in actual_model_names
+            for model_name in actual_model_names - allowed_s03_model_names
             for term in deferred_model_terms
             if term in model_name.lower()
         }
@@ -100,13 +110,27 @@ class DeferredKnowledgeGraphScopeContractTests(SimpleTestCase):
             f'R162-R168: deferred knowledge model capability leaked via models: {sorted(leaked_model_names)}',
         )
 
+        allowed_s03_storage_fields = {
+            ('UserKnowledgeGraphEmbeddingSnapshot', 'vector_payload'),
+            ('UserKnowledgeGraphEmbeddingSnapshot', 'source_id'),
+            ('UserKnowledgeGraphEmbeddingSnapshot', 'source_type'),
+            ('UserKnowledgeGraphEmbeddingSnapshot', 'content_hash'),
+            ('UserKnowledgeGraphEmbeddingSnapshot', 'dimensions'),
+            ('UserKnowledgeGraphEmbeddingSnapshot', 'provider'),
+            ('UserKnowledgeGraphEmbeddingSnapshot', 'model'),
+            ('UserKnowledgeGraphEmbeddingSnapshot', 'generated_at'),
+            ('UserKnowledgeGraphSemanticCandidate', 'source_snapshot'),
+            ('UserKnowledgeGraphSemanticCandidate', 'target_snapshot'),
+            ('UserKnowledgeGraphSemanticCandidate', 'similarity_score'),
+            ('UserKnowledgeGraphSemanticCandidate', 'rank'),
+        }
         for model in knowledge_models:
             field_names = {field.name.lower() for field in model._meta.get_fields()}
             leaked_fields = {
                 field_name
                 for field_name in field_names
                 for term in {'embedding', 'vector', 'recommendation', 'expert_match', 'merge', 'split', 'diagnostic'}
-                if term in field_name
+                if term in field_name and (model.__name__, field_name) not in allowed_s03_storage_fields
             }
             self.assertEqual(
                 leaked_fields,

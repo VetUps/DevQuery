@@ -1,12 +1,71 @@
+# Кратко: описывает данные графа знаний.
 from decimal import Decimal
 
 from django.conf import settings
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
-from django.core.validators import MaxValueValidator, MinValueValidator
+from django.core.exceptions import ValidationError
+from django.core.validators import MaxValueValidator, MinValueValidator, RegexValidator
 from django.db import models
 
 from apps.qa.models import Question, Tag
+
+
+SEMANTIC_GROUP_FORBIDDEN_EVIDENCE_KEYS = {
+    'body',
+    'content_hash',
+    'email',
+    'hash',
+    'html',
+    'idempotency_key',
+    'raw',
+    'raw_output',
+    'raw_text',
+    'secret',
+    'source_id',
+    'source_object_id',
+    'source_text',
+    'text',
+    'token',
+    'vector',
+    'vector_payload',
+}
+SEMANTIC_GROUP_FORBIDDEN_VALUE_MARKERS = ('<', '>', 'sk_', '@', 'source_id', 'content_hash', 'vector_payload')
+SEMANTIC_GROUP_LIFECYCLE_REASON_VALIDATOR = RegexValidator(
+    regex=r'^[a-z0-9_]*$',
+    message='Semantic group lifecycle reason code must be a safe lowercase code.',
+)
+
+
+def validate_semantic_group_safe_json(value):
+    """Проверяет поле семантических данных группы json перед сохранением."""
+
+    def visit(item, path='evidence'):
+        """Обходит значение и возвращает безопасную копию."""
+        if isinstance(item, dict):
+            for key, child in item.items():
+                normalized_key = str(key).lower().replace('-', '_')
+                if normalized_key in SEMANTIC_GROUP_FORBIDDEN_EVIDENCE_KEYS:
+                    raise ValidationError(f'Semantic group evidence contains unsafe key: {path}.{key}')
+                visit(child, f'{path}.{key}')
+        elif isinstance(item, list):
+            for index, child in enumerate(item):
+                visit(child, f'{path}[{index}]')
+        elif isinstance(item, str):
+            normalized_value = item.lower()
+            if any(marker in normalized_value for marker in SEMANTIC_GROUP_FORBIDDEN_VALUE_MARKERS):
+                raise ValidationError(f'Semantic group evidence contains unsafe value at {path}')
+
+    visit(value)
+
+
+def validate_semantic_group_safe_text(value):
+    """Проверяет поле семантических данных группы text перед сохранением."""
+    if not value:
+        return
+    normalized_value = str(value).lower()
+    if any(marker in normalized_value for marker in SEMANTIC_GROUP_FORBIDDEN_VALUE_MARKERS):
+        raise ValidationError('Semantic group text contains unsafe source/provider marker.')
 
 
 class KnowledgeConcept(models.Model):
@@ -35,6 +94,7 @@ class KnowledgeConcept(models.Model):
         ]
 
     def __str__(self):
+        """Возвращает короткое текстовое описание объекта."""
         return self.name
 
 
@@ -68,6 +128,7 @@ class ConceptTagMapping(models.Model):
         ]
 
     def __str__(self):
+        """Возвращает короткое текстовое описание объекта."""
         return f'{self.tag} -> {self.concept}'
 
 
@@ -116,6 +177,7 @@ class QuestionConceptEdge(models.Model):
         ]
 
     def __str__(self):
+        """Возвращает короткое текстовое описание объекта."""
         return f'{self.question_id} -> {self.concept}'
 
 
@@ -154,6 +216,7 @@ class UserKnowledgeGraphState(models.Model):
         ]
 
     def __str__(self):
+        """Возвращает короткое текстовое описание объекта."""
         return f'{self.user_id} graph {self.status}'
 
 
@@ -175,7 +238,242 @@ class UserKnowledgeGraphLayout(models.Model):
         ]
 
     def __str__(self):
+        """Возвращает короткое текстовое описание объекта."""
         return f'{self.user_id} graph layout v{self.schema_version}'
+
+
+class UserKnowledgeGraphSemanticState(models.Model):
+    class Status(models.TextChoices):
+        PENDING = 'pending', 'Pending'
+        DISABLED = 'disabled', 'Disabled'
+        DRY_RUN = 'dry_run', 'Dry run'
+        SUCCEEDED = 'succeeded', 'Succeeded'
+        EMPTY = 'empty', 'Empty'
+        BUDGET_EXCEEDED = 'budget_exceeded', 'Budget exceeded'
+        CONFIGURATION_ERROR = 'configuration_error', 'Configuration error'
+        PROVIDER_ERROR = 'provider_error', 'Provider error'
+        TIMEOUT = 'timeout', 'Timeout'
+        MALFORMED_RESPONSE = 'malformed_response', 'Malformed response'
+
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='knowledge_graph_semantic_state',
+    )
+    status = models.CharField(max_length=40, choices=Status.choices, default=Status.PENDING)
+    reason_code = models.CharField(max_length=80, blank=True, default='')
+    phase = models.CharField(max_length=80, blank=True, default='')
+    enabled = models.BooleanField(default=False)
+    dry_run = models.BooleanField(default=True)
+    source_provider = models.CharField(max_length=128, blank=True, default='')
+    source_model = models.CharField(max_length=128, blank=True, default='')
+    grouping_provider = models.CharField(max_length=128, blank=True, default='')
+    grouping_model = models.CharField(max_length=128, blank=True, default='')
+    source_item_count = models.PositiveIntegerField(default=0)
+    changed_source_item_count = models.PositiveIntegerField(default=0)
+    reused_snapshot_count = models.PositiveIntegerField(default=0)
+    snapshot_item_count = models.PositiveIntegerField(default=0)
+    neighbor_candidate_count = models.PositiveIntegerField(default=0)
+    semantic_group_count = models.PositiveIntegerField(default=0)
+    semantic_group_membership_count = models.PositiveIntegerField(default=0)
+    semantic_group_reused_count = models.PositiveIntegerField(default=0)
+    semantic_group_created_count = models.PositiveIntegerField(default=0)
+    semantic_group_changed_count = models.PositiveIntegerField(default=0)
+    semantic_group_stale_count = models.PositiveIntegerField(default=0)
+    semantic_group_archived_count = models.PositiveIntegerField(default=0)
+    estimated_token_count = models.PositiveIntegerField(default=0)
+    estimated_cost = models.DecimalField(max_digits=12, decimal_places=6, default=Decimal('0.000000'))
+    budget_cap = models.DecimalField(max_digits=12, decimal_places=6, default=Decimal('0.000000'))
+    last_error_message = models.CharField(max_length=255, blank=True, default='')
+    started_at = models.DateTimeField(blank=True, null=True)
+    finished_at = models.DateTimeField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'user_knowledge_graph_semantic_states'
+        indexes = [
+            models.Index(fields=['user'], name='ukgsemantic_user_idx'),
+            models.Index(fields=['status'], name='ukgsemantic_status_idx'),
+        ]
+
+    def __str__(self):
+        """Возвращает короткое текстовое описание объекта."""
+        return f'{self.user_id} semantic graph {self.status}'
+
+
+class UserKnowledgeGraphEmbeddingSnapshot(models.Model):
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='knowledge_graph_embedding_snapshots',
+    )
+    source_type = models.CharField(max_length=40)
+    source_id = models.CharField(max_length=64)
+    provider = models.CharField(max_length=128)
+    model = models.CharField(max_length=128)
+    dimensions = models.PositiveIntegerField()
+    content_hash = models.CharField(max_length=64)
+    vector_payload = models.JSONField(default=list)
+    generated_at = models.DateTimeField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'user_knowledge_graph_embedding_snapshots'
+        constraints = [
+            models.UniqueConstraint(
+                fields=['user', 'source_type', 'source_id', 'provider', 'model', 'dimensions', 'content_hash'],
+                name='unique_ukg_embedding_snapshot',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['user', 'provider', 'model', 'content_hash'], name='ukges_user_provider_hash_idx'),
+            models.Index(fields=['user', 'source_type', 'source_id'], name='ukges_user_source_idx'),
+        ]
+
+    def __str__(self):
+        """Возвращает короткое текстовое описание объекта."""
+        return f'{self.user_id} {self.source_type}:{self.source_id} embedding {self.model}'
+
+
+class UserKnowledgeGraphSemanticCandidate(models.Model):
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='knowledge_graph_semantic_candidates',
+    )
+    source_snapshot = models.ForeignKey(
+        UserKnowledgeGraphEmbeddingSnapshot,
+        on_delete=models.CASCADE,
+        related_name='outgoing_semantic_candidates',
+    )
+    target_snapshot = models.ForeignKey(
+        UserKnowledgeGraphEmbeddingSnapshot,
+        on_delete=models.CASCADE,
+        related_name='incoming_semantic_candidates',
+    )
+    provider = models.CharField(max_length=128)
+    model = models.CharField(max_length=128)
+    dimensions = models.PositiveIntegerField()
+    similarity_score = models.DecimalField(
+        max_digits=6,
+        decimal_places=5,
+        validators=[MinValueValidator(Decimal('0.00000')), MaxValueValidator(Decimal('1.00000'))],
+    )
+    rank = models.PositiveIntegerField()
+    generated_at = models.DateTimeField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'user_knowledge_graph_semantic_candidates'
+        constraints = [
+            models.UniqueConstraint(fields=['user', 'provider', 'model', 'dimensions', 'rank'], name='unique_ukg_semantic_rank'),
+        ]
+        indexes = [
+            models.Index(fields=['user', 'rank'], name='ukgsc_user_rank_idx'),
+            models.Index(fields=['user', 'provider', 'model', 'dimensions'], name='ukgsc_user_provider_idx'),
+        ]
+
+    def __str__(self):
+        """Возвращает короткое текстовое описание объекта."""
+        return f'{self.user_id} semantic candidate {self.rank}'
+
+
+class UserKnowledgeGraphSemanticGroup(models.Model):
+    class LifecycleStatus(models.TextChoices):
+        ACTIVE = 'active', 'Active'
+        STALE = 'stale', 'Stale'
+        ARCHIVED = 'archived', 'Archived'
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='knowledge_graph_semantic_groups',
+    )
+    provider = models.CharField(max_length=128)
+    model = models.CharField(max_length=128)
+    group_key = models.CharField(max_length=160)
+    label = models.CharField(max_length=160, validators=[validate_semantic_group_safe_text])
+    description = models.TextField(blank=True, default='', validators=[validate_semantic_group_safe_text])
+    rationale = models.TextField(blank=True, default='', validators=[validate_semantic_group_safe_text])
+    confidence = models.DecimalField(
+        max_digits=5,
+        decimal_places=4,
+        validators=[MinValueValidator(Decimal('0.0000')), MaxValueValidator(Decimal('1.0000'))],
+    )
+    evidence = models.JSONField(default=dict, blank=True, validators=[validate_semantic_group_safe_json])
+    centroid_payload = models.JSONField(default=list, blank=True, validators=[validate_semantic_group_safe_json])
+    member_signature = models.CharField(max_length=64, blank=True, default='', db_index=True)
+    member_slug_signature = models.CharField(max_length=255, blank=True, default='')
+    top_member_slugs = models.JSONField(default=list, blank=True, validators=[validate_semantic_group_safe_json])
+    reuse_evidence = models.JSONField(default=dict, blank=True, validators=[validate_semantic_group_safe_json])
+    lifecycle_status = models.CharField(max_length=20, choices=LifecycleStatus.choices, default=LifecycleStatus.ACTIVE)
+    lifecycle_reason_code = models.CharField(
+        max_length=80,
+        blank=True,
+        default='',
+        validators=[SEMANTIC_GROUP_LIFECYCLE_REASON_VALIDATOR],
+    )
+    first_seen_at = models.DateTimeField(blank=True, null=True)
+    last_seen_at = models.DateTimeField(blank=True, null=True)
+    stale_at = models.DateTimeField(blank=True, null=True)
+    archived_at = models.DateTimeField(blank=True, null=True)
+    generated_at = models.DateTimeField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'user_knowledge_graph_semantic_groups'
+        constraints = [
+            models.UniqueConstraint(fields=['user', 'provider', 'model', 'group_key'], name='unique_ukg_semantic_group'),
+        ]
+        indexes = [
+            models.Index(fields=['user', 'provider', 'model'], name='ukgsg_user_provider_idx'),
+            models.Index(fields=['user', 'generated_at'], name='ukgsg_user_generated_idx'),
+            models.Index(fields=['user', 'lifecycle_status'], name='ukgsg_user_lifecycle_idx'),
+        ]
+
+    def __str__(self):
+        """Возвращает короткое текстовое описание объекта."""
+        return f'{self.user_id} semantic group {self.group_key}'
+
+
+class UserKnowledgeGraphSemanticGroupMembership(models.Model):
+    group = models.ForeignKey(
+        UserKnowledgeGraphSemanticGroup,
+        on_delete=models.CASCADE,
+        related_name='memberships',
+    )
+    concept = models.ForeignKey(
+        KnowledgeConcept,
+        on_delete=models.PROTECT,
+        related_name='semantic_group_memberships',
+    )
+    rank = models.PositiveIntegerField()
+    confidence = models.DecimalField(
+        max_digits=5,
+        decimal_places=4,
+        validators=[MinValueValidator(Decimal('0.0000')), MaxValueValidator(Decimal('1.0000'))],
+    )
+    evidence = models.JSONField(default=dict, blank=True, validators=[validate_semantic_group_safe_json])
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'user_knowledge_graph_semantic_group_memberships'
+        constraints = [
+            models.UniqueConstraint(fields=['group', 'concept'], name='unique_ukg_semantic_group_concept'),
+        ]
+        indexes = [
+            models.Index(fields=['group', 'rank'], name='ukgsgm_group_rank_idx'),
+            models.Index(fields=['concept'], name='ukgsgm_concept_idx'),
+        ]
+
+    def __str__(self):
+        """Возвращает короткое текстовое описание объекта."""
+        return f'{self.group_id} semantic group member {self.concept_id}'
 
 
 class UserConceptActivity(models.Model):
@@ -239,4 +537,5 @@ class UserConceptActivity(models.Model):
         ]
 
     def __str__(self):
+        """Возвращает короткое текстовое описание объекта."""
         return f'{self.user_id} {self.activity_type} {self.concept_id}'

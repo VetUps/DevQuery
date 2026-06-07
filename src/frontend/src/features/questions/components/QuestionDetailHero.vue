@@ -1,9 +1,12 @@
 <script setup lang="ts">
+// Кратко: отвечает за часть интерфейса.
 import type { QuestionDetail } from '@/features/questions/api/questions'
 import type { PublicUserProfile } from '@/features/users/api/publicProfiles'
+import QuestionFavoriteAction from '@/features/questions/components/QuestionFavoriteAction.vue'
 import QuestionTagChips from '@/features/questions/components/QuestionTagChips.vue'
 import ProtectedQuestionChip from '@/features/questions/components/ProtectedQuestionChip.vue'
 import AuthorReputationBadge from '@/features/users/components/AuthorReputationBadge.vue'
+import UserAvatar from '@/shared/ui/UserAvatar.vue'
 import SignalVoteRail from '@/features/votes/components/SignalVoteRail.vue'
 import { formatLongDate, formatQuestionStatus } from '@/shared/libs/formatting'
 import AppButton from '@/shared/ui/AppButton.vue'
@@ -13,6 +16,7 @@ defineProps<{
   question: QuestionDetail
   author: PublicUserProfile | null | undefined
   currentUserId?: string
+  isAuthenticated: boolean
   canVote?: boolean
   canEdit?: boolean
   canProposeEdit?: boolean
@@ -45,7 +49,14 @@ const emit = defineEmits<{
 
       <h1 class="question-detail-hero__title">{{ question.question_title }}</h1>
       <QuestionTagChips :tags="question.tags" variant="large" />
-      <div v-if="canEdit || canProposeEdit || canInviteExperts" class="question-detail-hero__actions">
+      <div class="question-detail-hero__actions">
+        <QuestionFavoriteAction
+          :question-id="question.question_id"
+          :is-favorited="question.is_favorited ?? false"
+          :favorites-count="question.favorites_count ?? 0"
+          :is-authenticated="isAuthenticated"
+          variant="large"
+        />
         <AppButton v-if="canEdit" type="button" variant="secondary" @click="emit('requestEdit')">
           Редактировать вопрос
         </AppButton>
@@ -70,14 +81,17 @@ const emit = defineEmits<{
       <div class="question-detail-hero__author">
         <div>
           <p class="question-detail-hero__author-label">Автор вопроса</p>
-          <p class="question-detail-hero__author-name">
-            {{ author?.user_name ?? 'Профиль автора загружается' }}
-          </p>
-          <AuthorReputationBadge
-            v-if="author"
-            :reputation="author.reputation"
-            :fallback-score="author.user_reputation_score"
-          />
+          <div class="question-detail-hero__author-identity">
+            <UserAvatar :url="author?.user_avatar_url" :version="author?.user_avatar_updated_at" size="md" class="question-detail-hero__author-avatar" />
+            <p class="question-detail-hero__author-name">
+              {{ author?.user_name ?? 'Профиль автора загружается' }}
+            </p>
+            <AuthorReputationBadge
+              v-if="author"
+              :reputation="author.reputation"
+              :fallback-score="author.user_reputation_score"
+            />
+          </div>
         </div>
 
         <dl v-if="author" class="question-detail-hero__author-stats">
@@ -207,6 +221,14 @@ const emit = defineEmits<{
 .question-detail-hero__author {
   padding-top: var(--space-lg);
   border-top: 1px solid rgb(207 198 180 / 0.72);
+}
+
+.question-detail-hero__author-identity {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs) var(--space-sm);
+  margin-top: var(--space-xs);
 }
 
 .question-detail-hero__author-name {

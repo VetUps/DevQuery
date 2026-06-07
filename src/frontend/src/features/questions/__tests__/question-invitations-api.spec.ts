@@ -67,6 +67,8 @@ function buildEligibleEnvelope(overrides: Partial<EligibleExpertsEnvelope> = {})
         reputation_level: 'expert',
         reputation_level_label: 'Эксперт',
         is_manual_override: false,
+        topic_score: 0,
+        topic_match_count: 0,
       },
       {
         user_id: MASTER_ID,
@@ -75,6 +77,8 @@ function buildEligibleEnvelope(overrides: Partial<EligibleExpertsEnvelope> = {})
         reputation_level: 'master',
         reputation_level_label: 'Мастер',
         is_manual_override: true,
+        topic_score: 0,
+        topic_match_count: 0,
       },
     ],
     question_id: QUESTION_ID,
@@ -303,7 +307,7 @@ describe('question expert invitations API boundary', () => {
   it('exports deterministic query keys and disables queries until the caller enables a real question id', async () => {
     const questionId = ref(` ${QUESTION_ID} `)
     const search = ref('  Expert  ')
-    const queryOptions = useEligibleExpertsQuery(questionId, search, false)
+    const queryOptions = useEligibleExpertsQuery(questionId, search, 'topic_strength', 1, false)
 
     expect(buildEligibleExpertsBaseQueryKey(QUESTION_ID)).toEqual(['questions', 'eligible-experts', QUESTION_ID])
     expect(buildEligibleExpertsQueryKey(QUESTION_ID, '  Expert  ')).toEqual([
@@ -311,19 +315,21 @@ describe('question expert invitations API boundary', () => {
       'eligible-experts',
       QUESTION_ID,
       'Expert',
+      '',
+      1,
     ])
     expect(mockedUseQuery).toHaveBeenCalledWith(expect.objectContaining({ queryKey: queryOptions.queryKey }))
-    expect(queryOptions.queryKey.value).toEqual(['questions', 'eligible-experts', QUESTION_ID, 'Expert'])
+    expect(queryOptions.queryKey.value).toEqual(['questions', 'eligible-experts', QUESTION_ID, 'Expert', 'topic_strength', 1])
     expect(queryOptions.enabled.value).toBe(false)
 
-    const enabledOptions = useEligibleExpertsQuery(questionId, computed(() => ' Bob '), true)
+    const enabledOptions = useEligibleExpertsQuery(questionId, computed(() => ' Bob '), 'topic_strength', 1, true)
     mockedHttp.get.mockResolvedValue({ data: buildEligibleEnvelope() })
 
     expect(enabledOptions.enabled.value).toBe(true)
     await enabledOptions.queryFn()
 
     expect(mockedHttp.get).toHaveBeenLastCalledWith(`/question/${QUESTION_ID}/eligible-experts/`, {
-      params: { search: 'Bob' },
+      params: { search: 'Bob', ordering: 'topic_strength' },
     })
   })
 

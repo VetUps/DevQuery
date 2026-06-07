@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// Кратко: отвечает за часть интерфейса.
 import { computed, ref, watch } from 'vue'
 
 import type { QuestionEditRecord } from '@/features/questions/api/questionEdits'

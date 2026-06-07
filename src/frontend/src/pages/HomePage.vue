@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// Кратко: собирает страницу из данных и компонентов.
 import { computed, onBeforeUnmount, shallowRef, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useRoute, useRouter } from 'vue-router'
@@ -11,6 +12,7 @@ import PublicDiscoveryIntro from '@/features/questions/components/PublicDiscover
 import QuestionCard from '@/features/questions/components/QuestionCard.vue'
 import QuestionListPagination from '@/features/questions/components/QuestionListPagination.vue'
 import QuestionListSkeleton from '@/features/questions/components/QuestionListSkeleton.vue'
+import TopUsersWidget from '@/features/users/components/TopUsersWidget.vue'
 import type { QuestionOrdering } from '@/features/questions/api/questions'
 import AppShellLayout from '@/layouts/AppShellLayout.vue'
 import InlineFeedbackPanel from '@/shared/ui/InlineFeedbackPanel.vue'
@@ -292,6 +294,7 @@ onBeforeUnmount(clearSearchDebounceTimer)
                 v-for="question in questionList"
                 :key="question.question_id"
                 :question="question"
+                :is-authenticated="isAuthenticated"
                 :is-invited-for-current-user="invitedQuestionIds.has(question.question_id)"
               />
             </div>
@@ -310,6 +313,7 @@ onBeforeUnmount(clearSearchDebounceTimer)
           data-testid="home-discovery-sidebar"
         >
           <PublicDiscoveryIntro :total-questions="totalQuestions" />
+          <TopUsersWidget />
         </aside>
       </div>
     </section>
@@ -332,6 +336,15 @@ onBeforeUnmount(clearSearchDebounceTimer)
   display: grid;
   gap: var(--space-xl);
   align-content: start;
+}
+
+.home-page__sidebar {
+  position: sticky;
+  top: calc(64px + var(--space-lg));
+  align-self: start;
+  max-height: calc(100vh - 64px - (var(--space-lg) * 2));
+  overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 
 .home-page__list-section {
@@ -380,6 +393,13 @@ onBeforeUnmount(clearSearchDebounceTimer)
 @media (width <= 980px) {
   .home-page__content {
     grid-template-columns: 1fr;
+  }
+
+  .home-page__sidebar {
+    position: static;
+    max-height: none;
+    overflow-y: visible;
+    scrollbar-gutter: auto;
   }
 }
 

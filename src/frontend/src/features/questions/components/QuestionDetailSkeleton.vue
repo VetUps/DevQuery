@@ -1,3 +1,4 @@
+<!-- Кратко: отвечает за часть интерфейса. -->
 <template>
   <section class="question-detail-skeleton" data-testid="question-detail-skeleton">
     <div class="question-detail-skeleton__main">

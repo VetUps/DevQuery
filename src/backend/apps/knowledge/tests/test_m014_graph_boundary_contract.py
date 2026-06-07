@@ -21,6 +21,7 @@ class M014KnowledgeGraphBoundaryContractTests(SimpleTestCase):
     def test_r187_r188_knowledge_urls_expose_only_existing_aggregate_graph_routes(self):
         expected_route_names = {
             'own-user-graph',
+            'own-user-graph-insights',
             'own-user-graph-layout',
             'own-user-graph-rebuild',
             'public-user-graph',
@@ -31,7 +32,7 @@ class M014KnowledgeGraphBoundaryContractTests(SimpleTestCase):
         self.assertEqual(
             actual_route_names,
             expected_route_names,
-            'R187/R188: apps.knowledge URL surface must stay limited to existing aggregate graph endpoints.',
+            'R187/R188: apps.knowledge URL surface must stay limited to aggregate graph endpoints plus the M015 owner-only insights endpoint.',
         )
 
         route_terms_by_route = {}
@@ -72,7 +73,12 @@ class M014KnowledgeGraphBoundaryContractTests(SimpleTestCase):
             'ConceptTagMapping',
             'QuestionConceptEdge',
             'UserConceptActivity',
+            'UserKnowledgeGraphEmbeddingSnapshot',
             'UserKnowledgeGraphLayout',
+            'UserKnowledgeGraphSemanticCandidate',
+            'UserKnowledgeGraphSemanticGroup',
+            'UserKnowledgeGraphSemanticGroupMembership',
+            'UserKnowledgeGraphSemanticState',
             'UserKnowledgeGraphState',
         }
         knowledge_models = list(apps.get_app_config('knowledge').get_models())
@@ -106,9 +112,13 @@ class M014KnowledgeGraphBoundaryContractTests(SimpleTestCase):
             'embedding',
             'embeddings',
         }
+        allowed_s03_model_names = {
+            'UserKnowledgeGraphEmbeddingSnapshot',
+            'UserKnowledgeGraphSemanticCandidate',
+        }
         leaked_model_names = {
             model_name: sorted(term for term in forbidden_name_terms if term in model_name.lower())
-            for model_name in actual_model_names
+            for model_name in actual_model_names - allowed_s03_model_names
             if any(term in model_name.lower() for term in forbidden_name_terms)
         }
         self.assertEqual(
@@ -117,11 +127,27 @@ class M014KnowledgeGraphBoundaryContractTests(SimpleTestCase):
             f'R187/R188: forbidden graph recommendation/expert/admin models leaked: {leaked_model_names}',
         )
 
+        allowed_s03_storage_fields = {
+            ('UserKnowledgeGraphEmbeddingSnapshot', 'vector_payload'),
+            ('UserKnowledgeGraphEmbeddingSnapshot', 'source_id'),
+            ('UserKnowledgeGraphEmbeddingSnapshot', 'source_type'),
+            ('UserKnowledgeGraphEmbeddingSnapshot', 'content_hash'),
+            ('UserKnowledgeGraphEmbeddingSnapshot', 'dimensions'),
+            ('UserKnowledgeGraphEmbeddingSnapshot', 'provider'),
+            ('UserKnowledgeGraphEmbeddingSnapshot', 'model'),
+            ('UserKnowledgeGraphEmbeddingSnapshot', 'generated_at'),
+            ('UserKnowledgeGraphSemanticCandidate', 'source_snapshot'),
+            ('UserKnowledgeGraphSemanticCandidate', 'target_snapshot'),
+            ('UserKnowledgeGraphSemanticCandidate', 'similarity_score'),
+            ('UserKnowledgeGraphSemanticCandidate', 'rank'),
+        }
         leaked_fields_by_model = {}
         for model in knowledge_models:
             leaked_fields = []
             for field in model._meta.get_fields():
                 field_name = field.name.lower()
+                if (model.__name__, field_name) in allowed_s03_storage_fields:
+                    continue
                 leaked_terms = sorted(term for term in forbidden_name_terms if term in field_name)
                 if leaked_terms:
                     leaked_fields.append(f'{field.name} -> {leaked_terms}')

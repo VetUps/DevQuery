@@ -221,3 +221,5 @@ AGENTS.md
 # Local GSD/browser artifacts
 .artifacts/
 stackoverflow-2-frontend@*
+src/frontend/test-results/*
+!src/frontend/test-results/.last-run.json

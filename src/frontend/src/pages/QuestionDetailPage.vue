@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// Кратко: собирает страницу из данных и компонентов.
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useRoute } from 'vue-router'
@@ -219,7 +220,7 @@ async function focusSolution(solutionId: string) {
 
 async function handleSolutionSubmitted(createdSolution: CreateSolutionResponse) {
   isComposerOpen.value = false
-  solutionSuccessMessage.value = 'Решение добавлено. Мы перенесли вас к нему ниже.'
+  solutionSuccessMessage.value = 'Решение добавлено.'
   freshSolutionId.value = createdSolution.solution_id
 
   await solutionsQuery.refetch()
@@ -231,7 +232,8 @@ async function handleSolutionSubmitted(createdSolution: CreateSolutionResponse) 
 
   clearFreshSolutionTimer = setTimeout(() => {
     freshSolutionId.value = null
-  }, 2400)
+    solutionSuccessMessage.value = ''
+  }, 5000)
 }
 
 watch(
@@ -308,6 +310,7 @@ onBeforeUnmount(() => {
           :question="questionDetailQuery.data.value"
           :author="questionAuthorQuery.data.value"
           :current-user-id="currentUserId"
+          :is-authenticated="isAuthenticated"
           :can-vote="isAuthenticated"
           :can-edit="canEditQuestion"
           :can-propose-edit="canProposeQuestionEdit"

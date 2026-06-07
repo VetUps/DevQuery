@@ -1,3 +1,4 @@
+// Кратко: выполняет запросы к backend и нормализует ответ.
 import { useInfiniteQuery, useQuery } from '@tanstack/vue-query'
 import { computed, toValue } from 'vue'
 import type { MaybeRefOrGetter } from 'vue'

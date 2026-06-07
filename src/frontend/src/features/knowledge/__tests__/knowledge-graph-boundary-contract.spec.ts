@@ -7,9 +7,11 @@ import { computed, nextTick } from 'vue'
 import {
   fetchOwnKnowledgeGraph,
   fetchPublicUserKnowledgeGraph,
+  KNOWLEDGE_GRAPH_REBUILD_REQUEST_TIMEOUT_MS,
   rebuildOwnKnowledgeGraph,
   resetOwnKnowledgeGraphLayout,
   saveOwnKnowledgeGraphLayout,
+  type UserKnowledgeGraphInsightsResponse,
   type UserKnowledgeGraphResponse,
 } from '@/features/knowledge/api/knowledgeGraph'
 import { buildRebuildKnowledgeGraphMutationOptions } from '@/features/knowledge/mutations/useRebuildKnowledgeGraphMutation'
@@ -52,6 +54,22 @@ const queryHarness = vi.hoisted(() => {
   const publicQuery = ownQuery
 
   return { state, ownQuery, publicQuery }
+})
+
+const insightsHarness = vi.hoisted(() => {
+  const state = {
+    data: undefined as UserKnowledgeGraphInsightsResponse | undefined,
+    isPending: false,
+    isError: false,
+  }
+
+  const query = {
+    data: { get value() { return state.data } },
+    isPending: { get value() { return state.isPending } },
+    isError: { get value() { return state.isError } },
+  }
+
+  return { state, query }
 })
 
 const mutationHarness = vi.hoisted(() => ({
@@ -112,6 +130,10 @@ vi.mock('@/features/knowledge/queries/useKnowledgeGraphQuery', async (importOrig
   }
 })
 
+vi.mock('@/features/knowledge/queries/useKnowledgeGraphInsightsQuery', () => ({
+  useOwnKnowledgeGraphInsightsQuery: vi.fn(() => insightsHarness.query),
+}))
+
 vi.mock('@/features/knowledge/mutations/useRebuildKnowledgeGraphMutation', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/features/knowledge/mutations/useRebuildKnowledgeGraphMutation')>()
 
@@ -135,9 +157,6 @@ const GRAPH_USER_ID = '11111111-1111-4111-8111-111111111111'
 const PUBLIC_USER_ID = '22222222-2222-4222-8222-222222222222'
 
 const FORBIDDEN_BOUNDARY_TERMS = [
-  'recommendation',
-  'recommendations',
-  'recommend',
   'expert',
   'matching',
   'matchmaking',
@@ -149,13 +168,26 @@ const FORBIDDEN_BOUNDARY_TERMS = [
   'split',
   'vector',
   'embedding',
-  'рекомендац',
   'эксперт',
   'сопостав',
   'админ',
   'редакт',
   'ручн',
 ]
+
+const FORBIDDEN_NAMED_LAYOUT_TERMS = [
+  'layout-name',
+  'layoutname',
+  'saved-layouts',
+  'layouts/',
+  'select-layout',
+  'create-layout',
+  'delete-layout',
+]
+
+const FORBIDDEN_NAMED_LAYOUT_SOURCE_TERMS = FORBIDDEN_NAMED_LAYOUT_TERMS.filter(
+  (term) => term !== 'layoutname',
+)
 
 const SOURCE_FILES_UNDER_CONTRACT = [
   '../api/knowledgeGraph.ts',
@@ -165,6 +197,7 @@ const SOURCE_FILES_UNDER_CONTRACT = [
   '../components/ProfileKnowledgeGraphTab.vue',
   '../components/KnowledgeGraphRenderer.vue',
   '../components/KnowledgeGraphConceptDetails.vue',
+  '../components/knowledgeGraphQuestionDiscovery.ts',
 ]
 
 const mountedWrappers: VueWrapper[] = []
@@ -241,6 +274,8 @@ function buildGraph(overrides: Partial<UserKnowledgeGraphResponse> = {}): UserKn
     ...base,
     nodes,
     edges,
+    semantic_edges: overrides.semantic_edges ?? [],
+    semantic_groups: overrides.semantic_groups ?? [],
   }
 }
 
@@ -251,12 +286,34 @@ function expectNoForbiddenBoundaryTerms(value: string) {
   expect(leakedTerms).toEqual([])
 }
 
+function expectNoForbiddenNamedLayoutTerms(value: string) {
+  const normalized = value.toLowerCase()
+  const leakedTerms = FORBIDDEN_NAMED_LAYOUT_TERMS.filter((term) => normalized.includes(term))
+
+  expect(leakedTerms).toEqual([])
+}
+
 function setQueryState(overrides: Partial<typeof queryHarness.state> = {}) {
   queryHarness.state.data = undefined
   queryHarness.state.isPending = false
   queryHarness.state.isError = false
   queryHarness.state.refetch.mockReset()
   queryHarness.state.refetch.mockResolvedValue(undefined)
+  insightsHarness.state.data = {
+    user_id: GRAPH_USER_ID,
+    viewer: { is_owner: true },
+    state: {
+      status: 'fresh',
+      stale_reason: '',
+      last_failed_phase: '',
+      last_rebuild_started_at: null,
+      last_rebuild_finished_at: null,
+    },
+    summary: { concept_count: 0, recommendation_count: 0, states: {} },
+    concepts: [],
+  }
+  insightsHarness.state.isPending = false
+  insightsHarness.state.isError = false
 
   Object.assign(queryHarness.state, overrides)
 }
@@ -268,7 +325,17 @@ function setMutationState() {
 }
 
 async function mountTab(props: { userId?: string } = {}) {
-  const wrapper = mount(ProfileKnowledgeGraphTab, { props })
+  const wrapper = mount(ProfileKnowledgeGraphTab, {
+    props,
+    global: {
+      stubs: {
+        RouterLink: {
+          props: ['to'],
+          template: '<a><slot /></a>',
+        },
+      },
+    },
+  })
 
   mountedWrappers.push(wrapper)
   await flushPromises()
@@ -315,7 +382,9 @@ describe('knowledge graph frontend boundary contract', () => {
 
     expect(httpMock.get).toHaveBeenNthCalledWith(1, '/knowledge-graph/me/')
     expect(httpMock.get).toHaveBeenNthCalledWith(2, `/knowledge-graph/users/${PUBLIC_USER_ID}/`)
-    expect(httpMock.post).toHaveBeenCalledExactlyOnceWith('/knowledge-graph/me/rebuild/')
+    expect(httpMock.post).toHaveBeenCalledExactlyOnceWith('/knowledge-graph/me/rebuild/', undefined, {
+      timeout: KNOWLEDGE_GRAPH_REBUILD_REQUEST_TIMEOUT_MS,
+    })
     expect(httpMock.put).toHaveBeenCalledExactlyOnceWith('/knowledge-graph/me/layout/', {
       schema_version: 1,
       positions: { 10: { x: 1, y: 2 } },
@@ -337,6 +406,10 @@ describe('knowledge graph frontend boundary contract', () => {
       '/knowledge-graph/me/layout/',
     ])
     calledUrls.forEach(expectNoForbiddenBoundaryTerms)
+    calledUrls.forEach(expectNoForbiddenNamedLayoutTerms)
+
+    const layoutRequestBodies = httpMock.put.mock.calls.map(([, body]) => JSON.stringify(body))
+    layoutRequestBodies.forEach(expectNoForbiddenNamedLayoutTerms)
   })
 
   it('keeps query keys and rebuild invalidation scoped to the graph namespace', async () => {
@@ -371,9 +444,12 @@ describe('knowledge graph frontend boundary contract', () => {
     queryClientMock.invalidateQueries.mock.calls
       .map(([args]) => JSON.stringify(args))
       .forEach(expectNoForbiddenBoundaryTerms)
+    queryClientMock.invalidateQueries.mock.calls
+      .map(([args]) => JSON.stringify(args))
+      .forEach(expectNoForbiddenNamedLayoutTerms)
   })
 
-  it('renders owner graph/list/rebuild/detail affordances without recommendation, matching, or editor controls', async () => {
+  it('renders owner graph/list/rebuild/detail affordances with graph controls but without matching or editor controls', async () => {
     setQueryState({ data: buildGraph() })
 
     const wrapper = await mountTab()
@@ -395,16 +471,19 @@ describe('knowledge graph frontend boundary contract', () => {
 
     expect(wrapper.get('[data-testid="knowledge-list-panel"]').text()).toContain('Django')
     expect(wrapper.get('[data-testid="knowledge-list-panel"]').text()).toContain('Связанные вопросы')
-    expect(wrapper.find('[data-testid="knowledge-graph-selected-details"]').exists()).toBe(false)
-
     expectNoForbiddenBoundaryTerms(wrapper.text())
+    expectNoForbiddenNamedLayoutTerms(wrapper.text())
     expect(wrapper.find('button[data-testid*="admin" i]').exists()).toBe(false)
     expect(wrapper.find('button[data-testid*="editor" i]').exists()).toBe(false)
     expect(wrapper.find('button[data-testid*="manual" i]').exists()).toBe(false)
-    expect(wrapper.find('button[data-testid*="recommend" i]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid*="layout-name" i]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid*="saved-layout" i]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid*="select-layout" i]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid*="create-layout" i]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid*="delete-layout" i]').exists()).toBe(false)
   })
 
-  it('keeps public graph mode read-only without rebuild, admin, or editor affordances', async () => {
+  it('keeps public graph mode read-only without rebuild, admin, matching, or editor affordances', async () => {
     setQueryState({ data: buildGraph({ viewer: { is_owner: false } }) })
 
     const wrapper = await mountTab({ userId: `  ${PUBLIC_USER_ID}  ` })
@@ -416,6 +495,9 @@ describe('knowledge graph frontend boundary contract', () => {
     expect(wrapper.get('[data-testid="knowledge-view-mode-list"]').text()).toBe('Список')
     expect(wrapper.get('[data-testid="knowledge-public-readonly"]').text()).toContain('Публичный просмотр')
     expect(wrapper.find('[data-testid="knowledge-rebuild-button"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="knowledge-recommendations"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid^="knowledge-recommendation-card-"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid^="knowledge-recommendation-action-"]').exists()).toBe(false)
 
     await wrapper.get('[data-testid="knowledge-view-mode-list"]').trigger('click')
     await nextTick()
@@ -423,9 +505,15 @@ describe('knowledge graph frontend boundary contract', () => {
     expect(wrapper.get('[data-testid="knowledge-list-panel"]').text()).toContain('Django')
     expect(wrapper.find('[data-testid="knowledge-rebuild-button"]').exists()).toBe(false)
     expectNoForbiddenBoundaryTerms(wrapper.text())
+    expectNoForbiddenNamedLayoutTerms(wrapper.text())
     expect(wrapper.find('button[data-testid*="admin" i]').exists()).toBe(false)
     expect(wrapper.find('button[data-testid*="editor" i]').exists()).toBe(false)
     expect(wrapper.find('button[data-testid*="manual" i]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid*="layout-name" i]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid*="saved-layout" i]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid*="select-layout" i]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid*="create-layout" i]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid*="delete-layout" i]').exists()).toBe(false)
   })
 
   it('keeps explicit knowledge graph frontend source free of future-scope endpoint and control labels', () => {
@@ -434,6 +522,19 @@ describe('knowledge graph frontend boundary contract', () => {
       const source = readFileSync(sourcePath, 'utf8').toLowerCase()
 
       return FORBIDDEN_BOUNDARY_TERMS
+        .filter((term) => source.includes(term))
+        .map((term) => `${relativePath}: ${term}`)
+    })
+
+    expect(leaks).toEqual([])
+  })
+
+  it('keeps explicit knowledge graph frontend source free of named saved layout endpoints and controls', () => {
+    const leaks = SOURCE_FILES_UNDER_CONTRACT.flatMap((relativePath) => {
+      const sourcePath = fileURLToPath(new URL(relativePath, import.meta.url))
+      const source = readFileSync(sourcePath, 'utf8').toLowerCase()
+
+      return FORBIDDEN_NAMED_LAYOUT_SOURCE_TERMS
         .filter((term) => source.includes(term))
         .map((term) => `${relativePath}: ${term}`)
     })

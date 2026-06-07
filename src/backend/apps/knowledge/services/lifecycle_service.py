@@ -1,3 +1,4 @@
+# Кратко: синхронизирует состояние при изменениях данных.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -12,7 +13,7 @@ from apps.qa.models import Question
 
 @dataclass(frozen=True)
 class StructuralGraphRebuildSummary:
-    """Aggregate, redaction-safe summary for structural question graph rebuilds."""
+    """Безопасная сводка по пересборке структуры графа вопросов."""
 
     processed_questions: int = 0
     question_summaries: list[KnowledgeGraphSummary] = field(default_factory=list)
@@ -26,30 +27,37 @@ class StructuralGraphRebuildSummary:
 
     @property
     def created_concepts(self) -> int:
+        """Обрабатывает created concepts."""
         return len(self.created_concept_ids)
 
     @property
     def updated_concepts(self) -> int:
+        """Обрабатывает updated concepts."""
         return len(self.updated_concept_ids)
 
     @property
     def created_mappings(self) -> int:
+        """Обрабатывает created связки."""
         return len(self.created_mapping_ids)
 
     @property
     def updated_mappings(self) -> int:
+        """Обрабатывает updated связки."""
         return len(self.updated_mapping_ids)
 
     @property
     def created_edges(self) -> int:
+        """Обрабатывает created связи."""
         return len(self.created_edge_ids)
 
     @property
     def updated_edges(self) -> int:
+        """Обрабатывает updated связи."""
         return len(self.updated_edge_ids)
 
     @property
     def removed_edges(self) -> int:
+        """Обрабатывает removed связи."""
         return len(self.removed_edge_ids)
 
     @classmethod
@@ -57,6 +65,7 @@ class StructuralGraphRebuildSummary:
         cls,
         question_summaries: Iterable[KnowledgeGraphSummary],
     ) -> StructuralGraphRebuildSummary:
+        """Обрабатывает вопрос summaries."""
         summaries = list(question_summaries)
         return cls(
             processed_questions=len(summaries),
@@ -71,6 +80,7 @@ class StructuralGraphRebuildSummary:
         )
 
     def as_stdout_fields(self) -> dict[str, int]:
+        """Обрабатывает вывод в консоль поля."""
         return {
             'processed': self.processed_questions,
             'created_concepts': self.created_concepts,
@@ -88,7 +98,7 @@ def sync_question_graph(
     *,
     graph_service: KnowledgeGraphService | None = None,
 ) -> KnowledgeGraphSummary:
-    """Synchronously rebuild one question's durable concept edges."""
+    """Синхронизирует данные вопроса графа."""
 
     service = graph_service or KnowledgeGraphService()
     return service.build_question_graph(question)
@@ -99,7 +109,7 @@ def rebuild_structural_graph(
     *,
     graph_service: KnowledgeGraphService | None = None,
 ) -> StructuralGraphRebuildSummary:
-    """Synchronously rebuild durable concept structure for an iterable of questions."""
+    """Пересобирает данные structural графа."""
 
     questions = queryset if queryset is not None else Question.objects.all().order_by('pk')
     service = graph_service or KnowledgeGraphService()

@@ -1,3 +1,4 @@
+# Кратко: запускает служебную команду для графа знаний.
 from __future__ import annotations
 
 from django.contrib.auth import get_user_model
@@ -16,6 +17,7 @@ class Command(BaseCommand):
     help = 'Rebuild durable user concept activity from questions, solutions, and positive reputation ledger facts.'
 
     def add_arguments(self, parser):
+        """Создаёт данные add arguments."""
         parser.add_argument(
             '--user-id',
             dest='user_id',
@@ -23,6 +25,7 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+        """Запускает основную логику management-команды."""
         user_id = options.get('user_id')
         if user_id:
             User = get_user_model()

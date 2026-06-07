@@ -1,3 +1,4 @@
+// Кратко: настраивает e2e-тесты Playwright.
 import { defineConfig, devices } from '@playwright/test'
 
 export default defineConfig({

@@ -1,3 +1,4 @@
+# Кратко: регистрирует приложение уведомлений в Django.
 from django.apps import AppConfig
 
 

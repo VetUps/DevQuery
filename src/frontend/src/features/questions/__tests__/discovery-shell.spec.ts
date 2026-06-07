@@ -4,9 +4,6 @@ import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMemoryHistory, createRouter } from 'vue-router'
 
-import { VueQueryPlugin } from '@tanstack/vue-query'
-
-import { queryClient } from '@/app/query-client'
 import HomePage from '@/pages/HomePage.vue'
 import { useSessionStore } from '@/features/auth/stores/session'
 
@@ -30,6 +27,30 @@ vi.mock('@/features/questions/queries/useQuestionListQuery', () => ({
 vi.mock('@/features/auth/queries/useCurrentUserQuery', () => ({
   useCurrentUserQuery: vi.fn(() => ({
     data: ref(null),
+    isPending: ref(false),
+    isError: ref(false),
+    refetch: vi.fn(),
+  })),
+}))
+
+vi.mock('@/features/notifications/queries/useNotificationsQuery', () => ({
+  useNotificationsQuery: vi.fn(() => ({
+    data: ref({ count: 0, next: null, previous: null, results: [] }),
+    isPending: ref(false),
+    isError: ref(false),
+    refetch: vi.fn(),
+  })),
+  useNotificationSummaryQuery: vi.fn(() => ({
+    data: ref({ unread_count: 0 }),
+    isPending: ref(false),
+    isError: ref(false),
+    refetch: vi.fn(),
+  })),
+}))
+
+vi.mock('@/features/users/queries/useTopUsersQuery', () => ({
+  useTopUsersQuery: vi.fn(() => ({
+    data: ref({ count: 0, next: null, previous: null, results: [] }),
     isPending: ref(false),
     isError: ref(false),
     refetch: vi.fn(),
@@ -67,7 +88,7 @@ async function mountHomePage(options: { authenticated?: boolean } = {}) {
 
   const wrapper = mount(HomePage, {
     global: {
-      plugins: [pinia, router, [VueQueryPlugin, { queryClient }]],
+      plugins: [pinia, router],
     },
   })
 

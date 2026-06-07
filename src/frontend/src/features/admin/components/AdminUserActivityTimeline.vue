@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// Кратко: отвечает за часть интерфейса.
 import { computed, watch } from 'vue'
 
 import {
@@ -10,6 +11,8 @@ import {
 import { useAdminUserActivityTimeline } from '@/features/admin/composables/useAdminUserActivityTimeline'
 import AppButton from '@/shared/ui/AppButton.vue'
 import InlineFeedbackPanel from '@/shared/ui/InlineFeedbackPanel.vue'
+import AdminCardExpander from './AdminCardExpander.vue'
+import AdminPagination from './AdminPagination.vue'
 
 const ACTIVITY_TYPE_LABELS: Record<AdminUserActivityType, string> = {
   comment: 'Комментарии',
@@ -150,7 +153,7 @@ watch(selectedUserId, (userId) => {
 
       <template v-else>
         <p class="admin-activity__status" data-testid="admin-user-activity-count">
-          Найдено событий: {{ activity.count.value }}. Показано не более {{ activity.limit.value }} компактных записей.
+          Найдено событий: {{ activity.count.value }}. Показана страница {{ activity.page.value }}.
         </p>
         <ul class="admin-activity__list" data-testid="admin-user-activity-list" :aria-label="`Найдено событий: ${activity.count.value}`">
           <li
@@ -159,15 +162,27 @@ watch(selectedUserId, (userId) => {
             class="admin-activity__item"
             :data-testid="itemTestId(item)"
           >
-            <div class="admin-activity__item-header">
-              <span class="admin-activity__type">{{ ACTIVITY_TYPE_LABELS[item.type] }}</span>
-              <time :datetime="item.occurred_at">{{ formatActivityTimestamp(item.occurred_at) }}</time>
-            </div>
-            <h4 class="admin-activity__item-title">{{ item.title }}</h4>
-            <p class="admin-activity__item-summary">{{ item.summary }}</p>
-            <p class="admin-activity__item-target">{{ item.target_label }}</p>
+            <AdminCardExpander :base-height="110">
+              <div class="admin-activity__item-inner">
+                <div class="admin-activity__item-header">
+                  <span class="admin-activity__type">{{ ACTIVITY_TYPE_LABELS[item.type] }}</span>
+                  <time :datetime="item.occurred_at">{{ formatActivityTimestamp(item.occurred_at) }}</time>
+                </div>
+                <h4 class="admin-activity__item-title">{{ item.title }}</h4>
+                <p class="admin-activity__item-summary">{{ item.summary }}</p>
+                <p class="admin-activity__item-target">{{ item.target_label }}</p>
+              </div>
+            </AdminCardExpander>
           </li>
         </ul>
+        
+        <AdminPagination
+          v-if="activity.count.value > activity.limit.value"
+          :page="activity.page.value"
+          :has-next-page="activity.hasNextPage.value"
+          :is-busy="activity.isLoading.value"
+          @update:page="activity.setPage"
+        />
       </template>
     </template>
   </section>
@@ -265,12 +280,15 @@ watch(selectedUserId, (userId) => {
 }
 
 .admin-activity__item {
-  display: grid;
-  gap: var(--space-xs);
   padding: var(--space-md);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   background: rgb(255 255 255 / 0.68);
+}
+
+.admin-activity__item-inner {
+  display: grid;
+  gap: var(--space-xs);
 }
 
 .admin-activity__type {

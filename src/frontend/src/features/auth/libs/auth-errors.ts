@@ -1,3 +1,4 @@
+// Кратко: держит основную логику этого файла.
 import axios from 'axios'
 
 export const LOGIN_FAILED_MESSAGE = 'Не удалось войти. Проверьте почту и пароль.'

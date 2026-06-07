@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// Кратко: отвечает за часть интерфейса.
 import ContentSkeleton from '@/shared/ui/ContentSkeleton.vue'
 </script>
 

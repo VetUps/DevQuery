@@ -1,3 +1,4 @@
+# Кратко: работает с комментариями.
 from __future__ import annotations
 
 from django.contrib.contenttypes.models import ContentType
@@ -11,11 +12,7 @@ from ...user.models import CustomUser
 class CommentService:
     @staticmethod
     def get_comment(comment_id: str) -> Comment:
-        """
-        Возвращает комментарий по его ID
-        :param comment_id: ID комментария
-        :return:
-        """
+        """Возвращает данные комментария."""
         try:
             comment = Comment.objects.get(comment_id=comment_id)
             return comment
@@ -28,13 +25,7 @@ class CommentService:
         target_id: str,
         parent_id: str | None = None,
     ) -> QuerySet[Comment]:
-        """
-        Возвращает комментарии для указанной цели (вопрос или решение)
-        :param target_type: Тип цели ('question' или 'solution')
-        :param target_id: ID цели
-        :param parent_id: ID родительского комментария (для вложенных комментариев)
-        :return:
-        """
+        """Возвращает данные комментариев for target."""
         queryset = Comment.objects.all().order_by('created_at')
 
         # Получаем ContentType
@@ -58,13 +49,7 @@ class CommentService:
 
     @staticmethod
     def validate_delete_permission(comment: Comment, user: CustomUser) -> bool:
-        """
-        Проверяет права пользователя на удаление комментария
-        :param comment: Комментарий
-        :param user: Пользователь
-        :return: True если права валидны
-        :raises PermissionDenied: если пользователь не имеет прав
-        """
+        """Проверяет поле permission перед сохранением."""
 
         if user != comment.user and user.user_role != CustomUser.Roles.ADMIN_ROLE:
             raise PermissionDenied('Вы не можете удалить этот комментарий')
@@ -72,9 +57,5 @@ class CommentService:
 
     @staticmethod
     def delete_comment(comment: Comment) -> None:
-        """
-        Удаляет комментарий и все вложенные комментарии
-        :param comment: Комментарий для удаления
-        :return:
-        """
+        """Удаляет или отвязывает данные комментария."""
         comment.delete()

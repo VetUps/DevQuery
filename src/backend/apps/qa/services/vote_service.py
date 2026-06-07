@@ -1,3 +1,4 @@
+# Кратко: держит правила голосования.
 from __future__ import annotations
 
 from django.contrib.contenttypes.models import ContentType
@@ -34,14 +35,7 @@ class VoteService:
 
     @staticmethod
     def get_target_object(target_type: str, target_id: str) -> Question | Solution:
-        """
-        Возвращает объект цели по типу и ID
-        :param target_type: Тип цели ('question' или 'solution')
-        :param target_id: UUID цели
-        :return: Объект Question или Solution
-        :raises NotFound: если объект не найден
-        :raises ValidationError: если target_id невалидный
-        """
+        """Возвращает данные target объекта."""
         try:
             if target_type == 'question':
                 return Question.objects.get(question_id=target_id)
@@ -60,15 +54,7 @@ class VoteService:
         target_model: type[Question] | type[Solution],
         user: CustomUser | None = None,
     ) -> QuerySet[Question] | QuerySet[Solution]:
-        """
-        Аннотирует queryset статистикой голосов и голосом пользователя.
-        :param queryset: Исходный queryset (Question или Solution)
-        :param target_model: Модель (Question или Solution)
-        :param user: Пользователь для получения его голоса (опционально)
-        :return: Аннотированный queryset с полями:
-            - vote_upvotes, vote_downvotes, vote_score
-            - user_vote_type (если передан user)
-        """
+        """Обрабатывает annotate votes."""
         content_type = ContentType.objects.get_for_model(target_model)
         target_votes = Vote.objects.filter(
             content_type=content_type,
@@ -105,12 +91,7 @@ class VoteService:
 
     @staticmethod
     def get_vote_stats_fast(obj: Question | Solution, target_type: str) -> dict[str, int]:
-        """
-        Быстрое получение статистики из аннотированного объекта.
-        :param obj: Аннотированный объект Question или Solution
-        :param target_type: Тип цели ('question' или 'solution')
-        :return: dict с upvotes, downvotes, score
-        """
+        """Возвращает данные голоса stats fast."""
         return {
             'upvotes': getattr(obj, 'vote_upvotes', 0) or 0,
             'downvotes': getattr(obj, 'vote_downvotes', 0) or 0,
@@ -119,15 +100,12 @@ class VoteService:
 
     @staticmethod
     def get_user_vote_fast(obj: Question | Solution) -> str | None:
-        """
-        Быстрое получение голоса пользователя из аннотированного объекта.
-        :param obj: Аннотированный объект Question или Solution
-        :return: vote_type ('up', 'down') или None
-        """
+        """Возвращает данные пользователя голоса fast."""
         return getattr(obj, 'user_vote_type', None)
 
     @staticmethod
     def build_protected_question_downvote_error(decision=None) -> PermissionDenied:
+        """Собирает данные protected вопроса downvote ошибки в нужный формат."""
         message = QuestionProtectionService.build_downvote_denied_message(decision)
         permission_error = PermissionDenied(detail=message)
         permission_error.detail = {
@@ -144,12 +122,7 @@ class VoteService:
 
     @staticmethod
     def validate_vote_permission(target_object: Question | Solution, user: CustomUser, vote_type: str | None = None) -> None:
-        """
-        Проверяет, что пользователь не голосует за собственный контент
-        :param target_object: Объект вопроса или решения
-        :param user: Пользователь
-        :raises PermissionDenied: если пользователь пытается голосовать за свой контент
-        """
+        """Проверяет поле голоса permission перед сохранением."""
         if target_object.user == user:
             raise PermissionDenied('Нельзя голосовать за собственный контент')
 
@@ -160,11 +133,7 @@ class VoteService:
 
     @staticmethod
     def get_content_type(target_type: str) -> ContentType:
-        """
-        Возвращает ContentType для указанного типа цели
-        :param target_type: Тип цели ('question' или 'solution')
-        :return: ContentType объект
-        """
+        """Возвращает данные content type."""
         if target_type == 'question':
             return ContentType.objects.get_for_model(Question)
         elif target_type == 'solution':
@@ -174,11 +143,7 @@ class VoteService:
 
     @staticmethod
     def should_reward_upvote_transition(previous_vote_type: str | None, next_vote_type: str | None) -> bool:
-        """
-        Возвращает True, если переход впервые вводит состояние upvote.
-        M004 v1 начисляет репутацию только за новые upvote-переходы и
-        не выполняет списание при downvote/remove.
-        """
+        """Проверяет условие для reward upvote transition."""
         return previous_vote_type != Vote.VoteType.UPVOTE and next_vote_type == Vote.VoteType.UPVOTE
 
     @classmethod
@@ -189,6 +154,7 @@ class VoteService:
         reason: str,
         actor: CustomUser,
     ) -> bool:
+        """Проверяет условие для existing upvote reward."""
         content_type = ContentType.objects.get_for_model(target_object, for_concrete_model=False)
         return ReputationTransaction.objects.filter(
             user=target_object.user,
@@ -208,6 +174,7 @@ class VoteService:
         next_vote_type: str | None,
         actor: CustomUser,
     ) -> ReputationTransaction | None:
+        """Обрабатывает award upvote репутацию if needed."""
         if not cls.should_reward_upvote_transition(previous_vote_type, next_vote_type):
             return None
 
@@ -238,16 +205,7 @@ class VoteService:
 
     @classmethod
     def cast_vote(cls, target_type: str, target_id: str, vote_type: str, user: CustomUser) -> tuple[Vote, bool]:
-        """
-        Поставить или изменить голос за объект.
-        :param target_type: Тип цели ('question' или 'solution')
-        :param target_id: UUID цели
-        :param vote_type: Тип голоса ('up' или 'down')
-        :param user: Пользователь
-        :return: tuple[Vote, bool] -> (голос, был ли он создан)
-        :raises PermissionDenied: если голосование за свой контент
-        :raises ValidationError: если неверный тип голоса
-        """
+        """Применяет голос пользователя к объекту."""
         if vote_type not in [Vote.VoteType.UPVOTE, Vote.VoteType.DOWNVOTE]:
             raise ValidationError(f'Неверный тип голоса. Допустимые значения: {Vote.VoteType.UPVOTE}, {Vote.VoteType.DOWNVOTE}')
 
@@ -295,13 +253,7 @@ class VoteService:
 
     @staticmethod
     def remove_vote(target_type: str, target_id: str, user: CustomUser) -> None:
-        """
-        Удалить голос пользователя за объект
-        :param target_type: Тип цели ('question' или 'solution')
-        :param target_id: UUID цели
-        :param user: Пользователь
-        :return: None
-        """
+        """Удаляет или отвязывает данные голоса."""
         VoteService.get_target_object(target_type, target_id)
         content_type = VoteService.get_content_type(target_type)
 
@@ -313,12 +265,7 @@ class VoteService:
 
     @staticmethod
     def get_vote_stats(target_type: str, target_id: str) -> dict[str, int]:
-        """
-        Возвращает статистику голосов для объекта
-        :param target_type: Тип цели ('question' или 'solution')
-        :param target_id: UUID цели
-        :return: dict с upvotes, downvotes, score
-        """
+        """Возвращает данные голоса stats."""
         target_object = VoteService.get_target_object(target_type, target_id)
         content_type = VoteService.get_content_type(target_type)
 
@@ -342,13 +289,7 @@ class VoteService:
 
     @staticmethod
     def get_user_vote(target_type: str, target_id: str, user: CustomUser | None) -> str | None:
-        """
-        Возвращает голос текущего пользователя за объект
-        :param target_type: Тип цели ('question' или 'solution')
-        :param target_id: UUID цели
-        :param user: Пользователь
-        :return: vote_type ('up', 'down') или None если голоса нет
-        """
+        """Возвращает данные пользователя голоса."""
         if not user or not user.is_authenticated:
             return None
 

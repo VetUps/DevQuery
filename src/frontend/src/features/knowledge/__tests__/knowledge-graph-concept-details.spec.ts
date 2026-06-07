@@ -4,6 +4,18 @@ import { describe, expect, it } from 'vitest'
 import type { KnowledgeGraphEdge, KnowledgeGraphNode } from '@/features/knowledge/api/knowledgeGraph'
 import KnowledgeGraphConceptDetails from '@/features/knowledge/components/KnowledgeGraphConceptDetails.vue'
 
+const routerLinkStub = {
+  template: '<a href="/questions"><slot /></a>',
+}
+
+const mountOptions = {
+  global: {
+    stubs: {
+      RouterLink: routerLinkStub,
+    },
+  },
+}
+
 function buildNode(overrides: Partial<KnowledgeGraphNode> = {}): KnowledgeGraphNode {
   return {
     concept_id: 10,
@@ -61,6 +73,7 @@ describe('KnowledgeGraphConceptDetails', () => {
         neighbourNodes: [],
         neighbourEdges: [],
       },
+      ...mountOptions,
     })
 
     expect(wrapper.get('[data-testid="knowledge-graph-selection-empty"]').text()).toContain('Выберите концепт')
@@ -76,6 +89,7 @@ describe('KnowledgeGraphConceptDetails', () => {
         neighbourNodes: [],
         neighbourEdges: [],
       },
+      ...mountOptions,
     })
 
     expect(wrapper.get('[data-testid="knowledge-graph-selected-details"]').text()).toContain('Django')
@@ -138,6 +152,7 @@ describe('KnowledgeGraphConceptDetails', () => {
           }),
         ],
       },
+      ...mountOptions,
     })
 
     expect(wrapper.get('[data-testid="knowledge-graph-selected-neighbours"]').text()).toContain('Vue')
@@ -165,6 +180,7 @@ describe('KnowledgeGraphConceptDetails', () => {
         neighbourNodes: [],
         neighbourEdges: [],
       },
+      ...mountOptions,
     })
 
     expect(wrapper.text()).toContain('Разбивка активности для концепта пока пустая')

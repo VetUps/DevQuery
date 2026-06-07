@@ -1,3 +1,4 @@
+# Кратко: прячет работу внешних провайдеров за простым контрактом.
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -15,7 +16,7 @@ DEFAULT_TAG_CONFIDENCE = Decimal('1.0')
 
 
 class ConceptExtractionError(ValueError):
-    """Safe validation error for malformed extraction inputs or candidates."""
+    """Безопасная ошибка для некорректных данных извлечения."""
 
 
 @dataclass(frozen=True)
@@ -29,6 +30,7 @@ class ConceptCandidate:
     originating_tag_name: str | None = None
 
     def __post_init__(self) -> None:
+        """Проверяет данные после создания dataclass."""
         normalized_name = self._require_text(self.name, 'name')
         normalized_slug = self._require_text(self.slug, 'slug')
         normalized_source = self._require_text(self.source, 'source')
@@ -50,6 +52,7 @@ class ConceptCandidate:
 
     @staticmethod
     def _require_text(value: str, field_name: str) -> str:
+        """Проверяет, что текст заполнен."""
         if not isinstance(value, str):
             raise ConceptExtractionError(f'{field_name} must be text')
         normalized = value.strip()
@@ -59,6 +62,7 @@ class ConceptCandidate:
 
     @staticmethod
     def _normalize_confidence(value: Decimal | float | int | str) -> Decimal:
+        """Приводит confidence к рабочему виду."""
         try:
             confidence = Decimal(str(value))
         except Exception as exc:  # noqa: BLE001 - normalize arbitrary malformed caller data safely.
@@ -71,20 +75,21 @@ class ConceptCandidate:
 
 @runtime_checkable
 class ConceptExtractionProvider(Protocol):
-    """Boundary implemented by deterministic, ML, or external AI concept extractors."""
+    """Контракт для извлечения концептов из вопросов."""
 
     provider_name: str
 
     def extract(self, tags: Iterable[Tag]) -> list[ConceptCandidate]:
-        """Return validated concept candidates for existing tags without mutating storage."""
+        """Извлекает кандидатов концептов из входных данных."""
 
 
 class TagBasedConceptExtractionProvider:
-    """Deterministically maps existing question tags into concept candidates."""
+    """Строит кандидатов концептов из уже заданных тегов вопроса."""
 
     provider_name = TAG_BASED_PROVIDER
 
     def extract(self, tags: Iterable[Tag]) -> list[ConceptCandidate]:
+        """Извлекает кандидатов концептов из входных данных."""
         candidates_by_slug: dict[str, ConceptCandidate] = {}
 
         for tag in tags:
@@ -94,6 +99,7 @@ class TagBasedConceptExtractionProvider:
         return [candidates_by_slug[slug] for slug in sorted(candidates_by_slug)]
 
     def _candidate_from_tag(self, tag: Tag) -> ConceptCandidate:
+        """Создаёт кандидата концепта из тега."""
         if not isinstance(tag, Tag):
             raise ConceptExtractionError('tag extractor accepts only Tag instances')
 

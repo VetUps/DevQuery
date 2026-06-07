@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// Кратко: отвечает за часть интерфейса.
 import { computed, ref, watch } from 'vue'
 
 import type { SolutionListItem } from '@/features/solutions/api/solutions'
@@ -10,6 +11,7 @@ import PublicSolutionEditHistoryButton from '@/features/solutions/components/Pub
 import SolutionEditProposalModal from '@/features/solutions/components/SolutionEditProposalModal.vue'
 import { useBestSolutionMutation } from '@/features/solutions/mutations/useBestSolutionMutation'
 import AuthorReputationBadge from '@/features/users/components/AuthorReputationBadge.vue'
+import UserAvatar from '@/shared/ui/UserAvatar.vue'
 import SignalVoteRail from '@/features/votes/components/SignalVoteRail.vue'
 import { formatLongDate } from '@/shared/libs/formatting'
 import AppButton from '@/shared/ui/AppButton.vue'
@@ -101,6 +103,7 @@ async function handleBestAction() {
           {{ solution.solution_is_best ? 'Лучшее решение' : 'Решение' }}
         </p>
         <div class="solution-read-card__meta">
+          <UserAvatar :url="solution.user_avatar_url" :version="solution.user_avatar_updated_at" size="sm" class="solution-read-card__author-avatar" />
           <strong class="solution-read-card__author">
             {{ solution.user_name || 'Автор решения' }}
           </strong>

@@ -5,29 +5,100 @@
 # instead of the Compose-only MySQL host from .env (DATABASE_HOST=db).
 set -euo pipefail
 
-export DJANGO_TEST_SQLITE=1
-export PYTHONPATH="src/backend${PYTHONPATH:+:$PYTHONPATH}"
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repo_root="$script_dir"
+cd "$repo_root"
 
-python_exe="src/backend/venv/bin/python"
+export DJANGO_TEST_SQLITE=1
+export PYTHONPATH="$repo_root/src/backend${PYTHONPATH:+:$PYTHONPATH}"
+
+python_exe="$repo_root/src/backend/venv/bin/python"
 if [[ ! -x "$python_exe" ]]; then
   python_exe="python3"
 fi
 
+default_labels=(
+  apps.knowledge.tests.test_m016_provider_boundary
+  apps.knowledge.tests.test_m016_semantic_rebuild_boundary
+  apps.knowledge.tests.test_graph_api_contracts
+  apps.knowledge.tests.test_graph_api_rebuild
+  apps.qa.test_draft_assistant
+  apps.knowledge.tests.test_fake_ai_provider_contract
+)
+
+translate_test_label() {
+  local arg="$1"
+  local selector=""
+
+  if [[ "$arg" == *::* ]]; then
+    selector=".${arg#*::}"
+    selector="${selector//::/.}"
+    arg="${arg%%::*}"
+  fi
+
+  case "$arg" in
+    src/backend/*.py)
+      arg="${arg#src/backend/}"
+      ;;
+  esac
+
+  if [[ "$arg" == *.py ]]; then
+    arg="${arg%.py}"
+    arg="${arg//\//.}"
+  fi
+
+  printf '%s%s\n' "$arg" "$selector"
+}
+
 if [[ $# -gt 0 ]]; then
   translated_args=()
-  for arg in "$@"; do
+  while [[ $# -gt 0 ]]; do
+    arg="$1"
+    shift
     case "$arg" in
-      src/backend/*.py)
-        module_path="${arg#src/backend/}"
-        module_path="${module_path%.py}"
-        translated_args+=("${module_path//\//.}")
+      --version|-V)
+        exec "$python_exe" - <<'PY'
+import django
+print(f"pytest compatibility shim (Django {django.get_version()})")
+PY
+        ;;
+      -q|--quiet|-s|--disable-warnings|--reuse-db|--create-db|--nomigrations|--migrations|--no-migrations|--cov|--cov-report)
+        # Pytest-only reporting/database options are irrelevant for Django's test runner.
+        ;;
+      --tb=*|--maxfail=*|--cov=*|--cov-report=*|--ignore=*|--ignore-glob=*)
+        ;;
+      --ds=*)
+        translated_args+=("--settings=${arg#--ds=}")
+        ;;
+      --ds)
+        if [[ $# -gt 0 ]]; then
+          translated_args+=("--settings=$1")
+          shift
+        fi
+        ;;
+      --settings=*)
+        translated_args+=("$arg")
+        ;;
+      --settings)
+        if [[ $# -gt 0 ]]; then
+          translated_args+=("--settings=$1")
+          shift
+        fi
+        ;;
+      -* )
+        # Unknown pytest-only flags are intentionally ignored instead of failing Django's runner.
         ;;
       *)
-        translated_args+=("$arg")
+        translated_args+=("$(translate_test_label "$arg")")
         ;;
     esac
   done
-  exec "$python_exe" src/backend/manage.py test "${translated_args[@]}"
+
+  if [[ ${#translated_args[@]} -eq 0 ]]; then
+    translated_args=("${default_labels[@]}")
+  fi
+
+  exec "$python_exe" "$repo_root/src/backend/manage.py" test "${translated_args[@]}"
 fi
 
-exec "$python_exe" src/backend/manage.py test apps.qa apps.user
+exec "$python_exe" "$repo_root/src/backend/manage.py" test "${default_labels[@]}"

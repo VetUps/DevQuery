@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// Кратко: отвечает за часть интерфейса.
 import InlineFeedbackPanel from '@/shared/ui/InlineFeedbackPanel.vue'
 
 defineProps<{

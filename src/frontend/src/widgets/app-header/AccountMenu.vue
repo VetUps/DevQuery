@@ -1,15 +1,21 @@
 <script setup lang="ts">
+// Кратко: держит основную логику этого файла.
 import { computed } from 'vue'
 
 import AppButton from '@/shared/ui/AppButton.vue'
+import UserAvatar from '@/shared/ui/UserAvatar.vue'
 
 const props = withDefaults(defineProps<{
   open: boolean
   canAccessAdminWorkspace?: boolean
   label?: string
+  avatarUrl?: string | null
+  avatarVersion?: string | null
 }>(), {
   canAccessAdminWorkspace: false,
   label: 'Аккаунт',
+  avatarUrl: null,
+  avatarVersion: null,
 })
 
 const displayLabel = computed(() => props.label?.trim() || 'Аккаунт')
@@ -27,8 +33,10 @@ defineEmits<{
       size="compact"
       data-testid="account-menu-toggle"
       :title="displayLabel"
+      class="account-menu__toggle-btn"
       @click="$emit('close')"
     >
+      <UserAvatar :url="props.avatarUrl" :version="props.avatarVersion" size="sm" class="account-menu__avatar" />
       <span class="account-menu__label">{{ displayLabel }}</span>
     </AppButton>
 
@@ -65,6 +73,12 @@ defineEmits<{
 <style scoped>
 .account-menu {
   position: relative;
+}
+
+.account-menu__toggle-btn :deep(.app-button__inner) {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
 }
 
 .account-menu__label {

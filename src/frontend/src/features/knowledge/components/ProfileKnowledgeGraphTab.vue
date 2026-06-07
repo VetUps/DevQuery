@@ -1,29 +1,68 @@
 <script setup lang="ts">
+// Кратко: отвечает за часть интерфейса.
 import { computed, shallowRef, watch } from 'vue'
+import { RouterLink } from 'vue-router'
 
 import { useRebuildKnowledgeGraphMutation } from '@/features/knowledge/mutations/useRebuildKnowledgeGraphMutation'
+import { useOwnKnowledgeGraphInsightsQuery } from '@/features/knowledge/queries/useKnowledgeGraphInsightsQuery'
 import { useOwnKnowledgeGraphQuery, usePublicUserKnowledgeGraphQuery } from '@/features/knowledge/queries/useKnowledgeGraphQuery'
 import type {
   KnowledgeGraphActivityBreakdownEntry,
   KnowledgeGraphConceptEntry,
+  KnowledgeGraphInsightConceptEntry,
+  KnowledgeGraphInsightRecommendation,
+  KnowledgeGraphInsightRecommendationV2,
   KnowledgeGraphLayoutPosition,
   KnowledgeGraphRelatedQuestion,
+  KnowledgeGraphSemanticDiagnostics,
+  KnowledgeGraphSemanticEdge,
+  KnowledgeGraphSemanticGraphMetadata,
+  KnowledgeGraphSemanticGroup,
   UserKnowledgeGraphResponse,
 } from '@/features/knowledge/api/knowledgeGraph'
 import { useSaveKnowledgeGraphLayoutMutation, useResetKnowledgeGraphLayoutMutation } from '@/features/knowledge/mutations/useKnowledgeGraphLayoutMutation'
 import AppButton from '@/shared/ui/AppButton.vue'
+import AppDialog from '@/shared/ui/AppDialog.vue'
 import InlineFeedbackPanel from '@/shared/ui/InlineFeedbackPanel.vue'
 import SurfacePanel from '@/shared/ui/SurfacePanel.vue'
 import KnowledgeGraphRenderer from './KnowledgeGraphRenderer.vue'
+import KnowledgeGraphSemanticGroupsPanel from './KnowledgeGraphSemanticGroupsPanel.vue'
 import KnowledgeGraphConceptDetails from './KnowledgeGraphConceptDetails.vue'
+import {
+  buildConceptQuestionDiscoveryRoute,
+  buildRecommendationQuestionDiscoveryRoute,
+  buildSafeQuestionDiscoveryRoute,
+  type KnowledgeGraphQuestionDiscoveryRoute,
+} from './knowledgeGraphQuestionDiscovery'
+import type { KnowledgeGraphSemanticState, KnowledgeGraphConceptStateById } from './knowledgeGraphStatePresentation'
+import { getKnowledgeGraphConceptState, resolveKnowledgeGraphStatePresentation, type KnowledgeGraphStatePresentation } from './knowledgeGraphStatePresentation'
+import { resolveKnowledgeGraphRecommendationPresentation, type KnowledgeGraphRecommendationPresentation } from './knowledgeGraphRecommendationPresentation'
+import type { KnowledgeGraphProjectionMode } from './knowledgeGraphSemanticProjection'
 
 const STALE_COPY = 'Мы обнаружили расхождение между графом и вашей активностью. Перестройте граф.'
 const SAFE_API_ERROR_COPY = 'Не удалось загрузить граф знаний. Попробуйте обновить вкладку.'
 const SAFE_REBUILD_ERROR_COPY = 'Не удалось запустить перестроение графа. Попробуйте ещё раз позже.'
 const SAFE_LAYOUT_ERROR_COPY = 'Не удалось сохранить расположение графа. Попробуйте ещё раз позже.'
+const SAFE_INSIGHTS_ERROR_COPY = 'Состояния концептов временно недоступны. Показываем нейтральные статусы без технических деталей.'
 
 type GraphStatus = 'fresh' | 'stale' | 'rebuilding' | 'failed'
 type KnowledgeGraphViewMode = 'graph' | 'list'
+type InsightFilterState = KnowledgeGraphSemanticState
+
+interface KnowledgeRecommendationCard {
+  id: string
+  conceptId: number
+  conceptName: string
+  state: KnowledgeGraphStatePresentation
+  recommendation: KnowledgeGraphInsightRecommendation | KnowledgeGraphInsightRecommendationV2
+  presentation: KnowledgeGraphRecommendationPresentation
+  discoveryRoute: KnowledgeGraphQuestionDiscoveryRoute | null
+  rankLabel: string
+  scoreLabel: string
+  confidenceLabel: string
+  targetSummary: string
+  evidenceSummaries: string[]
+}
 
 const props = withDefaults(defineProps<{
   userId?: string
@@ -32,6 +71,7 @@ const props = withDefaults(defineProps<{
 })
 
 const normalizedUserId = computed(() => props.userId.trim())
+const isSelfProfile = computed(() => normalizedUserId.value.length === 0)
 const graphQuery = normalizedUserId.value
   ? usePublicUserKnowledgeGraphQuery(normalizedUserId)
   : useOwnKnowledgeGraphQuery()
@@ -44,6 +84,13 @@ const draftLayoutPositions = shallowRef<Record<string, KnowledgeGraphLayoutPosit
 const isLayoutDirty = shallowRef(false)
 const selectedConceptId = shallowRef<number | null>(null)
 const viewMode = shallowRef<KnowledgeGraphViewMode>('graph')
+const insightSearchText = shallowRef('')
+const activeStateFilters = shallowRef<InsightFilterState[]>([])
+const showSemanticEdges = shallowRef(true)
+const graphProjectionMode = shallowRef<KnowledgeGraphProjectionMode>('structural')
+const isRecommendationsDialogOpen = shallowRef(false)
+const isSemanticGroupsDialogOpen = shallowRef(false)
+const isKnowledgeGraphHelpDialogOpen = shallowRef(false)
 
 const graph = computed<UserKnowledgeGraphResponse | undefined>(() => graphQuery.data.value)
 const hasGraph = computed(() => Boolean(graph.value))
@@ -53,6 +100,8 @@ const isInitialLoading = computed(() => graphQuery.isPending.value && !hasGraph.
 const isInitialError = computed(() => graphQuery.isError.value && !hasGraph.value)
 const isStaleQueryError = computed(() => graphQuery.isError.value && hasGraph.value)
 const isOwner = computed(() => Boolean(graph.value?.viewer.is_owner))
+const insightsQuery = useOwnKnowledgeGraphInsightsQuery(computed(() => isSelfProfile.value && isOwner.value))
+const canShowInsights = computed(() => isSelfProfile.value && isOwner.value)
 
 const sortedConcepts = computed(() => {
   return [...(graph.value?.concepts ?? [])].sort((left, right) => {
@@ -71,7 +120,7 @@ const selectedConcept = computed(() => {
     return null
   }
 
-  return graph.value?.nodes.find((node) => node.concept_id === selectedConceptId.value) ?? null
+  return filteredNodes.value.find((node) => node.concept_id === selectedConceptId.value) ?? null
 })
 
 const neighbourEdges = computed(() => {
@@ -79,7 +128,7 @@ const neighbourEdges = computed(() => {
     return []
   }
 
-  return graph.value?.edges.filter((edge) => (
+  return filteredEdges.value.filter((edge) => (
     edge.source_concept_id === selectedConcept.value?.concept_id
     || edge.target_concept_id === selectedConcept.value?.concept_id
   )) ?? []
@@ -105,7 +154,7 @@ const neighbourEdgeIds = computed(() => neighbourEdges.value.map((edge) => edge.
 const neighbourConcepts = computed(() => {
   const ids = new Set(neighbourConceptIds.value)
 
-  return graph.value?.nodes.filter((node) => ids.has(node.concept_id)) ?? []
+  return filteredNodes.value.filter((node) => ids.has(node.concept_id))
 })
 
 const normalizedStatus = computed<GraphStatus | 'unknown'>(() => {
@@ -191,18 +240,358 @@ const rebuildButtonLabel = computed(() => (
 ))
 const modeHelpCopy = computed(() => (
   viewMode.value === 'graph'
-    ? 'Граф показывает связи между концептами. Список остаётся доступен как подробная fallback-панель.'
+    ? 'Граф показывает связи между концептами.'
     : 'Список показывает активность, концепты и связанные вопросы без интерактивного графа.'
 ))
 const isGraphMode = computed(() => viewMode.value === 'graph')
 const isListMode = computed(() => viewMode.value === 'list')
+const isStructuralProjectionMode = computed(() => effectiveGraphProjectionMode.value === 'structural')
+const isSemanticProjectionMode = computed(() => effectiveGraphProjectionMode.value === 'semantic')
 const hasListContent = computed(() => (graph.value?.activity_breakdown.length ?? 0) > 0 || hasConcepts.value)
 const graphLayoutPositions = computed(() => (isLayoutDirty.value ? draftLayoutPositions.value : graph.value?.layout?.positions ?? {}))
 const isLayoutSaving = computed(() => saveLayoutMutation.isPending.value)
 const isLayoutResetting = computed(() => resetLayoutMutation.isPending.value)
 
+const insightLegendStates: KnowledgeGraphSemanticState[] = ['strong', 'growing', 'weak', 'stale', 'isolated', 'unknown']
+const stateFilterOptions = computed(() => insightLegendStates.map((state) => resolveKnowledgeGraphStatePresentation({ semantic_state: state, tone_token: state })))
+const hasActiveFilters = computed(() => normalizedInsightSearch.value.length > 0 || activeStateFilters.value.length > 0)
+
+const insightsByConceptId = computed<KnowledgeGraphConceptStateById>(() => {
+  if (!canShowInsights.value || insightsQuery.isError.value) {
+    return {}
+  }
+
+  const entries = insightsQuery.data.value?.concepts ?? []
+  const map: KnowledgeGraphConceptStateById = {}
+
+  for (const entry of entries) {
+    map[entry.concept_id] = {
+      semantic_state: entry.semantic_state,
+      tone_token: entry.tone_token,
+    }
+  }
+
+  return map
+})
+
+const normalizedInsightSearch = computed(() => normalizeFilterText(insightSearchText.value))
+const filteredConcepts = computed(() => sortedConcepts.value.filter((concept) => isConceptVisible(concept)))
+const filteredNodes = computed(() => {
+  const nodes = graph.value?.nodes ?? []
+
+  if (!hasActiveFilters.value) {
+    return nodes
+  }
+
+  return nodes.filter((node) => isConceptVisible(node))
+})
+const visibleNodeIds = computed(() => new Set(filteredNodes.value.map((node) => node.concept_id)))
+const filteredEdges = computed(() => {
+  const edges = graph.value?.edges ?? []
+
+  if (!hasActiveFilters.value) {
+    return edges
+  }
+
+  return edges.filter((edge) => (
+    visibleNodeIds.value.has(edge.source_concept_id) && visibleNodeIds.value.has(edge.target_concept_id)
+  ))
+})
+const ownerSemanticEdges = computed<KnowledgeGraphSemanticEdge[]>(() => (
+  canShowInsights.value ? graph.value?.semantic_edges ?? [] : []
+))
+const ownerSemanticGroups = computed<KnowledgeGraphSemanticGroup[]>(() => (
+  canShowInsights.value ? graph.value?.semantic_groups ?? [] : []
+))
+const ownerSemanticGraph = computed<KnowledgeGraphSemanticGraphMetadata | undefined>(() => (
+  canShowInsights.value ? graph.value?.semantic_graph : undefined
+))
+const ownerSemanticDiagnostics = computed<KnowledgeGraphSemanticDiagnostics | undefined>(() => (
+  canShowInsights.value ? graph.value?.semantic : undefined
+))
+const visibleSemanticGroups = computed<KnowledgeGraphSemanticGroup[]>(() => ownerSemanticGroups.value.filter((group) => (
+  group.members.some((member) => visibleNodeIds.value.has(member.concept_id))
+)))
+const visibleSemanticEdges = computed(() => ownerSemanticEdges.value.filter((edge) => (
+  visibleNodeIds.value.has(edge.source_concept_id) && visibleNodeIds.value.has(edge.target_concept_id)
+)))
+const canShowSemanticEdges = computed(() => isOwner.value && visibleSemanticEdges.value.length > 0)
+const effectiveShowSemanticEdges = computed(() => canShowSemanticEdges.value && showSemanticEdges.value)
+const canShowSemanticProjection = computed(() => (
+  canShowInsights.value
+  && hasConcepts.value
+  && Boolean(ownerSemanticGraph.value)
+  && (visibleSemanticGroups.value.length > 0 || hasMeaningfulSemanticState(ownerSemanticGraph.value, ownerSemanticDiagnostics.value))
+))
+const effectiveGraphProjectionMode = computed<KnowledgeGraphProjectionMode>(() => (
+  canShowSemanticProjection.value ? graphProjectionMode.value : 'structural'
+))
+const semanticProjectionHelpCopy = computed(() => {
+  if (!canShowSemanticProjection.value) {
+    return ''
+  }
+
+  const metadata = ownerSemanticGraph.value
+
+  if (!metadata?.available) {
+    return 'Семантическая проекция временно недоступна. Структурный граф остаётся основным режимом.'
+  }
+
+  if (metadata.status === 'degraded' || metadata.status === 'stale' || metadata.lifecycle_counts.stale > 0) {
+    return 'Семантическая проекция доступна частично: показываем только безопасные агрегированные группы.'
+  }
+
+  return `Семантическая проекция доступна: ${visibleSemanticGroups.value.length} групп, ${metadata.visible_member_count} участников.`
+})
+const hasVisibleTopologyNodes = computed(() => filteredNodes.value.length > 0)
+const hasVisibleConcepts = computed(() => filteredConcepts.value.length > 0)
+const filterCountCopy = computed(() => filteredConcepts.value.length + ' из ' + (graph.value?.concepts.length ?? 0) + ' концептов')
+const knowledgeRecommendations = computed<KnowledgeRecommendationCard[]>(() => {
+  if (!canShowInsights.value || insightsQuery.isPending.value || insightsQuery.isError.value) {
+    return []
+  }
+
+  const insights = insightsQuery.data.value
+
+  if (!insights) {
+    return []
+  }
+
+  if ((insights.recommendations?.length ?? 0) > 0) {
+    return insights.recommendations.map((recommendation) => buildRecommendationV2Card(recommendation))
+  }
+
+  return insights.concepts.flatMap((concept) => {
+    return concept.recommendations.map((recommendation) => buildRecommendationCard(concept, recommendation))
+  })
+})
+const hasKnowledgeRecommendations = computed(() => knowledgeRecommendations.value.length > 0)
+const recommendationCountCopy = computed(() => {
+  const count = knowledgeRecommendations.value.length
+
+  if (count === 1) {
+    return '1 рекомендация'
+  }
+
+  if (count > 1 && count < 5) {
+    return `${count} рекомендации`
+  }
+
+  return `${count} рекомендаций`
+})
+const semanticGroupCountCopy = computed(() => {
+  const count = visibleSemanticGroups.value.length
+
+  if (count === 1) {
+    return '1 группа'
+  }
+
+  if (count > 1 && count < 5) {
+    return `${count} группы`
+  }
+
+  return `${count} групп`
+})
+const recommendationsStatusCopy = computed(() => {
+  if (insightsQuery.isError.value) {
+    return 'Рекомендации временно недоступны. Граф и список остаются на экране.'
+  }
+
+  if (insightsQuery.isPending.value && !insightsQuery.data.value) {
+    return 'Загружаем приватные рекомендации…'
+  }
+
+  if (!hasKnowledgeRecommendations.value) {
+    return 'Новых рекомендаций по развитию пока нет.'
+  }
+
+  return `Доступно: ${recommendationCountCopy.value}.`
+})
+const insightsStatusCopy = computed(() => {
+  if (!canShowInsights.value) {
+    return ''
+  }
+
+  if (insightsQuery.isError.value) {
+    return SAFE_INSIGHTS_ERROR_COPY
+  }
+
+  if (insightsQuery.isPending.value && !insightsQuery.data.value) {
+    return 'Загружаем приватные состояния концептов…'
+  }
+
+  if (!hasKnowledgeRecommendations.value) {
+    return ''
+  }
+
+  return ''
+})
+
+function buildRecommendationCard(
+  concept: KnowledgeGraphInsightConceptEntry,
+  recommendation: KnowledgeGraphInsightRecommendation,
+): KnowledgeRecommendationCard {
+  return {
+    id: recommendation.id,
+    conceptId: concept.concept_id,
+    conceptName: concept.name,
+    state: resolveKnowledgeGraphStatePresentation(concept),
+    recommendation,
+    presentation: resolveKnowledgeGraphRecommendationPresentation(recommendation),
+    discoveryRoute: buildRecommendationQuestionDiscoveryRoute(recommendation.action, concept),
+    rankLabel: 'Совместимая рекомендация',
+    scoreLabel: 'Оценка недоступна',
+    confidenceLabel: 'Уверенность недоступна',
+    targetSummary: `Цель: ${concept.name}`,
+    evidenceSummaries: [],
+  }
+}
+
+function buildRecommendationV2Card(recommendation: KnowledgeGraphInsightRecommendationV2): KnowledgeRecommendationCard {
+  const conceptState = insightsByConceptId.value[recommendation.target.concept.concept_id]
+  const actionRoute = buildSafeQuestionDiscoveryRoute(recommendation.action.payload)
+  const targetRoute = buildSafeQuestionDiscoveryRoute(recommendation.target.discovery)
+
+  return {
+    id: recommendation.id,
+    conceptId: recommendation.target.concept.concept_id,
+    conceptName: recommendation.target.concept.name,
+    state: resolveKnowledgeGraphStatePresentation(conceptState ?? { semantic_state: 'unknown', tone_token: 'unknown' }),
+    recommendation,
+    presentation: resolveKnowledgeGraphRecommendationPresentation(recommendation),
+    discoveryRoute: actionRoute ?? targetRoute,
+    rankLabel: `Ранг ${recommendation.rank}`,
+    scoreLabel: `Оценка ${formatRatio(recommendation.score)}`,
+    confidenceLabel: `Уверенность ${formatRatio(recommendation.confidence)}`,
+    targetSummary: recommendationTargetSummary(recommendation),
+    evidenceSummaries: recommendation.evidence.slice(0, 4).map(formatRecommendationEvidence),
+  }
+}
+
+function recommendationTargetSummary(recommendation: KnowledgeGraphInsightRecommendationV2): string {
+  const parts = [`Цель: ${recommendation.target.concept.name}`]
+
+  if (recommendation.target.group) {
+    parts.push(`группа «${recommendation.target.group.label}»`)
+  }
+
+  if (recommendation.target.neighbours.length > 0) {
+    parts.push(`соседи: ${recommendation.target.neighbours.map((neighbour) => neighbour.name).slice(0, 3).join(', ')}`)
+  }
+
+  return parts.join(' · ')
+}
+
+function formatRecommendationEvidence(entry: KnowledgeGraphInsightRecommendationV2['evidence'][number]): string {
+  const value = entry.value === null ? 'нет данных' : String(entry.value)
+  return `${entry.label}: ${value} · вес ${formatRatio(entry.weight)}`
+}
+
+function formatRatio(value: number): string {
+  return value.toLocaleString('ru-RU', {
+    maximumFractionDigits: 2,
+    minimumFractionDigits: 0,
+  })
+}
+
+function conceptDiscoveryRoute(concept: KnowledgeGraphConceptEntry): KnowledgeGraphQuestionDiscoveryRoute | null {
+  return buildConceptQuestionDiscoveryRoute(concept)
+}
+
+function normalizeFilterText(value: string): string {
+  return value.trim().toLocaleLowerCase('ru-RU')
+}
+
+function conceptMatchesSearch(concept: KnowledgeGraphConceptEntry): boolean {
+  if (!normalizedInsightSearch.value) {
+    return true
+  }
+
+  const haystack = `${concept.name} ${concept.slug}`.toLocaleLowerCase('ru-RU')
+
+  return haystack.includes(normalizedInsightSearch.value)
+}
+
+function conceptMatchesState(concept: KnowledgeGraphConceptEntry): boolean {
+  if (activeStateFilters.value.length === 0) {
+    return true
+  }
+
+  return activeStateFilters.value.includes(getKnowledgeGraphConceptState(insightsByConceptId.value, concept.concept_id).state)
+}
+
+function isConceptVisible(concept: KnowledgeGraphConceptEntry): boolean {
+  return conceptMatchesSearch(concept) && conceptMatchesState(concept)
+}
+
+function toggleStateFilter(state: InsightFilterState): void {
+  activeStateFilters.value = activeStateFilters.value.includes(state)
+    ? activeStateFilters.value.filter((entry) => entry !== state)
+    : [...activeStateFilters.value, state]
+}
+
+function isStateFilterActive(state: InsightFilterState): boolean {
+  return activeStateFilters.value.includes(state)
+}
+
+function clearInsightFilters(): void {
+  insightSearchText.value = ''
+  activeStateFilters.value = []
+}
+
+function conceptStateLabel(conceptId: number): string {
+  return getKnowledgeGraphConceptState(insightsByConceptId.value, conceptId).label
+}
+
+function conceptStateDescription(conceptId: number): string {
+  return getKnowledgeGraphConceptState(insightsByConceptId.value, conceptId).description
+}
+
+function conceptStateSymbol(conceptId: number): string {
+  return getKnowledgeGraphConceptState(insightsByConceptId.value, conceptId).symbol
+}
+
+function conceptStateClass(conceptId: number): string {
+  return `knowledge-concept__state--${getKnowledgeGraphConceptState(insightsByConceptId.value, conceptId).classSuffix}`
+}
+
 function setViewMode(mode: KnowledgeGraphViewMode) {
   viewMode.value = mode
+}
+
+function setGraphProjectionMode(mode: KnowledgeGraphProjectionMode): void {
+  graphProjectionMode.value = canShowSemanticProjection.value ? mode : 'structural'
+}
+
+function hasMeaningfulSemanticState(
+  metadata: KnowledgeGraphSemanticGraphMetadata | undefined,
+  diagnostics: KnowledgeGraphSemanticDiagnostics | undefined,
+): boolean {
+  if (!metadata) {
+    return false
+  }
+
+  const safeMetadataSignal = metadata.available
+    || metadata.enabled
+    || metadata.status === 'degraded'
+    || metadata.status === 'stale'
+    || metadata.status === 'unavailable'
+    || metadata.status === 'failed'
+    || metadata.reason_code.trim().length > 0
+    || metadata.phase.trim().length > 0
+
+  const safeDiagnosticsSignal = Boolean(diagnostics) && (
+    diagnostics.enabled
+    || diagnostics.status !== 'pending'
+    || diagnostics.reason_code.trim().length > 0
+    || diagnostics.phase.trim().length > 0
+  )
+
+  return safeMetadataSignal || safeDiagnosticsSignal
+}
+
+function handleSemanticVisibilityChanged(visible: boolean) {
+  showSemanticEdges.value = visible
 }
 
 function toNumber(value: string): number {
@@ -232,10 +621,15 @@ function activityLabel(activityType: string): string {
 }
 
 function sourceLabel(concept: KnowledgeGraphConceptEntry): string {
-  const source = concept.source || 'aggregate'
-  const provider = concept.provider || 'unknown'
+  if (concept.source === 'tag') {
+    return 'Агрегированный тег'
+  }
 
-  return `${source} · ${provider}`
+  if (concept.source === 'aggregate') {
+    return 'Агрегированная активность'
+  }
+
+  return 'Агрегированный сигнал'
 }
 
 function relatedQuestionHref(question: KnowledgeGraphRelatedQuestion): string {
@@ -317,9 +711,50 @@ async function resetGraphLayout() {
 }
 
 function handleNodeSelected(conceptId: number) {
-  const existsInTopology = graph.value?.nodes.some((node) => node.concept_id === conceptId) ?? false
+  const existsInTopology = filteredNodes.value.some((node) => node.concept_id === conceptId)
 
-  selectedConceptId.value = existsInTopology ? conceptId : null
+  if (!existsInTopology) {
+    selectedConceptId.value = null
+    return
+  }
+
+  selectedConceptId.value = selectedConceptId.value === conceptId ? null : conceptId
+}
+
+function handleSemanticMemberSelected(conceptId: number): void {
+  const existsInTopology = filteredNodes.value.some((node) => node.concept_id === conceptId)
+
+  if (!existsInTopology) {
+    return
+  }
+
+  selectedConceptId.value = selectedConceptId.value === conceptId ? null : conceptId
+  viewMode.value = 'graph'
+  isSemanticGroupsDialogOpen.value = false
+}
+
+function openRecommendationsDialog(): void {
+  isRecommendationsDialogOpen.value = true
+}
+
+function closeRecommendationsDialog(): void {
+  isRecommendationsDialogOpen.value = false
+}
+
+function openSemanticGroupsDialog(): void {
+  isSemanticGroupsDialogOpen.value = true
+}
+
+function closeSemanticGroupsDialog(): void {
+  isSemanticGroupsDialogOpen.value = false
+}
+
+function openKnowledgeGraphHelpDialog(): void {
+  isKnowledgeGraphHelpDialogOpen.value = true
+}
+
+function closeKnowledgeGraphHelpDialog(): void {
+  isKnowledgeGraphHelpDialogOpen.value = false
 }
 
 watch(
@@ -332,13 +767,31 @@ watch(
 )
 
 watch(
-  () => graph.value?.nodes.map((node) => node.concept_id).join('|') ?? '',
+  () => `${graph.value?.user_id ?? ''}:${ownerSemanticEdges.value.length}`,
+  () => {
+    showSemanticEdges.value = ownerSemanticEdges.value.length > 0
+  },
+  { immediate: true },
+)
+
+watch(
+  canShowSemanticProjection,
+  (canShow) => {
+    if (!canShow) {
+      graphProjectionMode.value = 'structural'
+    }
+  },
+  { immediate: true },
+)
+
+watch(
+  () => filteredNodes.value.map((node) => node.concept_id).join('|'),
   () => {
     if (selectedConceptId.value === null) {
       return
     }
 
-    const existsInTopology = graph.value?.nodes.some((node) => node.concept_id === selectedConceptId.value) ?? false
+    const existsInTopology = filteredNodes.value.some((node) => node.concept_id === selectedConceptId.value)
 
     if (!existsInTopology) {
       selectedConceptId.value = null
@@ -373,11 +826,20 @@ watch(
       <SurfacePanel variant="accent" padding="xl">
         <div class="knowledge-tab__hero">
           <div>
-            <p class="knowledge-tab__eyebrow">Граф знаний</p>
+            <div class="knowledge-tab__eyebrow-row">
+              <p class="knowledge-tab__eyebrow">Граф знаний</p>
+              <button
+                type="button"
+                class="knowledge-tab__help-button"
+                data-testid="knowledge-graph-help-open"
+                aria-label="Открыть справку о графе знаний"
+                aria-haspopup="dialog"
+                @click="openKnowledgeGraphHelpDialog"
+              >
+                ?
+              </button>
+            </div>
             <h2 class="knowledge-tab__title">Карта ваших сильных тем</h2>
-            <p class="knowledge-tab__lead">
-              Показываем только агрегированные концепты, веса активности и безопасные связи с вопросами.
-            </p>
           </div>
 
           <div class="knowledge-tab__stats" aria-label="Сводка графа знаний">
@@ -459,6 +921,45 @@ watch(
         <p class="knowledge-tab__mode-help" data-testid="knowledge-view-mode-help">
           {{ modeHelpCopy }}
         </p>
+
+        <div
+          v-if="canShowSemanticProjection"
+          class="knowledge-tab__mode-switch knowledge-tab__mode-switch--projection"
+          data-testid="profile-graph-projection-switch"
+          role="group"
+          aria-label="Проекция графа знаний"
+        >
+          <button
+            type="button"
+            class="knowledge-tab__mode-button"
+            :class="{ 'knowledge-tab__mode-button--active': isStructuralProjectionMode }"
+            data-testid="profile-graph-projection-structural"
+            :aria-pressed="isStructuralProjectionMode"
+            @click="setGraphProjectionMode('structural')"
+          >
+            Структурный
+          </button>
+          <button
+            type="button"
+            class="knowledge-tab__mode-button"
+            :class="{ 'knowledge-tab__mode-button--active': isSemanticProjectionMode }"
+            data-testid="profile-graph-projection-semantic"
+            :aria-pressed="isSemanticProjectionMode"
+            @click="setGraphProjectionMode('semantic')"
+          >
+            Семантический
+          </button>
+        </div>
+        <p
+          v-if="canShowSemanticProjection"
+          class="knowledge-tab__mode-help"
+          data-testid="profile-graph-projection-help"
+          :data-status="ownerSemanticGraph?.status ?? ''"
+          :data-reason="ownerSemanticGraph?.reason_code ?? ''"
+          :data-phase="ownerSemanticGraph?.phase ?? ''"
+        >
+          {{ semanticProjectionHelpCopy }}
+        </p>
       </SurfacePanel>
 
       <InlineFeedbackPanel
@@ -469,6 +970,114 @@ watch(
         :title="stateBanner.title"
         :description="stateBanner.description"
       />
+
+      <SurfacePanel v-if="canShowInsights && hasConcepts" class="knowledge-tab__insights" padding="lg">
+        <div class="knowledge-tab__section-heading">
+          <p class="knowledge-tab__eyebrow">Состояния концептов</p>
+          <h3>Фильтры и легенда</h3>
+        </div>
+        <p v-if="insightsStatusCopy" class="knowledge-tab__insights-status" data-testid="knowledge-insights-status">
+          {{ insightsStatusCopy }}
+        </p>
+        <div class="knowledge-tab__filters">
+          <label class="knowledge-tab__search-label" for="knowledge-insights-search-input">
+            Поиск по концептам
+          </label>
+          <input
+            id="knowledge-insights-search-input"
+            v-model="insightSearchText"
+            class="knowledge-tab__search"
+            data-testid="knowledge-insights-search"
+            type="search"
+            placeholder="Например, Django или vue"
+            aria-describedby="knowledge-insights-filter-count"
+          >
+          <div class="knowledge-tab__state-filters" role="group" aria-label="Фильтр по состоянию концепта">
+            <button
+              v-for="state in stateFilterOptions"
+              :key="state.state"
+              type="button"
+              class="knowledge-tab__state-filter"
+              :class="{ 'knowledge-tab__state-filter--active': isStateFilterActive(state.state) }"
+              :data-testid="`knowledge-insights-state-filter-${state.state}`"
+              :aria-pressed="isStateFilterActive(state.state)"
+              @click="toggleStateFilter(state.state)"
+            >
+              <span aria-hidden="true">{{ state.symbol }}</span>
+              <span>{{ state.label }}</span>
+            </button>
+          </div>
+          <div class="knowledge-tab__filter-summary">
+            <p id="knowledge-insights-filter-count" data-testid="knowledge-insights-filter-count">
+              Видно {{ filterCountCopy }}
+            </p>
+            <button
+              v-if="hasActiveFilters"
+              type="button"
+              class="knowledge-tab__clear-filters"
+              data-testid="knowledge-insights-clear-filters"
+              @click="clearInsightFilters"
+            >
+              Сбросить фильтры
+            </button>
+          </div>
+        </div>
+        <ul class="knowledge-tab__legend" data-testid="knowledge-insights-legend" aria-label="Легенда состояний концептов">
+          <li v-for="state in stateFilterOptions" :key="state.state" class="knowledge-tab__legend-item">
+            <span class="knowledge-tab__legend-symbol" aria-hidden="true">{{ state.symbol }}</span>
+            <span><strong>{{ state.label }}</strong> — {{ state.description }}</span>
+          </li>
+        </ul>
+      </SurfacePanel>
+
+      <div v-if="canShowInsights && hasConcepts" class="knowledge-tab__quick-actions" data-testid="knowledge-graph-quick-actions">
+        <SurfacePanel class="knowledge-tab__quick-action" padding="lg">
+          <div class="knowledge-tab__section-heading knowledge-tab__section-heading--dual">
+            <div>
+              <p class="knowledge-tab__eyebrow">Семантические группы</p>
+              <h3>Кластеры на графе</h3>
+            </div>
+            <span class="knowledge-tab__recommendation-count" data-testid="knowledge-semantic-groups-count-summary">
+              {{ semanticGroupCountCopy }}
+            </span>
+          </div>
+          <button
+            type="button"
+            class="knowledge-tab__dialog-action"
+            data-testid="knowledge-semantic-groups-open"
+            @click="openSemanticGroupsDialog"
+          >
+            Открыть список кластеров
+          </button>
+        </SurfacePanel>
+
+        <SurfacePanel
+          class="knowledge-tab__quick-action"
+          padding="lg"
+          data-testid="knowledge-recommendations"
+        >
+          <div class="knowledge-tab__section-heading knowledge-tab__section-heading--dual">
+            <div>
+              <p class="knowledge-tab__eyebrow">Рекомендации развития</p>
+              <h3>Следующие безопасные шаги</h3>
+            </div>
+            <span class="knowledge-tab__recommendation-count" data-testid="knowledge-recommendations-count">
+              {{ recommendationCountCopy }}
+            </span>
+          </div>
+          <p class="knowledge-tab__recommendations-status" data-testid="knowledge-recommendations-status">
+            {{ recommendationsStatusCopy }}
+          </p>
+          <button
+            type="button"
+            class="knowledge-tab__dialog-action"
+            data-testid="knowledge-recommendations-open"
+            @click="openRecommendationsDialog"
+          >
+            Открыть рекомендации
+          </button>
+        </SurfacePanel>
+      </div>
 
       <InlineFeedbackPanel
         v-if="!hasConcepts"
@@ -481,12 +1090,19 @@ watch(
       <div v-if="isGraphMode && hasTopologyNodes" class="knowledge-tab__mode-panel" data-testid="knowledge-graph-panel">
         <SurfacePanel data-testid="knowledge-graph-mode" padding="lg">
           <KnowledgeGraphRenderer
-            :nodes="graph.nodes"
-            :edges="graph.edges"
+            :projection-mode="effectiveGraphProjectionMode"
+            :nodes="filteredNodes"
+            :edges="filteredEdges"
+            :semantic-edges="visibleSemanticEdges"
+            :semantic-groups="visibleSemanticGroups"
+            :semantic-graph="ownerSemanticGraph"
+            :semantic-diagnostics="ownerSemanticDiagnostics"
+            :show-semantic-edges="effectiveShowSemanticEdges"
             :selected-concept-id="selectedConceptId"
             :neighbour-concept-ids="neighbourConceptIds"
             :neighbour-edge-ids="neighbourEdgeIds"
             :layout-positions="graphLayoutPositions"
+            :concept-states="insightsByConceptId"
             :is-owner="isOwner"
             :is-layout-dirty="isLayoutDirty"
             :is-layout-saving="isLayoutSaving"
@@ -495,6 +1111,7 @@ watch(
             @layout-changed="handleLayoutChanged"
             @layout-save-requested="saveGraphLayout"
             @layout-reset-requested="resetGraphLayout"
+            @semantic-visibility-changed="handleSemanticVisibilityChanged"
           />
         </SurfacePanel>
 
@@ -522,9 +1139,10 @@ watch(
           </ul>
         </SurfacePanel>
 
-        <div v-if="hasConcepts" class="knowledge-tab__concept-grid" data-testid="knowledge-concepts">
+        <p v-if="hasConcepts && !hasVisibleConcepts" class="knowledge-concept__muted" data-testid="knowledge-insights-empty-filter">По выбранным фильтрам концепты не найдены.</p>
+        <div v-if="hasVisibleConcepts" class="knowledge-tab__concept-grid" data-testid="knowledge-concepts">
           <SurfacePanel
-            v-for="concept in sortedConcepts"
+            v-for="concept in filteredConcepts"
             :key="concept.concept_id"
             class="knowledge-concept"
             padding="lg"
@@ -540,9 +1158,29 @@ watch(
               </div>
             </header>
 
+            <p
+              v-if="canShowInsights"
+              class="knowledge-concept__state"
+              :class="conceptStateClass(concept.concept_id)"
+              :data-testid="`knowledge-insights-concept-state-${concept.concept_id}`"
+            >
+              <span aria-hidden="true">{{ conceptStateSymbol(concept.concept_id) }}</span>
+              <strong>{{ conceptStateLabel(concept.concept_id) }}</strong>
+              <span>{{ conceptStateDescription(concept.concept_id) }}</span>
+            </p>
+
             <p class="knowledge-concept__explanation">
               Уверенность {{ formatWeight(concept.confidence) }} · {{ concept.source_count }} агрегированных сигналов.
             </p>
+
+            <RouterLink
+              v-if="conceptDiscoveryRoute(concept)"
+              class="knowledge-tab__discovery-link"
+              :to="conceptDiscoveryRoute(concept)"
+              :data-testid="`knowledge-concept-discovery-${concept.concept_id}`"
+            >
+              Открыть вопросы по концепту
+            </RouterLink>
 
             <ul v-if="concept.activity_breakdown.length > 0" class="knowledge-tab__breakdown">
               <li
@@ -580,15 +1218,332 @@ watch(
       description="Сервер не вернул граф знаний. Попробуйте обновить вкладку позже."
       tone="danger"
     />
+
+    <AppDialog
+      :open="isKnowledgeGraphHelpDialogOpen"
+      title="Как работает граф знаний"
+      description="Короткая справка о структурном и семантическом представлении вашей активности."
+      data-testid="knowledge-graph-help-dialog"
+      @close="closeKnowledgeGraphHelpDialog"
+    >
+      <section class="knowledge-tab__help-modal" aria-label="Справка о графе знаний">
+        <div class="knowledge-tab__help-card">
+          <h3>Зачем нужен граф</h3>
+          <p>
+            Граф знаний показывает, в каких темах вы чаще всего проявляете себя: задаёте вопросы, отвечаете,
+            получаете оценки и участвуете в обсуждениях. Так проще понять, где у вас уже сильные области
+            и какие темы можно развивать дальше.
+          </p>
+        </div>
+
+        <div class="knowledge-tab__help-card">
+          <h3>Структурный граф</h3>
+          <p>
+            Структурный граф строится по вашим реальным действиям на сайте. Темы связываются между собой,
+            если они встречаются в одних и тех же вопросах или часто появляются рядом в вашей активности.
+          </p>
+        </div>
+
+        <div class="knowledge-tab__help-card">
+          <h3>Семантический граф</h3>
+          <p>
+            Семантический граф смотрит не только на прямые совпадения, но и на смысловую близость тем.
+            Он объединяет похожие области в кластеры, чтобы было легче увидеть более широкие направления знаний.
+          </p>
+        </div>
+      </section>
+    </AppDialog>
+
+    <AppDialog
+      v-if="canShowInsights && hasConcepts && graph"
+      :open="isSemanticGroupsDialogOpen"
+      title="Семантические кластеры"
+      description="Список кластеров графа. Откройте группу, чтобы увидеть входящие концепты и перейти к деталям."
+      size="wide"
+      data-testid="knowledge-semantic-groups-dialog"
+      @close="closeSemanticGroupsDialog"
+    >
+      <KnowledgeGraphSemanticGroupsPanel
+        :groups="visibleSemanticGroups"
+        :concepts="graph.concepts"
+        :visible-concept-ids="visibleNodeIds"
+        :graph-status="normalizedStatus"
+        :has-query-error="isStaleQueryError"
+        @member-selected="handleSemanticMemberSelected"
+      />
+    </AppDialog>
+
+    <AppDialog
+      v-if="canShowInsights && hasConcepts"
+      :open="isRecommendationsDialogOpen"
+      title="Рекомендации развития"
+      description="Приватные безопасные шаги по развитию графа знаний. Технические и провайдерские детали не отображаются."
+      size="wide"
+      data-testid="knowledge-recommendations-dialog"
+      @close="closeRecommendationsDialog"
+    >
+      <section class="knowledge-tab__recommendations-modal" aria-label="Приватные рекомендации по развитию графа знаний">
+        <div class="knowledge-tab__section-heading knowledge-tab__section-heading--dual">
+          <div>
+            <p class="knowledge-tab__eyebrow">Следующие безопасные шаги</p>
+            <h3>Что улучшить в графе знаний</h3>
+          </div>
+          <span class="knowledge-tab__recommendation-count" data-testid="knowledge-recommendations-dialog-count">
+            {{ recommendationCountCopy }}
+          </span>
+        </div>
+        <p class="knowledge-tab__recommendations-status" data-testid="knowledge-recommendations-dialog-status">
+          {{ recommendationsStatusCopy }}
+        </p>
+
+        <p
+          v-if="!hasKnowledgeRecommendations"
+          class="knowledge-concept__muted"
+          data-testid="knowledge-recommendations-empty"
+        >
+          {{ recommendationsStatusCopy }}
+        </p>
+
+        <ul v-else class="knowledge-tab__recommendation-list" aria-label="Приватные рекомендации по развитию графа знаний">
+          <li
+            v-for="card in knowledgeRecommendations"
+            :key="card.id"
+            class="knowledge-tab__recommendation-card"
+            :data-testid="`knowledge-recommendation-card-${card.id}`"
+            :aria-label="`${card.rankLabel}: ${card.conceptName}. ${card.presentation.priorityLabel}`"
+          >
+            <header class="knowledge-tab__recommendation-header">
+              <div>
+                <p class="knowledge-tab__recommendation-rank" :data-testid="`knowledge-recommendation-rank-${card.id}`">
+                  {{ card.rankLabel }} · {{ card.scoreLabel }} · {{ card.confidenceLabel }}
+                </p>
+                <p class="knowledge-tab__recommendation-concept">{{ card.conceptName }}</p>
+                <p
+                  class="knowledge-concept__state"
+                  :class="`knowledge-concept__state--${card.state.classSuffix}`"
+                >
+                  <span aria-hidden="true">{{ card.state.symbol }}</span>
+                  <strong>{{ card.state.label }}</strong>
+                  <span>{{ card.state.description }}</span>
+                </p>
+              </div>
+              <span class="knowledge-tab__recommendation-priority">{{ card.presentation.priorityLabel }}</span>
+            </header>
+
+            <div class="knowledge-tab__recommendation-body">
+              <p class="knowledge-tab__recommendation-action">{{ card.presentation.actionLabel }}</p>
+              <p>{{ card.recommendation.label }}</p>
+              <p>{{ card.presentation.reasonDescription }}</p>
+              <p class="knowledge-tab__recommendation-help">{{ card.presentation.actionDescription }}</p>
+              <p class="knowledge-tab__recommendation-target" :data-testid="`knowledge-recommendation-target-${card.id}`">
+                {{ card.targetSummary }}
+              </p>
+              <ul
+                v-if="card.evidenceSummaries.length > 0"
+                class="knowledge-tab__recommendation-evidence"
+                :data-testid="`knowledge-recommendation-evidence-${card.id}`"
+                aria-label="Агрегированные доказательства рекомендации"
+              >
+                <li v-for="summary in card.evidenceSummaries" :key="summary">{{ summary }}</li>
+              </ul>
+              <p
+                v-else
+                class="knowledge-tab__recommendation-help"
+                :data-testid="`knowledge-recommendation-evidence-empty-${card.id}`"
+              >
+                Агрегированные доказательства недоступны для этой рекомендации.
+              </p>
+              <RouterLink
+                v-if="card.discoveryRoute"
+                class="knowledge-tab__discovery-link"
+                :to="card.discoveryRoute"
+                :data-testid="`knowledge-recommendation-action-${card.id}`"
+              >
+                Открыть вопросы
+              </RouterLink>
+              <p
+                v-else
+                class="knowledge-tab__recommendation-help"
+                :data-testid="`knowledge-recommendation-action-unavailable-${card.id}`"
+              >
+                Безопасная ссылка на вопросы для этой рекомендации недоступна.
+              </p>
+            </div>
+          </li>
+        </ul>
+      </section>
+    </AppDialog>
   </section>
 </template>
 
 <style scoped>
 .knowledge-tab,
 .knowledge-tab__content,
-.knowledge-tab__mode-panel {
+.knowledge-tab__mode-panel,
+.knowledge-tab__recommendations-modal {
   display: grid;
   gap: var(--space-xl);
+}
+
+.knowledge-tab__quick-actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: var(--space-md);
+}
+
+.knowledge-tab__quick-action {
+  min-width: 0;
+  box-shadow: 0 16px 36px rgb(14 116 144 / 0.08);
+}
+
+.knowledge-tab__dialog-action {
+  display: inline-flex;
+  width: max-content;
+  min-height: 42px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 var(--space-md);
+  border: 1px solid rgb(14 116 144 / 0.22);
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.82);
+  color: var(--color-accent);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 800;
+  transition-property: transform, border-color, box-shadow, background-color;
+  transition-duration: 160ms;
+  transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+}
+
+.knowledge-tab__dialog-action:hover,
+.knowledge-tab__dialog-action:focus-visible {
+  border-color: rgb(14 116 144 / 0.55);
+  background: rgb(236 254 255 / 0.78);
+  box-shadow: 0 10px 24px rgb(14 116 144 / 0.13);
+  outline: none;
+}
+
+.knowledge-tab__dialog-action:active {
+  transform: scale(0.96);
+}
+
+
+.knowledge-tab__section-heading--dual,
+.knowledge-tab__recommendation-header {
+  display: flex;
+  gap: var(--space-md);
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.knowledge-tab__recommendations {
+  border: 1px solid rgb(14 116 144 / 0.14);
+}
+
+.knowledge-tab__recommendations-status,
+.knowledge-tab__recommendation-rank,
+.knowledge-tab__recommendation-concept,
+.knowledge-tab__recommendation-action,
+.knowledge-tab__recommendation-target,
+.knowledge-tab__recommendation-help {
+  margin: 0;
+}
+
+.knowledge-tab__recommendation-count,
+.knowledge-tab__recommendation-priority {
+  display: inline-flex;
+  align-items: center;
+  width: max-content;
+  border-radius: 999px;
+  background: rgb(14 116 144 / 0.1);
+  color: var(--color-accent);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.knowledge-tab__recommendation-count {
+  padding: var(--space-xs) var(--space-sm);
+}
+
+.knowledge-tab__recommendation-priority {
+  padding: 4px var(--space-sm);
+}
+
+.knowledge-tab__recommendation-list {
+  display: grid;
+  gap: var(--space-md);
+  margin: var(--space-md) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.knowledge-tab__recommendation-card {
+  display: grid;
+  gap: var(--space-md);
+  padding: var(--space-md);
+  border: 1px solid rgb(15 23 42 / 0.08);
+  border-radius: var(--radius-lg);
+  background: rgb(255 255 255 / 0.72);
+}
+
+.knowledge-tab__recommendation-concept {
+  color: var(--color-text);
+  font-weight: 800;
+}
+
+.knowledge-tab__recommendation-rank,
+.knowledge-tab__recommendation-target {
+  color: var(--color-muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.knowledge-tab__recommendation-evidence {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding-left: var(--space-lg);
+  color: var(--color-muted);
+  font-size: 14px;
+}
+
+.knowledge-tab__recommendation-body {
+  display: grid;
+  gap: var(--space-xs);
+  color: var(--color-muted);
+  line-height: 1.6;
+}
+
+.knowledge-tab__recommendation-action {
+  color: var(--color-text);
+  font-weight: 800;
+}
+
+.knowledge-tab__discovery-link {
+  display: inline-flex;
+  width: max-content;
+  min-height: 40px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 var(--space-md);
+  border: 1px solid rgb(14 116 144 / 0.2);
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.76);
+  color: var(--color-accent);
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.knowledge-tab__discovery-link:hover,
+.knowledge-tab__discovery-link:focus-visible {
+  border-color: rgb(14 116 144 / 0.55);
+  outline: 2px solid rgb(14 116 144 / 0.22);
+  outline-offset: 2px;
+}
+
+.knowledge-tab__recommendation-help {
+  color: var(--color-muted);
+  font-size: 14px;
 }
 
 .knowledge-tab__hero {
@@ -596,6 +1551,71 @@ watch(
   grid-template-columns: minmax(0, 1fr) auto;
   gap: var(--space-xl);
   align-items: start;
+}
+
+.knowledge-tab__eyebrow-row {
+  display: inline-flex;
+  gap: var(--space-sm);
+  align-items: center;
+}
+
+.knowledge-tab__help-button {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgb(14 116 144 / 0.28);
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.78);
+  color: var(--color-accent);
+  cursor: pointer;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1;
+  transition: transform 160ms cubic-bezier(0.2, 0, 0, 1), border-color 160ms, box-shadow 160ms, background-color 160ms;
+}
+
+.knowledge-tab__help-button:hover,
+.knowledge-tab__help-button:focus-visible {
+  border-color: rgb(14 116 144 / 0.56);
+  background: rgb(236 254 255 / 0.8);
+  box-shadow: 0 8px 18px rgb(14 116 144 / 0.14);
+  outline: 2px solid rgb(14 116 144 / 0.18);
+  outline-offset: 2px;
+}
+
+.knowledge-tab__help-button:active {
+  transform: scale(0.94);
+}
+
+.knowledge-tab__help-modal {
+  display: grid;
+  gap: var(--space-md);
+}
+
+.knowledge-tab__help-card {
+  display: grid;
+  gap: var(--space-xs);
+  padding: var(--space-md);
+  border: 1px solid rgb(14 116 144 / 0.12);
+  border-radius: var(--radius-md);
+  background: rgb(255 255 255 / 0.62);
+}
+
+.knowledge-tab__help-card h3,
+.knowledge-tab__help-card p {
+  margin: 0;
+}
+
+.knowledge-tab__help-card h3 {
+  font-size: 18px;
+}
+
+.knowledge-tab__help-card p {
+  color: var(--color-muted);
+  line-height: 1.65;
 }
 
 .knowledge-tab__eyebrow,
@@ -779,6 +1799,91 @@ watch(
   text-decoration-thickness: 0.08em;
   text-underline-offset: 0.2em;
 }
+
+
+.knowledge-tab__insights,
+.knowledge-tab__filters,
+.knowledge-tab__legend {
+  display: grid;
+  gap: var(--space-md);
+}
+
+.knowledge-tab__insights-status,
+.knowledge-tab__search-label,
+.knowledge-tab__filter-summary p,
+.knowledge-concept__state {
+  margin: 0;
+}
+
+.knowledge-tab__insights-status,
+.knowledge-tab__filter-summary {
+  color: var(--color-muted);
+}
+
+.knowledge-tab__search {
+  width: min(100%, 520px);
+  min-height: 44px;
+  padding: 0 var(--space-md);
+  border: 1px solid rgb(14 116 144 / 0.28);
+  border-radius: var(--radius-md);
+  background: white;
+  color: var(--color-text);
+  font: inherit;
+}
+
+.knowledge-tab__state-filters,
+.knowledge-tab__filter-summary,
+.knowledge-tab__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  align-items: center;
+}
+
+.knowledge-tab__state-filter,
+.knowledge-tab__clear-filters {
+  min-height: 36px;
+  padding: 0 var(--space-md);
+  border: 1px solid rgb(14 116 144 / 0.24);
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.72);
+  color: var(--color-text);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+}
+
+.knowledge-tab__state-filter--active {
+  border-color: var(--color-accent);
+  background: rgb(14 116 144 / 0.12);
+}
+
+.knowledge-tab__legend {
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.knowledge-tab__legend-item,
+.knowledge-concept__state {
+  display: inline-flex;
+  gap: var(--space-xs);
+  align-items: center;
+}
+
+.knowledge-tab__legend-symbol,
+.knowledge-concept__state {
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: 999px;
+  background: rgb(14 116 144 / 0.08);
+}
+
+.knowledge-concept__state--strong { background: rgb(22 163 74 / 0.12); }
+.knowledge-concept__state--growing { background: rgb(14 165 233 / 0.12); }
+.knowledge-concept__state--weak { background: rgb(245 158 11 / 0.14); }
+.knowledge-concept__state--stale { background: rgb(168 85 247 / 0.12); }
+.knowledge-concept__state--isolated { background: rgb(100 116 139 / 0.12); }
+.knowledge-concept__state--unknown { background: rgb(148 163 184 / 0.14); }
 
 @media (width <= 720px) {
   .knowledge-tab__hero,

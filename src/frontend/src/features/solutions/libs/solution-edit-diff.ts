@@ -1,3 +1,4 @@
+// Кратко: держит основную логику этого файла.
 import { diffWords } from 'diff'
 
 export interface SolutionEditDiffChunk {

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// Кратко: отвечает за часть интерфейса.
 import { computed, shallowRef, toValue } from 'vue'
 
 import { useTagAutocompleteQuery } from '@/features/questions/queries/useTagAutocompleteQuery'

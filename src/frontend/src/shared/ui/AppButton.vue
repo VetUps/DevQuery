@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// Кратко: отвечает за часть интерфейса.
 type AppButtonSize = 'regular' | 'compact'
 
 interface Props {

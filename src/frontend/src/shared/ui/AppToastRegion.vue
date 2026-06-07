@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// Кратко: отвечает за часть интерфейса.
 import { useToastStore } from '@/shared/stores/toast'
 
 const { toasts, removeToast } = useToastStore()

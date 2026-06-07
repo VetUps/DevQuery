@@ -1,3 +1,4 @@
+# Обрабатывает HTTP-запросы для уведомлений.
 from django.core.paginator import InvalidPage
 from drf_spectacular.utils import OpenApiParameter, extend_schema, inline_serializer
 from rest_framework import generics, serializers, status
@@ -16,6 +17,7 @@ class NotificationPageNumberPagination(PageNumberPagination):
     page_size = 5
 
     def paginate_queryset(self, queryset, request, view=None):
+        """Разбивает queryset на страницы для ответа API."""
         self.request = request
         page_size = self.get_page_size(request)
         if not page_size:
@@ -43,12 +45,14 @@ class NotificationListView(generics.ListAPIView):
     VALID_STATUSES = {'all', 'unread'}
 
     def get_requested_status(self):
+        """Возвращает данные requested status."""
         requested_status = self.request.query_params.get('status', 'all')
         if requested_status not in self.VALID_STATUSES:
             raise ValidationError({'status': 'Unsupported status. Use "all" or "unread".'})
         return requested_status
 
     def get_queryset(self):
+        """Возвращает queryset с учётом текущего запроса."""
         if getattr(self, 'swagger_fake_view', False):
             return self.queryset
         return NotificationService.notifications_for_user(self.request.user, status=self.get_requested_status())
@@ -75,6 +79,7 @@ class NotificationListView(generics.ListAPIView):
         description='List notifications for the authenticated recipient only, optionally filtered by read status.',
     )
     def get(self, request, *args, **kwargs):
+        """Обрабатывает HTTP GET-запрос."""
         return super().get(request, *args, **kwargs)
 
 
@@ -95,6 +100,7 @@ class NotificationSummaryView(APIView):
         description='Return the authenticated recipient notification unread count and latest bounded preview items.',
     )
     def get(self, request):
+        """Обрабатывает HTTP GET-запрос."""
         latest_notifications = NotificationService.latest_for_user(request.user, limit=self.latest_limit)
         serializer = NotificationSerializer(latest_notifications, many=True, context={'request': request})
         return Response(
@@ -115,6 +121,7 @@ class NotificationMarkReadView(APIView):
         description='Mark one authenticated-recipient notification as read. Missing and foreign IDs both return 404.',
     )
     def patch(self, request, notification_id):
+        """Обрабатывает HTTP PATCH-запрос."""
         try:
             notification = NotificationService.mark_read(notification_id, request.user)
         except NotificationNotFound as exc:
@@ -141,4 +148,5 @@ class NotificationMarkAllReadView(APIView):
         description='Mark all authenticated-recipient notifications as read and return deterministic counters.',
     )
     def patch(self, request):
+        """Обрабатывает HTTP PATCH-запрос."""
         return Response(NotificationService.mark_all_read(request.user), status=status.HTTP_200_OK)

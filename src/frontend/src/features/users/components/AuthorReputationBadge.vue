@@ -1,7 +1,9 @@
 <script setup lang="ts">
+// Кратко: отвечает за часть интерфейса.
 import { computed } from 'vue'
 
 import type { ReputationSummary } from '@/features/users/api/reputation'
+import ReputationRankIcon from '@/features/users/components/ReputationRankIcon.vue'
 
 const props = defineProps<{
   reputation?: ReputationSummary | null
@@ -15,6 +17,7 @@ const badge = computed(() => {
       label: props.reputation.level_label,
       level: props.reputation.level,
       ariaLabel: `Репутация автора: ${props.reputation.level_label}, ${props.reputation.score} очк.`,
+      rankLevel: props.reputation.level,
     }
   }
 
@@ -24,6 +27,7 @@ const badge = computed(() => {
       label: 'Репутация',
       level: 'legacy',
       ariaLabel: `Репутация автора: ${props.fallbackScore} очк.`,
+      rankLevel: null,
     }
   }
 
@@ -39,6 +43,7 @@ const badge = computed(() => {
     :aria-label="badge.ariaLabel"
     data-testid="author-reputation-badge"
   >
+    <ReputationRankIcon :level="badge.rankLevel" />
     <span class="author-reputation-badge__label">{{ badge.label }}</span>
     <span class="author-reputation-badge__score">{{ badge.score }}</span>
   </span>

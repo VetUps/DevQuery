@@ -1,10 +1,11 @@
+# Кратко: запускает команды Django для backend.
 import os
 import sys
 from pathlib import Path
 
 
 def _venv_python():
-    """Return the project virtualenv Python when it exists."""
+    """Возвращает путь к Python из виртуального окружения."""
     backend_dir = Path(__file__).resolve().parent
     candidates = (
         backend_dir / 'venv' / 'bin' / 'python',
@@ -17,7 +18,7 @@ def _venv_python():
 
 
 def main():
-    """Run administrative tasks."""
+    """Запускает основной сценарий файла."""
     os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings.settings')
     try:
         from django.core.management import execute_from_command_line

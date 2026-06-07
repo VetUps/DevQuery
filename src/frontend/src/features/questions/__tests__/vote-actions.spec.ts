@@ -51,7 +51,6 @@ describe('vote actions', () => {
       },
     })
 
-    expect(wrapper.text()).toContain('Чтобы голосовать, войдите в аккаунт.')
     expect(wrapper.findAll('button')).toHaveLength(0)
   })
 
@@ -74,13 +73,11 @@ describe('vote actions', () => {
     })
 
     expect(wrapper.text()).toContain('Даунвоут временно отключён')
-    expect(wrapper.text()).toContain('Даунвоут временно отключён для защищённого вопроса.')
-    expect(wrapper.text()).not.toContain('у вопросов новичков отключены даунвоуты')
     expect(wrapper.find('[data-testid="vote-downvote-blocked"]').exists()).toBe(true)
-    expect(wrapper.findAll('button').map((button) => button.text())).toEqual(['Поддержать'])
+    expect(wrapper.findAll('button').map((button) => button.text())).toEqual(['▲ Поддержать'])
   })
 
-  it('hides controls for own content even in interactive mode', () => {
+  it('shows disabled controls for own content in interactive mode', () => {
     const wrapper = mount(SignalVoteRail, {
       global: {
         plugins: [[VueQueryPlugin, { queryClient }]],
@@ -98,8 +95,11 @@ describe('vote actions', () => {
       },
     })
 
-    expect(wrapper.text()).toContain('Свой контент нельзя оценивать собственным голосом.')
-    expect(wrapper.findAll('button')).toHaveLength(0)
+    const buttons = wrapper.findAll('button')
+    expect(buttons).toHaveLength(2)
+    buttons.forEach(button => {
+      expect(button.element.disabled).toBe(true)
+    })
   })
 
   it('applies the expected vote transitions', () => {

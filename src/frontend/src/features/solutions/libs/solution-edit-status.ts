@@ -1,3 +1,4 @@
+// Кратко: держит основную логику этого файла.
 import type { SolutionEditApprovalState } from '@/features/solutions/api/solutionEdits'
 
 export type SolutionEditStatusTone = 'pending' | 'approved' | 'rejected'

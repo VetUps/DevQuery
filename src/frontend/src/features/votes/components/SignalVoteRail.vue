@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+// Кратко: отвечает за часть интерфейса.
+import { computed, ref } from 'vue'
 
 import VoteBalanceMeter from '@/features/questions/components/VoteBalanceMeter.vue'
 import { useVoteMutation } from '@/features/votes/mutations/useVoteMutation'
@@ -35,33 +36,39 @@ const voteMutation = useVoteMutation()
 
 const isInteractive = computed(() => props.mode === 'interactive' && !props.isOwnContent)
 const canDownvote = computed(() => !props.downvoteBlocked)
-const currentVoteLabel = computed(() => {
-  if (props.isOwnContent) {
-    return 'Свой контент нельзя оценивать собственным голосом.'
+
+
+const particles = ref<Array<{ id: number; x: number; y: number; tx: number; ty: number; type: 'up' | 'down' }>>([])
+let particleId = 0
+
+function spawnParticles(event: MouseEvent, type: 'up' | 'down') {
+  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
+
+  const count = 4 + Math.floor(Math.random() * 3)
+  for (let i = 0; i < count; i++) {
+    const id = particleId++
+
+    const startX = rect.left + rect.width / 2 + (Math.random() * 30 - 15)
+    const startY = rect.top + rect.height / 2 + (Math.random() * 10 - 5)
+
+    const tx = Math.random() * 80 - 40;
+    const ty = type === 'up' ? -(Math.random() * 60 + 40) : (Math.random() * 60 + 40);
+
+    particles.value.push({ id, x: startX, y: startY, tx, ty, type })
+
+    setTimeout(() => {
+      particles.value = particles.value.filter(p => p.id !== id)
+    }, 800)
   }
+}
 
-  if (props.downvoteBlocked) {
-    return 'Даунвоут временно отключён для защищённого вопроса.'
-  }
-
-  if (props.userVote === 'up') {
-    return 'Ваш сигнал: поддержка'
-  }
-
-  if (props.userVote === 'down') {
-    return 'Ваш сигнал: против'
-  }
-
-  if (props.mode === 'readonly') {
-    return 'Чтобы голосовать, войдите в аккаунт.'
-  }
-
-  return 'Можно усилить или ослабить сигнал одним нажатием.'
-})
-
-async function handleVote(requestedVote: VoteType) {
+async function handleVote(requestedVote: VoteType, event: MouseEvent) {
   if (!isInteractive.value || !props.targetType || !props.targetId) {
     return
+  }
+
+  if (props.userVote !== requestedVote) {
+    spawnParticles(event, requestedVote)
   }
 
   await voteMutation.mutateAsync({
@@ -80,33 +87,33 @@ async function handleVote(requestedVote: VoteType) {
 
     <div class="signal-vote-rail__core">
       <button
-        v-if="isInteractive"
+        v-if="props.mode === 'interactive'"
         type="button"
         class="signal-vote-rail__action signal-vote-rail__action--up"
         :class="{ 'signal-vote-rail__action--active': userVote === 'up' }"
-        :disabled="voteMutation.isPending.value"
+        :disabled="voteMutation.isPending.value || isOwnContent"
         :aria-pressed="userVote === 'up'"
-        @click="handleVote('up')"
+        @click="handleVote('up', $event)"
       >
-        Поддержать
+        ▲ Поддержать
       </button>
 
       <strong class="signal-vote-rail__score">{{ score }}</strong>
 
       <button
-        v-if="isInteractive && canDownvote"
+        v-if="props.mode === 'interactive' && canDownvote"
         type="button"
         class="signal-vote-rail__action signal-vote-rail__action--down"
         :class="{ 'signal-vote-rail__action--active': userVote === 'down' }"
-        :disabled="voteMutation.isPending.value"
+        :disabled="voteMutation.isPending.value || isOwnContent"
         :aria-pressed="userVote === 'down'"
-        @click="handleVote('down')"
+        @click="handleVote('down', $event)"
       >
-        Против
+        ▼ Против
       </button>
 
       <span
-        v-else-if="isInteractive && downvoteBlocked"
+        v-else-if="props.mode === 'interactive' && downvoteBlocked"
         class="signal-vote-rail__blocked-pill"
         data-testid="vote-downvote-blocked"
       >
@@ -114,9 +121,23 @@ async function handleVote(requestedVote: VoteType) {
       </span>
     </div>
 
+    <p v-if="props.mode === 'readonly'" class="signal-vote-rail__readonly-note">
+      Чтобы голосовать, войдите в аккаунт.
+    </p>
+
     <VoteBalanceMeter :upvotes="upvotes" :downvotes="downvotes" />
 
-    <p class="signal-vote-rail__note">{{ currentVoteLabel }}</p>
+    <Teleport to="body">
+      <div
+        v-for="p in particles"
+        :key="p.id"
+        class="vote-particle"
+        :class="`vote-particle--${p.type}`"
+        :style="{ left: p.x + 'px', top: p.y + 'px', '--tx': p.tx + 'px', '--ty': p.ty + 'px' }"
+      >
+        {{ p.type === 'up' ? '▲' : '▼' }}
+      </div>
+    </Teleport>
   </aside>
 </template>
 
@@ -134,8 +155,7 @@ async function handleVote(requestedVote: VoteType) {
   background: linear-gradient(180deg, rgb(255 255 255 / 0.86), rgb(247 243 234 / 0.92));
 }
 
-.signal-vote-rail__label,
-.signal-vote-rail__note {
+.signal-vote-rail__label {
   margin: 0;
 }
 
@@ -166,11 +186,26 @@ async function handleVote(requestedVote: VoteType) {
   min-height: 34px;
   width: 100%;
   padding: 0 10px;
-  border: 1px solid transparent;
+  border: 1px solid rgb(207 198 180 / 0.6);
   border-radius: 999px;
   background: rgb(255 255 255 / 0.92);
   font-size: 13px;
   font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.2s cubic-bezier(0.25, 1, 0.5, 1), background 0.2s, border-color 0.2s;
+}
+
+.signal-vote-rail__action:hover:not(:disabled) {
+  transform: scale(1.1);
+}
+
+.signal-vote-rail__action:active:not(:disabled) {
+  transform: scale(0.9);
+}
+
+.signal-vote-rail__action:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
 }
 
 .signal-vote-rail__action--up {
@@ -206,16 +241,49 @@ async function handleVote(requestedVote: VoteType) {
   font-weight: 600;
 }
 
-.signal-vote-rail__note {
-  color: var(--color-muted);
-  font-size: 13px;
-  line-height: 1.5;
-  overflow-wrap: anywhere;
-}
+
 
 @media (width <= 900px) {
   .signal-vote-rail {
     max-width: none;
+  }
+}
+
+.signal-vote-rail__readonly-note {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 13px;
+  line-height: 1.35;
+  text-align: center;
+}
+
+.vote-particle {
+  position: fixed;
+  pointer-events: none;
+  font-size: 16px;
+  font-weight: 800;
+  z-index: 9999;
+  animation: float-particle 0.8s cubic-bezier(0.25, 1, 0.5, 1) forwards;
+}
+
+.vote-particle--up {
+  color: #2F855A;
+  text-shadow: 0 0 4px rgba(47, 133, 90, 0.5);
+}
+
+.vote-particle--down {
+  color: #B42318;
+  text-shadow: 0 0 4px rgba(180, 35, 24, 0.5);
+}
+
+@keyframes float-particle {
+  0% {
+    transform: translate(-50%, -50%) scale(0.5);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(calc(-50% + var(--tx)), calc(-50% + var(--ty))) scale(1.5);
+    opacity: 0;
   }
 }
 </style>

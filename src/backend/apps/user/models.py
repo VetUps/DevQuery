@@ -1,3 +1,4 @@
+# Кратко: описывает данные пользователей.
 from datetime import timedelta
 import uuid
 
@@ -10,14 +11,7 @@ from django.utils.translation import gettext_lazy as _
 
 class CustomUserManager(BaseUserManager):
     def create_user(self, user_email, user_name, password, **extra_fields):
-        """
-        Создание пользователя
-        :param user_email: почта пользователя
-        :param user_name: никнейм пользователя
-        :param password: пароль пользователя
-        :param extra_fields: дополнительные поля для создания пользователя
-        :return: модель созданного пользователя
-        """
+        """Создаёт данные пользователя."""
         if not user_email:
             raise ValueError('Пользователь должен иметь почту')
         if not user_name:
@@ -30,9 +24,7 @@ class CustomUserManager(BaseUserManager):
         return user
 
     def create_superuser(self, user_email, user_name, password, **extra_fields):
-        """
-        Создание суперпользователя с дополнительными правами
-        """
+        """Создаёт данные superuser."""
         extra_fields.setdefault('is_staff', True)
         extra_fields.setdefault('is_superuser', True)
         extra_fields.setdefault('is_active', True)
@@ -43,6 +35,14 @@ class CustomUserManager(BaseUserManager):
             raise ValueError('Superuser must have is_superuser=True.')
 
         return self.create_user(user_email, user_name, password, **extra_fields)
+
+
+def user_avatar_upload_to(instance, filename):
+    """Обрабатывает пользователя аватар загрузку."""
+    extension = filename.rsplit('.', 1)[-1].lower() if '.' in filename else 'jpg'
+    if extension == 'jpeg':
+        extension = 'jpg'
+    return f'avatars/{instance.user_id}.{extension}'
 
 
 class CustomUser(AbstractBaseUser, PermissionsMixin):
@@ -76,8 +76,10 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
         null=True,
         help_text='Ручной уровень репутации, если администратор переопределил расчетный уровень',
     )
-    user_avatar_url =       models.ImageField(blank=True, null=True,
+    user_avatar_url =       models.ImageField(upload_to=user_avatar_upload_to, blank=True, null=True,
                                               help_text='Аватар пользователя')
+    user_avatar_updated_at = models.DateTimeField(blank=True, null=True,
+                                                  help_text='Дата последнего обновления аватара')
     user_bio =              models.TextField(blank=True, null=True,
                                              help_text='Дополнительная информация о пользователе')
     user_created_at =       models.DateTimeField(auto_now_add=True,
@@ -95,6 +97,7 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
         db_table = 'users'
 
     def __str__(self):
+        """Возвращает короткое текстовое описание объекта."""
         return self.user_email
 
 class Achievement(models.Model):
@@ -113,6 +116,7 @@ class Achievement(models.Model):
         db_table = 'achievements'
 
     def __str__(self):
+        """Возвращает короткое текстовое описание объекта."""
         return self.achievement_code
 
 class UserAchievement(models.Model):
@@ -160,6 +164,7 @@ class ReputationLevelThreshold(models.Model):
         ]
 
     def clean(self):
+        """Приводит данные данных к безопасному виду."""
         errors = {}
         default_score = self.DEFAULT_THRESHOLDS.get(self.level)
         if default_score is None:
@@ -173,6 +178,7 @@ class ReputationLevelThreshold(models.Model):
             raise ValidationError(errors)
 
     def __str__(self):
+        """Возвращает короткое текстовое описание объекта."""
         return f'{self.get_level_display()} ({self.minimum_score})'
 
 
@@ -194,6 +200,7 @@ class ReputationPolicyConfig(models.Model):
         verbose_name_plural = 'Reputation policy config'
 
     def clean(self):
+        """Приводит данные данных к безопасному виду."""
         if self.protected_newcomer_window_hours <= 0:
             raise ValidationError(
                 {'protected_newcomer_window_hours': 'Защитное окно должно быть положительным количеством часов.'}
@@ -210,14 +217,17 @@ class ReputationPolicyConfig(models.Model):
 
     @property
     def protected_newcomer_window(self) -> timedelta:
+        """Обрабатывает защищённый режим новичка окно."""
         return timedelta(hours=self.protected_newcomer_window_hours)
 
     def save(self, *args, **kwargs):
+        """Сохраняет данные данных."""
         self.singleton_key = 'default'
         self.full_clean()
         return super().save(*args, **kwargs)
 
     def __str__(self):
+        """Возвращает короткое текстовое описание объекта."""
         return f'Protected newcomer window: {self.protected_newcomer_window_hours}h'
 
 

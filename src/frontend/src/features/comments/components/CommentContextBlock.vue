@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// Кратко: отвечает за часть интерфейса.
 import { MessageSquareText } from 'lucide-vue-next'
 
 import type { CommentTargetType, CommentThreadItem } from '@/features/comments/api/comments'

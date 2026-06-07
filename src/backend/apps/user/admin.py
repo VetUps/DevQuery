@@ -1,3 +1,4 @@
+# Кратко: настраивает админку Django для пользователей.
 from django import forms
 from django.contrib import admin, messages
 
@@ -11,6 +12,7 @@ class ReputationThresholdAdminForm(forms.ModelForm):
         fields = '__all__'
 
     def clean(self):
+        """Приводит данные данных к безопасному виду."""
         cleaned_data = super().clean()
         if self.errors:
             return cleaned_data
@@ -91,7 +93,7 @@ class CustomUserAdmin(admin.ModelAdmin):
             'Reputation',
             {
                 'fields': ('user_reputation_score', 'manual_reputation_level', 'manual_override_note'),
-                'description': 'Ручной уровень влияет только на вычисленный уровень и политику доступа. Очки репутации и история начислений не изменяются.',
+                'description': 'При установке ручного уровня очки репутации автоматически устанавливаются в минимальное значение для выбранного уровня.',
             },
         ),
         ('Permissions', {'fields': ('user_role', 'is_active', 'is_staff', 'is_superuser', 'groups', 'user_permissions')}),
@@ -100,12 +102,14 @@ class CustomUserAdmin(admin.ModelAdmin):
 
     @admin.display(description='Текущий уровень')
     def resolved_reputation_level(self, obj: CustomUser) -> str:
+        """Обрабатывает resolved репутацию level."""
         progress = ReputationService.get_progress(obj)
         if progress['is_manual_override']:
             return f"{progress['level_label']} (ручной)"
         return progress['level_label']
 
     def save_model(self, request, obj, form, change):
+        """Сохраняет данные model."""
         if not change:
             super().save_model(request, obj, form, change)
             return
@@ -147,11 +151,13 @@ class ReputationPolicyConfigAdmin(admin.ModelAdmin):
     readonly_fields = ('singleton_key', 'created_at', 'updated_at')
 
     def has_add_permission(self, request):
+        """Проверяет условие для add permission."""
         if ReputationPolicyConfig.objects.exists():
             return False
         return super().has_add_permission(request)
 
     def has_delete_permission(self, request, obj=None):
+        """Проверяет условие для permission."""
         return False
 
 

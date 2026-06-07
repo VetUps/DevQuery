@@ -1,3 +1,4 @@
+# Кратко: проверяет данные и готовит ответы API для вопросов и ответов.
 import re
 
 from django.contrib.contenttypes.models import ContentType
@@ -8,6 +9,7 @@ from rest_framework.exceptions import PermissionDenied
 
 from apps.knowledge.services import recover_sync_authored_question_activity, sync_question_graph
 from apps.user.models import CustomUser
+from apps.user.services.reputation_service import ReputationService
 from .models import (
     Question,
     QuestionEditEvent,
@@ -31,6 +33,7 @@ PROTECTED_NEWCOMER_ANSWER_ERROR_CODE = 'protected_newcomer_answer_required'
 
 
 def normalize_question_tags(raw_tags):
+    """Приводит данные вопроса тегов к безопасному виду."""
     if not isinstance(raw_tags, list):
         raise serializers.ValidationError('Теги должны быть списком строк.')
 
@@ -61,6 +64,7 @@ def normalize_question_tags(raw_tags):
 
 class QuestionTagNameField(serializers.CharField):
     def to_internal_value(self, data):
+        """Обрабатывает внутреннее значение значение."""
         if not isinstance(data, str):
             raise serializers.ValidationError('Каждый тег должен быть строкой.')
         return super().to_internal_value(data)
@@ -98,6 +102,7 @@ class QuestionProtectionMixin:
     ]
 
     def _get_request_user(self):
+        """Возвращает request пользователя."""
         request = self.context.get('request')
         if request is None:
             return None
@@ -109,42 +114,55 @@ class QuestionProtectionMixin:
         return user
 
     def _get_protection_state(self, obj: Question):
+        """Возвращает protection состояние."""
         return QuestionProtectionService.get_protection_state(obj)
 
     def _get_answer_decision(self, obj: Question):
+        """Возвращает answer decision."""
         return QuestionProtectionService.get_answer_eligibility(obj, self._get_request_user())
 
     def _get_downvote_decision(self, obj: Question):
+        """Возвращает downvote decision."""
         return QuestionProtectionService.get_question_downvote_eligibility(obj, self._get_request_user())
 
     def get_is_protected(self, obj: Question):
+        """Возвращает данные protected."""
         return self._get_protection_state(obj).is_protected
 
     def get_protection_reason_code(self, obj: Question):
+        """Возвращает данные protection reason code."""
         return self._get_protection_state(obj).reason_code
 
     def get_protected_until(self, obj: Question):
+        """Возвращает данные protected until."""
         return self._get_protection_state(obj).protected_until
 
     def get_author_level(self, obj: Question):
+        """Возвращает данные автора level."""
         return self._get_protection_state(obj).author_level
 
     def get_author_points_to_next_level(self, obj: Question):
+        """Возвращает данные автора points next level."""
         return self._get_protection_state(obj).progress.points_to_next_level
 
     def get_author_next_level(self, obj: Question):
+        """Возвращает данные автора next level."""
         return self._get_protection_state(obj).progress.next_level
 
     def get_author_next_level_label(self, obj: Question):
+        """Возвращает данные автора next level label."""
         return self._get_protection_state(obj).progress.next_level_label
 
     def get_viewer_can_answer(self, obj: Question):
+        """Возвращает данные viewer answer."""
         return self._get_answer_decision(obj).allowed
 
     def get_viewer_answer_reason_code(self, obj: Question):
+        """Возвращает данные viewer answer reason code."""
         return self._get_answer_decision(obj).reason_code
 
     def get_viewer_answer_reason_message(self, obj: Question):
+        """Возвращает данные viewer answer reason message."""
         answer_decision = self._get_answer_decision(obj)
         return QuestionProtectionService.build_answer_reason_message(
             answer_decision.reason_code,
@@ -152,12 +170,15 @@ class QuestionProtectionMixin:
         )
 
     def get_viewer_answer_required_level(self, obj: Question):
+        """Возвращает данные viewer answer required level."""
         return self._get_answer_decision(obj).required_level
 
     def get_viewer_answer_required_level_label(self, obj: Question):
+        """Возвращает данные viewer answer required level."""
         return self._get_answer_decision(obj).required_level_label
 
     def get_viewer_level(self, obj: Question):
+        """Возвращает данные viewer level."""
         answer_decision = self._get_answer_decision(obj)
         if answer_decision.viewer_level is not None:
             return answer_decision.viewer_level
@@ -165,6 +186,7 @@ class QuestionProtectionMixin:
         return self._get_downvote_decision(obj).viewer_level
 
     def get_viewer_level_label(self, obj: Question):
+        """Возвращает данные viewer level label."""
         answer_decision = self._get_answer_decision(obj)
         if answer_decision.viewer_level_label is not None:
             return answer_decision.viewer_level_label
@@ -172,6 +194,7 @@ class QuestionProtectionMixin:
         return self._get_downvote_decision(obj).viewer_level_label
 
     def get_viewer_points_to_next_level(self, obj: Question):
+        """Возвращает данные viewer points next level."""
         answer_decision = self._get_answer_decision(obj)
         if answer_decision.points_to_next_level is not None:
             return answer_decision.points_to_next_level
@@ -179,6 +202,7 @@ class QuestionProtectionMixin:
         return self._get_downvote_decision(obj).points_to_next_level
 
     def get_viewer_next_level(self, obj: Question):
+        """Возвращает данные viewer next level."""
         answer_decision = self._get_answer_decision(obj)
         if answer_decision.next_level is not None:
             return answer_decision.next_level
@@ -186,6 +210,7 @@ class QuestionProtectionMixin:
         return self._get_downvote_decision(obj).next_level
 
     def get_viewer_next_level_label(self, obj: Question):
+        """Возвращает данные viewer next level label."""
         answer_decision = self._get_answer_decision(obj)
         if answer_decision.next_level_label is not None:
             return answer_decision.next_level_label
@@ -193,12 +218,15 @@ class QuestionProtectionMixin:
         return self._get_downvote_decision(obj).next_level_label
 
     def get_viewer_can_downvote(self, obj: Question):
+        """Возвращает данные viewer downvote."""
         return self._get_downvote_decision(obj).allowed
 
     def get_viewer_downvote_reason_code(self, obj: Question):
+        """Возвращает данные viewer downvote reason code."""
         return self._get_downvote_decision(obj).reason_code
 
     def get_viewer_downvote_reason_message(self, obj: Question):
+        """Возвращает данные viewer downvote reason message."""
         downvote_decision = self._get_downvote_decision(obj)
         return QuestionProtectionService.build_downvote_reason_message(
             downvote_decision.reason_code,
@@ -206,12 +234,67 @@ class QuestionProtectionMixin:
         )
 
 
-class QuestionGetSerializer(QuestionProtectionMixin, serializers.ModelSerializer):
+class AuthorReputationMixin(serializers.Serializer):
+    author_reputation_field_names = [
+        'user_name',
+        'user_avatar_url',
+        'user_avatar_updated_at',
+        'user_reputation_score',
+        'reputation',
+    ]
+
+    user_name = serializers.SerializerMethodField()
+    user_avatar_url = serializers.ImageField(source='user.user_avatar_url', read_only=True)
+    user_avatar_updated_at = serializers.DateTimeField(source='user.user_avatar_updated_at', read_only=True)
+    user_reputation_score = serializers.SerializerMethodField()
+    reputation = serializers.SerializerMethodField()
+
+    def _get_author_user(self, obj):
+        """Возвращает author пользователя."""
+        return getattr(obj, 'user', None)
+
+    def get_user_name(self, obj):
+        """Возвращает данные пользователя name."""
+        user = self._get_author_user(obj)
+        return user.user_name if user else 'Пользователь удалён'
+
+    def get_user_reputation_score(self, obj):
+        """Возвращает данные пользователя репутации score."""
+        user = self._get_author_user(obj)
+        return user.user_reputation_score if user else None
+
+    def get_reputation(self, obj):
+        """Возвращает данные репутации."""
+        user = self._get_author_user(obj)
+        if user is None:
+            return None
+
+        return ReputationService.get_progress(user)
+
+
+class QuestionFavoriteStateMixin:
+    favorite_field_names = [
+        'favorites_count',
+        'is_favorited',
+    ]
+
+    def get_favorites_count(self, obj: Question):
+        """Возвращает данные избранного count."""
+        return getattr(obj, 'favorites_count', 0) or 0
+
+    def get_is_favorited(self, obj: Question):
+        """Возвращает данные favorited."""
+        return bool(getattr(obj, 'is_favorited', False))
+
+
+class QuestionGetSerializer(AuthorReputationMixin, QuestionFavoriteStateMixin, QuestionProtectionMixin, serializers.ModelSerializer):
     upvotes = serializers.IntegerField(source='vote_upvotes', read_only=True)
     downvotes = serializers.IntegerField(source='vote_downvotes', read_only=True)
     score = serializers.IntegerField(source='vote_score', read_only=True)
     user_vote = serializers.ChoiceField(source='user_vote_type', choices=Vote.VoteType.choices, read_only=True, allow_null=True)
     tags = TagSerializer(many=True, read_only=True)
+    favorites_count = serializers.SerializerMethodField()
+    is_favorited = serializers.SerializerMethodField()
     is_protected = serializers.SerializerMethodField()
     protection_reason_code = serializers.SerializerMethodField()
     protected_until = serializers.SerializerMethodField()
@@ -238,8 +321,16 @@ class QuestionGetSerializer(QuestionProtectionMixin, serializers.ModelSerializer
         fields = '__all__'
 
 
-class QuestionListSerializer(QuestionProtectionMixin, serializers.ModelSerializer):
+class QuestionFavoriteMutationSerializer(serializers.Serializer):
+    question_id = serializers.UUIDField(read_only=True)
+    favorites_count = serializers.IntegerField(read_only=True)
+    is_favorited = serializers.BooleanField(read_only=True)
+
+
+class QuestionListSerializer(AuthorReputationMixin, QuestionFavoriteStateMixin, QuestionProtectionMixin, serializers.ModelSerializer):
     tags = TagSerializer(many=True, read_only=True)
+    favorites_count = serializers.SerializerMethodField()
+    is_favorited = serializers.SerializerMethodField()
     is_protected = serializers.SerializerMethodField()
     protection_reason_code = serializers.SerializerMethodField()
     protected_until = serializers.SerializerMethodField()
@@ -270,7 +361,9 @@ class QuestionListSerializer(QuestionProtectionMixin, serializers.ModelSerialize
             'question_status',
             'question_created_at',
             'question_updated_at',
+            *AuthorReputationMixin.author_reputation_field_names,
             'tags',
+            *QuestionFavoriteStateMixin.favorite_field_names,
             *QuestionProtectionMixin.protection_field_names,
         ]
 
@@ -281,6 +374,7 @@ class QuestionDraftAssistRequestSerializer(serializers.Serializer):
     mode = serializers.ChoiceField(choices=['create', 'edit'], required=False, default='create')
 
     def validate_question_title(self, value):
+        """Проверяет поле вопроса title перед сохранением."""
         normalized_value = value.strip()
 
         if not normalized_value:
@@ -289,6 +383,7 @@ class QuestionDraftAssistRequestSerializer(serializers.Serializer):
         return normalized_value
 
     def validate_question_body(self, value):
+        """Проверяет поле вопроса body перед сохранением."""
         normalized_value = value.strip()
 
         if not normalized_value:
@@ -297,6 +392,7 @@ class QuestionDraftAssistRequestSerializer(serializers.Serializer):
         return normalized_value
 
     def validate_tags(self, value):
+        """Проверяет поле тегов перед сохранением."""
         return normalize_question_tags(value)
 
 
@@ -331,6 +427,7 @@ class QuestionUpdateCreateSerializer(serializers.ModelSerializer):
         fields = ['question_title', 'question_body', 'tags']
 
     def validate_question_title(self, value):
+        """Проверяет поле вопроса title перед сохранением."""
         normalized_value = value.strip()
 
         if not normalized_value:
@@ -339,6 +436,7 @@ class QuestionUpdateCreateSerializer(serializers.ModelSerializer):
         return normalized_value
 
     def validate_question_body(self, value):
+        """Проверяет поле вопроса body перед сохранением."""
         normalized_value = value.strip()
 
         if not normalized_value:
@@ -347,9 +445,11 @@ class QuestionUpdateCreateSerializer(serializers.ModelSerializer):
         return normalized_value
 
     def validate_tags(self, value):
+        """Проверяет поле тегов перед сохранением."""
         return normalize_question_tags(value)
 
     def create(self, validated_data):
+        """Создаёт объект из проверенных данных."""
         tag_names = validated_data.pop('tags', [])
 
         with transaction.atomic():
@@ -361,6 +461,7 @@ class QuestionUpdateCreateSerializer(serializers.ModelSerializer):
         return question
 
     def update(self, instance, validated_data):
+        """Обновляет объект проверенными данными."""
         tag_names = validated_data.pop('tags', None)
         instance = super().update(instance, validated_data)
 
@@ -383,6 +484,7 @@ class QuestionEditCreateSerializer(serializers.Serializer):
     tags = serializers.ListField(child=QuestionTagNameField(), required=True, write_only=True)
 
     def validate_question_edit_title_after(self, value):
+        """Проверяет поле вопроса правки title after перед сохранением."""
         normalized_value = value.strip()
 
         if not normalized_value:
@@ -391,6 +493,7 @@ class QuestionEditCreateSerializer(serializers.Serializer):
         return normalized_value
 
     def validate_question_edit_body_after(self, value):
+        """Проверяет поле вопроса правки body after перед сохранением."""
         normalized_value = value.strip()
 
         if not normalized_value:
@@ -399,9 +502,11 @@ class QuestionEditCreateSerializer(serializers.Serializer):
         return normalized_value
 
     def validate_tags(self, value):
+        """Проверяет поле тегов перед сохранением."""
         return normalize_question_tags(value)
 
     def validate(self, data):
+        """Проверяет связанные поля перед сохранением."""
         question = data['question']
         user = self.context.get('request').user
         title_after = data.get('question_edit_title_after') or data.get('question_title')
@@ -440,6 +545,7 @@ class QuestionEditCreateSerializer(serializers.Serializer):
         return data
 
     def create(self, validated_data):
+        """Создаёт объект из проверенных данных."""
         question = validated_data.pop('question')
         validated_data.pop('question_title', None)
         validated_data.pop('question_body', None)
@@ -479,6 +585,8 @@ class EligibleExpertCandidateSerializer(serializers.Serializer):
     reputation_level = serializers.ChoiceField(choices=CustomUser.ReputationLevel.choices, read_only=True)
     reputation_level_label = serializers.CharField(read_only=True)
     is_manual_override = serializers.BooleanField(read_only=True)
+    topic_score = serializers.DecimalField(max_digits=12, decimal_places=4, read_only=True)
+    topic_match_count = serializers.IntegerField(read_only=True)
 
 
 class EligibleExpertsResponseSerializer(serializers.Serializer):
@@ -575,9 +683,11 @@ class QuestionEditProposalResponseSerializer(serializers.ModelSerializer):
         ]
 
     def get_question_author_name(self, obj: QuestionEditProposal) -> str:
+        """Возвращает данные вопроса автора name."""
         return obj.question.user.user_name if obj.question.user else 'Автор вопроса'
 
     def get_edit_author_name(self, obj: QuestionEditProposal) -> str:
+        """Возвращает данные правки автора name."""
         return obj.author.user_name if obj.author else 'Пользователь удалён'
 
 
@@ -609,6 +719,7 @@ class QuestionRevisionSerializer(serializers.ModelSerializer):
         ]
 
     def get_actor_name(self, obj: QuestionRevision) -> str:
+        """Возвращает данные actor name."""
         return obj.actor.user_name if obj.actor else 'Пользователь удалён'
 
 
@@ -629,11 +740,11 @@ class QuestionEditEventSerializer(serializers.ModelSerializer):
         ]
 
     def get_actor_name(self, obj: QuestionEditEvent) -> str:
+        """Возвращает данные actor name."""
         return obj.actor.user_name if obj.actor else 'Пользователь удалён'
 
-class SolutionListSerializer(serializers.ModelSerializer):
+class SolutionListSerializer(AuthorReputationMixin, serializers.ModelSerializer):
     question_id = serializers.UUIDField(source='question.question_id', read_only=True)
-    user_name = serializers.CharField(source='user.user_name', read_only=True)
     upvotes = serializers.IntegerField(source='vote_upvotes', read_only=True)
     downvotes = serializers.IntegerField(source='vote_downvotes', read_only=True)
     score = serializers.IntegerField(source='vote_score', read_only=True)
@@ -641,7 +752,7 @@ class SolutionListSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Solution
-        fields = ['solution_id', 'user', 'user_name', 'question_id', 'solution_body', 'solution_is_best',
+        fields = ['solution_id', 'user', *AuthorReputationMixin.author_reputation_field_names, 'question_id', 'solution_body', 'solution_is_best',
                   'solution_created_at', 'solution_updated_at', 'upvotes', 'downvotes', 'score', 'user_vote']
 
 class SolutionCreateSerializer(serializers.ModelSerializer):
@@ -651,6 +762,7 @@ class SolutionCreateSerializer(serializers.ModelSerializer):
 
     @staticmethod
     def _raise_protected_newcomer_answer_denied(answer_decision) -> None:
+        """Обрабатывает защищённый режим новичка ответ отказ."""
         message = QuestionProtectionService.build_answer_denied_message(answer_decision)
         permission_error = PermissionDenied(detail=message)
         permission_error.detail = {
@@ -660,6 +772,7 @@ class SolutionCreateSerializer(serializers.ModelSerializer):
         raise permission_error
 
     def validate(self, data):
+        """Проверяет связанные поля перед сохранением."""
         user = self.context.get('request').user
         question = data.get('question')
 
@@ -680,15 +793,14 @@ class SolutionBestSerializer(serializers.Serializer):
     solution_is_best = serializers.BooleanField()
 
 
-class SolutionCreateResponseSerializer(serializers.ModelSerializer):
-    user_name = serializers.CharField(source='user.user_name', read_only=True)
+class SolutionCreateResponseSerializer(AuthorReputationMixin, serializers.ModelSerializer):
 
     class Meta:
         model = Solution
         fields = [
             'solution_id',
             'user',
-            'user_name',
+            *AuthorReputationMixin.author_reputation_field_names,
             'question',
             'solution_body',
             'solution_is_best',
@@ -706,6 +818,7 @@ class SolutionEditCreateSerializer(serializers.ModelSerializer):
         fields = ['solution', 'solution_edit_body_after']
 
     def validate(self, data):
+        """Проверяет связанные поля перед сохранением."""
         user = self.context.get('request').user
         solution = data.get('solution')
 
@@ -715,6 +828,7 @@ class SolutionEditCreateSerializer(serializers.ModelSerializer):
         return data
 
     def create(self, validated_data):
+        """Создаёт объект из проверенных данных."""
         original_solution = validated_data['solution']
 
         solution_edit = SolutionEdits.objects.create(
@@ -740,6 +854,7 @@ class SolutionEditCreateResponseSerializer(serializers.ModelSerializer):
 
 
 def build_solution_excerpt(value: str, limit: int = 180) -> str:
+    """Собирает данные решения excerpt в нужный формат."""
     normalized_value = re.sub(r'\s+', ' ', value).strip()
 
     if len(normalized_value) <= limit:
@@ -779,25 +894,26 @@ class SolutionEditHistorySerializer(serializers.ModelSerializer):
         ]
 
     def get_solution_owner_name(self, obj: SolutionEdits) -> str:
+        """Возвращает данные решения владельца name."""
         return obj.solution.user.user_name if obj.solution.user else 'Автор решения'
 
     def get_edit_author_name(self, obj: SolutionEdits) -> str:
+        """Возвращает данные правки автора name."""
         return obj.user.user_name if obj.user else 'Пользователь удалён'
 
     def get_solution_excerpt(self, obj: SolutionEdits) -> str:
+        """Возвращает данные решения excerpt."""
         return build_solution_excerpt(obj.solution_edit_body_before)
 
 
-class CommentListSerializer(serializers.ModelSerializer):
+class CommentListSerializer(AuthorReputationMixin, serializers.ModelSerializer):
     target_type = serializers.CharField(read_only=True)
-    user_name = serializers.CharField(source='user.user_name', read_only=True)
-    user_avatar_url = serializers.ImageField(source='user.user_avatar_url', read_only=True)
     parent_id = serializers.UUIDField(source='parent.comment_id', read_only=True)
     target_id = serializers.UUIDField(source='object_id', read_only=True)
 
     class Meta:
         model = Comment
-        fields = ['comment_id', 'user', 'user_name', 'user_avatar_url', 'target_type',
+        fields = ['comment_id', 'user', *AuthorReputationMixin.author_reputation_field_names, 'target_type',
                   'target_id', 'parent_id', 'body', 'created_at']
 
 
@@ -817,6 +933,7 @@ class CommentCreateSerializer(serializers.ModelSerializer):
         fields = ['target_type', 'target_id', 'parent_id', 'body']
 
     def validate_body(self, value):
+        """Проверяет поле body перед сохранением."""
         normalized_value = value.strip()
 
         if not normalized_value:
@@ -828,6 +945,7 @@ class CommentCreateSerializer(serializers.ModelSerializer):
         return normalized_value
 
     def validate(self, data):
+        """Проверяет связанные поля перед сохранением."""
         target_type = data.get('target_type')
         target_id = data.get('target_id')
         parent_id = data.get('parent_id')
@@ -858,6 +976,7 @@ class CommentCreateSerializer(serializers.ModelSerializer):
         return data
 
     def create(self, validated_data):
+        """Создаёт объект из проверенных данных."""
         target_type = validated_data.pop('target_type')
         target_id = validated_data.pop('target_id')
         parent_id = validated_data.pop('parent_id', None)
@@ -888,34 +1007,30 @@ class CommentCreateSerializer(serializers.ModelSerializer):
         return comment
 
 
-class CommentCreateResponseSerializer(serializers.ModelSerializer):
+class CommentCreateResponseSerializer(AuthorReputationMixin, serializers.ModelSerializer):
     target_type = serializers.CharField(read_only=True)
-    user_name = serializers.CharField(source='user.user_name', read_only=True)
-    user_avatar_url = serializers.ImageField(source='user.user_avatar_url', read_only=True)
     parent_id = serializers.UUIDField(source='parent.comment_id', read_only=True)
     target_id = serializers.UUIDField(source='object_id', read_only=True)
 
     class Meta:
         model = Comment
-        fields = ['comment_id', 'user', 'user_name', 'user_avatar_url', 'target_type',
+        fields = ['comment_id', 'user', *AuthorReputationMixin.author_reputation_field_names, 'target_type',
                   'target_id', 'parent_id', 'body', 'created_at']
 
 
-class CommentDetailSerializer(serializers.ModelSerializer):
+class CommentDetailSerializer(AuthorReputationMixin, serializers.ModelSerializer):
     target_type = serializers.CharField(read_only=True)
-    user_name = serializers.CharField(source='user.user_name', read_only=True)
-    user_avatar_url = serializers.ImageField(source='user.user_avatar_url', read_only=True)
     parent_id = serializers.UUIDField(source='parent.comment_id', read_only=True)
     target_id = serializers.UUIDField(source='object_id', read_only=True)
     replies = serializers.SerializerMethodField()
 
     class Meta:
         model = Comment
-        fields = ['comment_id', 'user', 'user_name', 'user_avatar_url', 'target_type',
+        fields = ['comment_id', 'user', *AuthorReputationMixin.author_reputation_field_names, 'target_type',
                   'target_id', 'parent_id', 'body', 'created_at', 'replies']
 
     def get_replies(self, obj):
-        """Возвращает список ответов на комментарий"""
+        """Возвращает данные replies."""
         replies = getattr(obj, 'prefetched_replies', None)
         if replies is None:
             replies = Comment.objects.filter(parent=obj).select_related('user', 'content_type').order_by('created_at')
@@ -941,6 +1056,7 @@ class VoteCreateSerializer(serializers.Serializer):
     vote_type = serializers.ChoiceField(choices=[('up', 'Upvote'), ('down', 'Downvote')])
 
     def validate(self, data):
+        """Проверяет связанные поля перед сохранением."""
         user = self.context.get('request').user
         target_type = data.get('target_type')
         target_id = data.get('target_id')

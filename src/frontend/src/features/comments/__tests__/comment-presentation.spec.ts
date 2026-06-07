@@ -32,6 +32,15 @@ function buildComment(body: string) {
     user: 'user-1',
     user_name: 'Комментатор',
     user_avatar_url: null,
+    user_reputation_score: 128,
+    reputation: {
+      score: 128,
+      level: 'expert' as const,
+      level_label: 'Эксперт',
+      next_level: 'master',
+      next_level_label: 'Мастер',
+      points_to_next_level: 172,
+    },
     target_type: 'question' as const,
     target_id: 'question-1',
     parent_id: null,
@@ -119,6 +128,9 @@ describe('comment presentation polish', () => {
     const body = wrapper.get('.comment-thread-item__body')
 
     expect(wrapper.text()).toContain('09.04.2026, 14:32')
+    expect(wrapper.get('[data-testid="author-reputation-badge"]').text()).toContain('Эксперт')
+    expect(wrapper.get('[data-testid="reputation-rank-icon"]').attributes('data-rank-level')).toBe('expert')
+    expect(wrapper.findAll('[data-rank-part="star"]')).toHaveLength(3)
     expect(body.classes()).toContain('comment-thread-item__body--clamped')
     expect(wrapper.text()).toContain('Развернуть')
 

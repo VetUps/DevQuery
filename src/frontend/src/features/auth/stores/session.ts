@@ -1,3 +1,4 @@
+// Кратко: хранит состояние и действия для экрана.
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 

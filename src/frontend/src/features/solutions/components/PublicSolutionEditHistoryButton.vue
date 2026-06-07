@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// Кратко: отвечает за часть интерфейса.
 import { ref } from 'vue'
 
 import AppButton from '@/shared/ui/AppButton.vue'

@@ -1,3 +1,4 @@
+// Кратко: держит основную логику этого файла.
 import type { VoteType } from '@/features/votes/api/votes'
 
 export interface VoteState {

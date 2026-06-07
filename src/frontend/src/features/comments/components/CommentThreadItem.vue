@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// Кратко: отвечает за часть интерфейса.
 import { computed, nextTick, ref, useTemplateRef, watch } from 'vue'
 
 import type {
@@ -7,6 +8,8 @@ import type {
   CommentThreadItem as CommentThreadEntry,
 } from '@/features/comments/api/comments'
 import CommentComposer from '@/features/comments/components/CommentComposer.vue'
+import AuthorReputationBadge from '@/features/users/components/AuthorReputationBadge.vue'
+import UserAvatar from '@/shared/ui/UserAvatar.vue'
 import { useCreateCommentMutation } from '@/features/comments/mutations/useCreateCommentMutation'
 import {
   extractCommentFieldErrors,
@@ -123,7 +126,14 @@ async function handleReplySubmit(body: string) {
     :class="{ 'comment-thread-item--highlighted': isHighlighted }"
   >
     <div class="comment-thread-item__meta">
-      <strong class="comment-thread-item__author">{{ comment.user_name }}</strong>
+      <span class="comment-thread-item__identity">
+        <UserAvatar :url="comment.user_avatar_url" :version="comment.user_avatar_updated_at" size="sm" class="comment-thread-item__avatar" />
+        <strong class="comment-thread-item__author">{{ comment.user_name }}</strong>
+        <AuthorReputationBadge
+          :reputation="comment.reputation"
+          :fallback-score="comment.user_reputation_score"
+        />
+      </span>
       <span class="comment-thread-item__timestamp">{{ formatDateTime(comment.created_at) }}</span>
     </div>
 
@@ -224,6 +234,18 @@ async function handleReplySubmit(body: string) {
   gap: var(--space-sm);
   color: var(--color-muted);
   font-size: 14px;
+}
+
+.comment-thread-item__identity {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs);
+  min-width: 0;
+}
+
+.comment-thread-item__avatar {
+  flex-shrink: 0;
 }
 
 .comment-thread-item__author {

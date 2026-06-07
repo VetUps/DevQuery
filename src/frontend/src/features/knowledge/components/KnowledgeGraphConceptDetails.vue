@@ -1,11 +1,14 @@
 <script setup lang="ts">
+// Кратко: отвечает за часть интерфейса.
 import { computed, shallowRef, watch } from 'vue'
+import { RouterLink } from 'vue-router'
 
 import type {
   KnowledgeGraphEdge,
   KnowledgeGraphNode,
   KnowledgeGraphRelatedQuestion,
 } from '@/features/knowledge/api/knowledgeGraph'
+import { buildConceptQuestionDiscoveryRoute } from './knowledgeGraphQuestionDiscovery'
 
 const props = defineProps<{
   selectedNode: KnowledgeGraphNode | null
@@ -19,6 +22,9 @@ const selectedNeighbourId = shallowRef<number | null>(null)
 
 const selectedRelatedQuestions = computed(() => props.selectedNode?.related_questions ?? [])
 const selectedActivityBreakdown = computed(() => props.selectedNode?.activity_breakdown ?? [])
+const selectedDiscoveryRoute = computed(() => (
+  props.selectedNode ? buildConceptQuestionDiscoveryRoute(props.selectedNode) : null
+))
 const selectedNeighbourEdge = computed(() => {
   if (!props.selectedNode || selectedNeighbourId.value === null) {
     return null
@@ -190,19 +196,27 @@ watch(
       <section class="knowledge-details__block knowledge-details__questions-card" aria-labelledby="knowledge-selected-questions-title">
         <div>
           <h4 id="knowledge-selected-questions-title">Связанные вопросы</h4>
-          <p class="knowledge-details__muted">
-            {{ selectedRelatedQuestions.length }} вопросов доступны в отдельном окне, чтобы панель концепта оставалась компактной.
-          </p>
+          <p class="knowledge-details__muted">{{ selectedRelatedQuestions.length }} вопросов доступны</p>
         </div>
-        <button
-          class="knowledge-details__action"
-          type="button"
-          data-testid="knowledge-related-questions-open"
-          :disabled="selectedRelatedQuestions.length === 0"
-          @click="openRelatedQuestionsModal"
-        >
-          Связанные вопросы
-        </button>
+        <div class="knowledge-details__actions">
+          <RouterLink
+            v-if="selectedDiscoveryRoute"
+            class="knowledge-details__action knowledge-details__discovery-link"
+            :to="selectedDiscoveryRoute"
+            data-testid="knowledge-selected-concept-discovery"
+          >
+            Открыть вопросы по концепту
+          </RouterLink>
+          <button
+            class="knowledge-details__action"
+            type="button"
+            data-testid="knowledge-related-questions-open"
+            :disabled="selectedRelatedQuestions.length === 0"
+            @click="openRelatedQuestionsModal"
+          >
+            Связанные вопросы
+          </button>
+        </div>
       </section>
     </div>
 
@@ -416,7 +430,8 @@ watch(
 .knowledge-details__block,
 .knowledge-details__questions-card,
 .knowledge-details__section-heading,
-.knowledge-details__edge-card {
+.knowledge-details__edge-card,
+.knowledge-details__actions {
   display: grid;
   gap: var(--space-sm);
 }
@@ -478,6 +493,14 @@ watch(
   transition-duration: 160ms;
   transition-property: background-color, border-color, box-shadow, transform;
   transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+}
+
+.knowledge-details__discovery-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-accent);
+  text-decoration: none;
 }
 
 .knowledge-details__neighbour-option {

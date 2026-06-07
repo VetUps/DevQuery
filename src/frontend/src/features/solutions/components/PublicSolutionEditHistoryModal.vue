@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// Кратко: отвечает за часть интерфейса.
 import { computed, ref, watch } from 'vue'
 
 import SolutionEditComparePane from '@/features/solutions/components/SolutionEditComparePane.vue'

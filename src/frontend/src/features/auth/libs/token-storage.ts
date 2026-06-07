@@ -1,3 +1,4 @@
+// Кратко: держит основную логику этого файла.
 export const ACCESS_TOKEN_STORAGE_KEY = 'so2.accessToken'
 export const REFRESH_TOKEN_STORAGE_KEY = 'so2.refreshToken'
 

@@ -1,16 +1,41 @@
 from decimal import Decimal
+from unittest.mock import patch
 from uuid import uuid4
 
+from django.apps import apps
 from django.contrib.contenttypes.models import ContentType
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from apps.knowledge.models import KnowledgeConcept, QuestionConceptEdge, UserConceptActivity, UserKnowledgeGraphState
+from apps.knowledge.models import (
+    KnowledgeConcept,
+    QuestionConceptEdge,
+    UserConceptActivity,
+    UserKnowledgeGraphSemanticGroup,
+    UserKnowledgeGraphSemanticGroupMembership,
+    UserKnowledgeGraphSemanticState,
+    UserKnowledgeGraphState,
+)
 from apps.qa.models import Question, Tag
 from apps.user.models import CustomUser
 
 
 class KnowledgeGraphAPIContractTests(APITestCase):
+    SCORING_V2_INSIGHT_ONLY_FIELDS = {
+        'state_score',
+        'strength_score',
+        'freshness_score',
+        'connectivity_score',
+        'diversity_score',
+        'confidence_score',
+        'confidence_band',
+        'owner_graph_degree',
+        'owner_visible_related_question_count',
+        'activity_types',
+        'evidence',
+    }
+
     def setUp(self):
         self.owner = CustomUser.objects.create_user(
             user_email='graph-owner@example.com',
@@ -113,8 +138,191 @@ class KnowledgeGraphAPIContractTests(APITestCase):
         self.assertNotIn('source_object_id', rendered)
         self.assertNotIn('idempotency_key', rendered)
         self.assertNotIn('raw_events', rendered)
-        self.assertNotIn('token', rendered)
         self.assertNotIn('activity_service.py', rendered)
+        self.assert_no_sensitive_token_material(payload)
+
+    def assert_no_sensitive_token_material(self, payload):
+        """Allow aggregate token-count telemetry while blocking token secrets."""
+        sensitive_key_names = {
+            'token',
+            'access_token',
+            'refresh_token',
+            'api_token',
+            'auth_token',
+            'secret_token',
+            'provider_token',
+        }
+        sensitive_value_fragments = ('bearer ', 'sk_live_', 'sk_test_', 'secret_token')
+        allowed_token_telemetry_keys = {'estimated_token_count'}
+        leaked_paths = []
+
+        def walk(value, path='payload'):
+            if isinstance(value, dict):
+                for key, nested in value.items():
+                    key_text = str(key).lower()
+                    current_path = f'{path}.{key}'
+                    if key_text in sensitive_key_names and key_text not in allowed_token_telemetry_keys:
+                        leaked_paths.append(current_path)
+                    walk(nested, current_path)
+                return
+            if isinstance(value, (list, tuple)):
+                for index, nested in enumerate(value):
+                    walk(nested, f'{path}[{index}]')
+                return
+            if isinstance(value, str):
+                lower_value = value.lower()
+                if any(fragment in lower_value for fragment in sensitive_value_fragments):
+                    leaked_paths.append(path)
+
+        walk(payload)
+        self.assertEqual(leaked_paths, [], f'Graph payload leaked sensitive token material at: {leaked_paths}')
+
+    def assert_owner_semantic_payload_is_aggregate_safe(self, payload):
+        rendered = repr(payload)
+        forbidden_terms = {
+            'embedding-provider',
+            'embedding-model',
+            'grouping-provider',
+            'grouping-model',
+            'content_hash',
+            'vector_payload',
+            'source_id',
+            'sk_live_semantic_secret',
+            'semantic-provider-raw-output',
+            'Traceback',
+            'provider-stack.py',
+            'graph-owner@example.com',
+            'Private question body',
+        }
+        leaked_terms = sorted(term for term in forbidden_terms if term in rendered)
+        self.assertEqual(leaked_terms, [], f'Owner graph leaked semantic/provider internals: {leaked_terms}')
+
+    def assert_semantic_payload_is_absent_from_public_graph_read(self, payload):
+        rendered = repr(payload)
+        forbidden_terms = {
+            'semantic_edges',
+            'semantic_groups',
+            'semantic_neighbour',
+            'embedding',
+            'grouping',
+            'group_key',
+            'group_label',
+            'budget_cap',
+            'estimated_cost',
+            'estimated_token_count',
+            'source_item_count',
+            'snapshot',
+            'candidate',
+            'content_hash',
+            'vector_payload',
+            'source_id',
+            'changed_source_count',
+            'provider_called_source_count',
+            'neighbour_candidate_count',
+            'sk_live_semantic_secret',
+            'semantic-provider-raw-output',
+            'Traceback',
+            'provider-stack.py',
+            'backend-architecture',
+            'Архитектура бэкенда',
+            'Безопасная агрегированная тема',
+            'concept_slugs',
+            'shared_candidate',
+        }
+        leaked_terms = sorted(term for term in forbidden_terms if term in rendered)
+        self.assertEqual(leaked_terms, [], f'Public/question graph read leaked semantic/provider internals: {leaked_terms}')
+
+    def assert_scoring_v2_payload_is_absent_from_graph_read(self, payload):
+        leaked_terms = sorted(
+            field
+            for section_name in ('concepts', 'nodes')
+            for entry in payload.get(section_name, [])
+            for field in self.SCORING_V2_INSIGHT_ONLY_FIELDS
+            if field in entry
+        )
+        self.assertEqual(leaked_terms, [], f'Graph read leaked scoring-v2 owner-only insight fields: {leaked_terms}')
+
+    def test_graph_read_endpoints_do_not_touch_semantic_provider_factories_or_leak_semantic_state(self):
+        UserKnowledgeGraphSemanticState.objects.create(
+            user=self.owner,
+            status=UserKnowledgeGraphSemanticState.Status.PROVIDER_ERROR,
+            reason_code='provider_error',
+            phase='semantic_provider',
+            enabled=True,
+            dry_run=False,
+            source_provider='semantic-provider-raw-output',
+            source_model='embedding-model',
+            grouping_provider='grouping-provider',
+            grouping_model='grouping-model',
+            source_item_count=3,
+            semantic_group_count=1,
+            semantic_group_membership_count=2,
+            estimated_token_count=999,
+            estimated_cost=Decimal('12.345678'),
+            budget_cap=Decimal('1.000000'),
+            last_error_message='sk_live_semantic_secret Traceback provider-stack.py graph-owner@example.com Private question body',
+        )
+        private_group = UserKnowledgeGraphSemanticGroup.objects.create(
+            user=self.owner,
+            provider='grouping-provider',
+            model='grouping-model',
+            group_key='backend-architecture',
+            label='Архитектура бэкенда',
+            description='Безопасная агрегированная тема по связанным понятиям.',
+            rationale='Понятия часто используются вместе в графе владельца.',
+            confidence=Decimal('0.9100'),
+            evidence={'concept_slugs': ['django', 'rest-api'], 'candidate_count': 1},
+            generated_at=timezone.now(),
+        )
+        UserKnowledgeGraphSemanticGroupMembership.objects.create(
+            group=private_group,
+            concept=self.django,
+            rank=1,
+            confidence=Decimal('0.9300'),
+            evidence={'reason': 'shared_candidate', 'rank': 1},
+        )
+        UserKnowledgeGraphSemanticGroupMembership.objects.create(
+            group=private_group,
+            concept=self.rest,
+            rank=2,
+            confidence=Decimal('0.8900'),
+            evidence={'reason': 'shared_candidate', 'rank': 2},
+        )
+
+        def fail_provider_factory(*args, **kwargs):
+            raise AssertionError('Semantic provider factory must not be touched by graph GET reads.')
+
+        with patch(
+            'apps.knowledge.services.semantic_rebuild_service.create_source_provider',
+            side_effect=fail_provider_factory,
+        ) as source_factory, patch(
+            'apps.knowledge.services.semantic_rebuild_service.create_grouping_provider',
+            side_effect=fail_provider_factory,
+        ) as grouping_factory:
+            self.client.force_authenticate(self.owner)
+            own_response = self.client.get('/knowledge-graph/me/')
+            owner_public_route_response = self.client.get(f'/knowledge-graph/users/{self.owner.pk}/')
+            self.client.force_authenticate(self.viewer)
+            public_response = self.client.get(f'/knowledge-graph/users/{self.owner.pk}/')
+            question_response = self.client.get(f'/knowledge-graph/questions/{self.question.pk}/')
+
+        self.assertEqual(own_response.status_code, status.HTTP_200_OK, own_response.data)
+        self.assertEqual(owner_public_route_response.status_code, status.HTTP_200_OK, owner_public_route_response.data)
+        self.assertEqual(public_response.status_code, status.HTTP_200_OK, public_response.data)
+        self.assertEqual(question_response.status_code, status.HTTP_200_OK, question_response.data)
+        source_factory.assert_not_called()
+        grouping_factory.assert_not_called()
+        self.assertIn('semantic_groups', own_response.data)
+        self.assertIn('semantic_groups', owner_public_route_response.data)
+        self.assertEqual(own_response.data['semantic_groups'], owner_public_route_response.data['semantic_groups'])
+        for payload in [own_response.data, owner_public_route_response.data]:
+            self.assert_private_activity_fields_are_redacted(payload)
+            self.assert_owner_semantic_payload_is_aggregate_safe(payload)
+            self.assert_scoring_v2_payload_is_absent_from_graph_read(payload)
+        for payload in [public_response.data, question_response.data]:
+            self.assert_private_activity_fields_are_redacted(payload)
+            self.assert_semantic_payload_is_absent_from_public_graph_read(payload)
+            self.assert_scoring_v2_payload_is_absent_from_graph_read(payload)
 
     def test_own_graph_returns_aggregate_owner_contract(self):
         self.client.force_authenticate(self.owner)

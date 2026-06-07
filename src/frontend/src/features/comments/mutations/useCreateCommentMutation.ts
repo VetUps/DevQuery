@@ -1,3 +1,4 @@
+// Кратко: держит основную логику этого файла.
 import { useMutation } from '@tanstack/vue-query'
 
 import type { UserProfile } from '@/features/auth/api/auth'
@@ -29,6 +30,9 @@ function buildOptimisticComment(
     user: currentUser?.user_id ?? 'current-user',
     user_name: currentUser?.user_name ?? 'Вы',
     user_avatar_url: currentUser?.user_avatar_url ?? null,
+    user_avatar_updated_at: currentUser?.user_avatar_updated_at ?? null,
+    user_reputation_score: currentUser?.user_reputation_score ?? null,
+    reputation: currentUser?.reputation ?? null,
     target_type: payload.target_type,
     target_id: payload.target_id,
     parent_id: payload.parent_id ?? null,

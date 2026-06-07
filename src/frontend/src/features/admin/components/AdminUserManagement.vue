@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// Кратко: отвечает за часть интерфейса.
 import { onMounted, shallowRef } from 'vue'
 
 import AdminUserReputationDetail from '@/features/admin/components/AdminUserReputationDetail.vue'

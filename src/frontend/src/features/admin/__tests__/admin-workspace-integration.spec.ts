@@ -5,6 +5,7 @@ import {
   fetchAdminReputationPolicyConfig,
   fetchAdminUserActivityTimeline,
   fetchAdminUserDetail,
+  fetchAdminUserReputationLedger,
   fetchAdminUsers,
   updateAdminReputationPolicyConfig,
   updateAdminUserManualOverride,
@@ -13,6 +14,7 @@ import {
   type AdminUserActivityTimeline,
   type AdminUserDetail,
   type AdminUserListRow,
+  type AdminUserReputationLedgerPage,
 } from '@/features/admin/api/admin'
 import type { UserProfile } from '@/features/auth/api/auth'
 import type { ReputationLedgerEntry, ReputationSummary } from '@/features/users/api/reputation'
@@ -35,6 +37,7 @@ vi.mock('@/features/admin/api/admin', async (importOriginal) => {
     ...actual,
     fetchAdminUsers: vi.fn(),
     fetchAdminUserDetail: vi.fn(),
+    fetchAdminUserReputationLedger: vi.fn(),
     fetchAdminUserActivityTimeline: vi.fn(),
     updateAdminUserManualOverride: vi.fn(),
     fetchAdminReputationPolicyConfig: vi.fn(),
@@ -50,6 +53,7 @@ vi.mock('@/layouts/AppShellLayout.vue', () => ({
 
 const mockedFetchAdminUsers = vi.mocked(fetchAdminUsers)
 const mockedFetchAdminUserDetail = vi.mocked(fetchAdminUserDetail)
+const mockedFetchAdminUserReputationLedger = vi.mocked(fetchAdminUserReputationLedger)
 const mockedFetchAdminUserActivityTimeline = vi.mocked(fetchAdminUserActivityTimeline)
 const mockedUpdateAdminUserManualOverride = vi.mocked(updateAdminUserManualOverride)
 const mockedFetchPolicy = vi.mocked(fetchAdminReputationPolicyConfig)
@@ -137,8 +141,19 @@ function buildActivityTimeline(overrides: Partial<AdminUserActivityTimeline> = {
   return {
     items: [buildActivityItem()],
     count: 1,
-    limit: 25,
+    page: 1,
+    limit: 10,
     available_types: ['question', 'comment', 'reputation'],
+    ...overrides,
+  }
+}
+
+function buildLedgerPage(overrides: Partial<AdminUserReputationLedgerPage> = {}): AdminUserReputationLedgerPage {
+  return {
+    count: 1,
+    next: null,
+    previous: null,
+    results: [buildLedgerEntry()],
     ...overrides,
   }
 }
@@ -247,6 +262,7 @@ describe('Admin workspace integration', () => {
     currentUserState.isError.value = false
     mockedFetchAdminUsers.mockResolvedValue([buildUser()])
     mockedFetchAdminUserDetail.mockResolvedValue(buildDetail())
+    mockedFetchAdminUserReputationLedger.mockResolvedValue(buildLedgerPage())
     mockedFetchAdminUserActivityTimeline.mockResolvedValue(buildActivityTimeline())
     mockedUpdateAdminUserManualOverride.mockResolvedValue(buildDetail({
       reputation: buildReputationSummary({
@@ -300,7 +316,7 @@ describe('Admin workspace integration', () => {
     await settle()
 
     expect(mockedFetchAdminUserDetail).toHaveBeenCalledWith('user-1')
-    expect(mockedFetchAdminUserActivityTimeline).toHaveBeenCalledWith({ userId: 'user-1', types: [], limit: 25 })
+    expect(mockedFetchAdminUserActivityTimeline).toHaveBeenCalledWith({ userId: 'user-1', types: [], limit: 10, page: 1 })
     expect(modalWrapper('admin-user-detail-tab-details').attributes('aria-selected')).toBe('true')
     expect(modalText('admin-user-reputation-summary')).toContain('Эксперт')
 
@@ -315,7 +331,7 @@ describe('Admin workspace integration', () => {
     await modalWrapper('admin-user-activity-filter-comment').trigger('click')
     await settle()
 
-    expect(mockedFetchAdminUserActivityTimeline).toHaveBeenLastCalledWith({ userId: 'user-1', types: ['comment'], limit: 25 })
+    expect(mockedFetchAdminUserActivityTimeline).toHaveBeenLastCalledWith({ userId: 'user-1', types: ['comment'], limit: 10, page: 1 })
     expect(modalWrapper('admin-user-activity-filter-comment').attributes('aria-pressed')).toBe('true')
     expect(modalText('admin-user-activity-item-comment-comment-1')).toContain('Комментарий добавлен')
 
@@ -451,6 +467,7 @@ describe('Admin workspace integration', () => {
     mockedFetchAdminUsers.mockResolvedValue([buildUser()])
     mockedFetchPolicy.mockResolvedValue(buildPolicy())
     mockedFetchAdminUserDetail.mockResolvedValue(buildDetail({ reputation_ledger: [] }))
+    mockedFetchAdminUserReputationLedger.mockResolvedValue(buildLedgerPage({ count: 0, results: [] }))
     mockedFetchAdminUserActivityTimeline.mockResolvedValue(buildActivityTimeline({ items: [], count: 0 }))
 
     const emptyWrapper = await mountWorkspace()

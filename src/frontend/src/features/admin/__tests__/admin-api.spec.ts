@@ -112,6 +112,7 @@ function buildAdminUserActivityTimeline(
   return {
     items: [buildAdminUserActivityItem()],
     count: 1,
+    page: 1,
     limit: 25,
     available_types: [
       'comment',

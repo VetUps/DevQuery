@@ -1,3 +1,4 @@
+// Кратко: держит основную логику этого файла.
 import { useMutation } from '@tanstack/vue-query'
 
 import { queryClient } from '@/app/query-client'

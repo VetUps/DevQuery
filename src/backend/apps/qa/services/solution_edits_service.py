@@ -1,3 +1,4 @@
+# Кратко: работает с решениями и их изменениями.
 from django.db import transaction
 from django.db.models import QuerySet
 from django.db.models import Q
@@ -15,6 +16,7 @@ class SolutionEditService:
 
     @staticmethod
     def _base_queryset() -> QuerySet[SolutionEdits]:
+        """Обрабатывает base queryset."""
         return SolutionEdits.objects.select_related(
             'solution__question',
             'solution__user',
@@ -23,11 +25,7 @@ class SolutionEditService:
 
     @staticmethod
     def get_solution_edit(solution_edit_id: str) -> SolutionEdits:
-        """
-        Возвращает правку по её ID
-        :param solution_edit_id: ID правки
-        :return:
-        """
+        """Возвращает данные решения правки."""
         try:
             solution_edit = SolutionEdits.objects.get(
                 solution_edit_id=solution_edit_id
@@ -40,13 +38,7 @@ class SolutionEditService:
     @staticmethod
     @transaction.atomic
     def change_approve(solution_edit_id: str, is_approved: bool, user: CustomUser) -> None:
-        """
-        Разрешает/запрещает правку
-        :param solution_edit_id: ID правки
-        :param is_approved: запрет/разрешение правки
-        :param user: пользователь, который совершает действие
-        :return:
-        """
+        """Обрабатывает change."""
         solution_edit = SolutionEditService.get_solution_edit(solution_edit_id)
 
         # Валидация
@@ -81,6 +73,7 @@ class SolutionEditService:
 
     @staticmethod
     def history(solution_id: str) -> QuerySet[SolutionEdits]:
+        """Возвращает историю правок."""
         solution = SolutionService.get_solution(solution_id)
         solution_edits = (SolutionEditService._base_queryset()
                           .filter(solution=solution, solution_edit_is_approved=True)
@@ -90,6 +83,7 @@ class SolutionEditService:
 
     @staticmethod
     def not_approved(solution_id: str, user: CustomUser) -> QuerySet[SolutionEdits]:
+        """Возвращает неодобренные правки."""
         solution = SolutionService.get_solution(solution_id)
         SolutionEditService.is_user_solution_author(solution, user)
         solution_edits = (SolutionEditService._base_queryset()
@@ -100,6 +94,7 @@ class SolutionEditService:
 
     @staticmethod
     def review_queue(user: CustomUser) -> QuerySet[SolutionEdits]:
+        """Возвращает очередь правок на проверку."""
         return (
             SolutionEditService._base_queryset()
             .filter(solution__user=user, solution_edit_is_approved__isnull=True)
@@ -108,6 +103,7 @@ class SolutionEditService:
 
     @staticmethod
     def my_history(user: CustomUser) -> QuerySet[SolutionEdits]:
+        """Возвращает историю правок текущего пользователя."""
         return (
             SolutionEditService._base_queryset()
             .filter(solution__user=user, solution_edit_is_approved__isnull=False)
@@ -120,28 +116,19 @@ class SolutionEditService:
         solution_edit: SolutionEdits,
         user: CustomUser,
     ) -> None:
-        """
-        Запускает все валидации для процесса смены статуса правки
-        :param solution: Оригинальное решение
-        :param user: пользователь, который совершает действие
-        :return:
-        """
+        """Проверяет change."""
         SolutionEditService.is_user_solution_author(solution, user)
         SolutionEditService._is_solution_edit_in_waiting_status(solution_edit)
 
     @staticmethod
     def is_user_solution_author(solution: Solution, user: CustomUser) -> bool:
-        """
-        Проверяет права пользователя на смену статуса правки
-        :param solution: Оригинальное решение
-        :param user: пользователь, который совершает действие
-        :return:
-        """
+        """Проверяет условие для пользователя решения автора."""
         if solution.user != user:
             raise PermissionDenied('Вы не автор оригинального решения')
         return True
 
     @staticmethod
     def _is_solution_edit_in_waiting_status(solution_edit: SolutionEdits) -> None:
+        """Проверяет условие: решение edit in waiting status."""
         if solution_edit.solution_edit_is_approved is not None:
             raise ValidationError('Правка уже была одобрена/отклонена')

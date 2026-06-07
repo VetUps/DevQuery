@@ -1,6 +1,8 @@
 from datetime import timedelta
 from unittest.mock import patch
 
+from django.contrib.auth.models import AnonymousUser
+from django.contrib.contenttypes.models import ContentType
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 from drf_spectacular.generators import SchemaGenerator
@@ -8,14 +10,17 @@ from rest_framework import status
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.test import APITestCase
 
+from apps.knowledge.models import KnowledgeConcept, QuestionConceptEdge, UserConceptActivity
 from apps.notifications.models import Notification
 from apps.qa.models import (
     Question,
     QuestionEditEvent,
     QuestionEditProposal,
+    QuestionFavorite,
     QuestionRevision,
     Solution,
     SolutionEdits,
+    Comment,
     Tag,
     Vote,
 )
@@ -25,16 +30,433 @@ from apps.qa.serializers import (
     QuestionGetSerializer,
     QuestionListSerializer,
     QuestionUpdateCreateSerializer,
+    SolutionCreateResponseSerializer,
+    SolutionListSerializer,
+    CommentCreateResponseSerializer,
+    CommentDetailSerializer,
+    CommentListSerializer,
     TagSerializer,
 )
 from apps.qa.services.question_edit_service import QuestionChangePayload, QuestionEditService
 from apps.qa.services.question_expert_invitation_service import QuestionExpertInvitationService
+from apps.qa.services.question_favorite_service import QuestionFavoriteService
 from apps.qa.services.question_protection_service import QuestionProtectionService
 from apps.qa.services.solution_edits_service import SolutionEditService
 from apps.qa.services.solution_service import BEST_SOLUTION_REPUTATION_AWARD, SolutionService
 from apps.qa.services.vote_service import VoteService
 from apps.user.models import CustomUser, ReputationLevelThreshold, ReputationPolicyConfig, ReputationTransaction
 from apps.user.services.reputation_service import ReputationService
+
+
+class QuestionFavoriteModelTests(APITestCase):
+    def setUp(self):
+        self.author = CustomUser.objects.create_user(
+            user_email='favorite-author@example.com',
+            user_name='favorite-author',
+            password='password',
+        )
+        self.viewer = CustomUser.objects.create_user(
+            user_email='favorite-viewer@example.com',
+            user_name='favorite-viewer',
+            password='password',
+        )
+        self.question = Question.objects.create(
+            user=self.author,
+            question_title='Favorite persistence question',
+            question_body='Need duplicate-safe favorite rows.',
+        )
+
+    def test_duplicate_user_question_pair_is_rejected(self):
+        QuestionFavorite.objects.create(user=self.viewer, question=self.question)
+
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                QuestionFavorite.objects.create(user=self.viewer, question=self.question)
+
+        self.assertEqual(QuestionFavorite.objects.filter(user=self.viewer, question=self.question).count(), 1)
+
+    def test_user_cascade_removes_favorites(self):
+        QuestionFavorite.objects.create(user=self.viewer, question=self.question)
+
+        self.viewer.delete()
+
+        self.assertFalse(QuestionFavorite.objects.filter(question=self.question).exists())
+
+    def test_question_cascade_removes_favorites(self):
+        QuestionFavorite.objects.create(user=self.viewer, question=self.question)
+
+        self.question.delete()
+
+        self.assertFalse(QuestionFavorite.objects.filter(user=self.viewer).exists())
+
+
+class QuestionFavoriteServiceTests(APITestCase):
+    def setUp(self):
+        self.author = CustomUser.objects.create_user(
+            user_email='favorite-service-author@example.com',
+            user_name='favorite-service-author',
+            password='password',
+        )
+        self.viewer = CustomUser.objects.create_user(
+            user_email='favorite-service-viewer@example.com',
+            user_name='favorite-service-viewer',
+            password='password',
+        )
+        self.other_viewer = CustomUser.objects.create_user(
+            user_email='favorite-service-other@example.com',
+            user_name='favorite-service-other',
+            password='password',
+        )
+        self.question = Question.objects.create(
+            user=self.author,
+            question_title='Favorite service question',
+            question_body='Need idempotent service operations.',
+        )
+        self.other_question = Question.objects.create(
+            user=self.author,
+            question_title='Unfavorited service question',
+            question_body='Need zero-state annotation coverage.',
+        )
+
+    def test_add_favorite_is_idempotent_and_returns_server_truth(self):
+        first_favorite, first_created = QuestionFavoriteService.add_favorite(self.viewer, self.question)
+        second_favorite, second_created = QuestionFavoriteService.add_favorite(self.viewer, self.question)
+
+        self.assertTrue(first_created)
+        self.assertFalse(second_created)
+        self.assertEqual(first_favorite.pk, second_favorite.pk)
+        self.assertEqual(QuestionFavorite.objects.filter(user=self.viewer, question=self.question).count(), 1)
+
+    def test_remove_favorite_is_idempotent(self):
+        QuestionFavoriteService.add_favorite(self.viewer, self.question)
+
+        first_deleted = QuestionFavoriteService.remove_favorite(self.viewer, self.question)
+        second_deleted = QuestionFavoriteService.remove_favorite(self.viewer, self.question)
+
+        self.assertEqual(first_deleted, 1)
+        self.assertEqual(second_deleted, 0)
+        self.assertFalse(QuestionFavorite.objects.filter(user=self.viewer, question=self.question).exists())
+
+    def test_annotate_favorites_returns_public_count_and_authenticated_viewer_state(self):
+        QuestionFavoriteService.add_favorite(self.viewer, self.question)
+        QuestionFavoriteService.add_favorite(self.other_viewer, self.question)
+
+        questions = {
+            question.pk: question
+            for question in QuestionFavoriteService.annotate_favorites(
+                Question.objects.filter(pk__in=[self.question.pk, self.other_question.pk]).order_by('question_title'),
+                user=self.viewer,
+            )
+        }
+
+        self.assertEqual(questions[self.question.pk].favorites_count, 2)
+        self.assertTrue(questions[self.question.pk].is_favorited)
+        self.assertEqual(questions[self.other_question.pk].favorites_count, 0)
+        self.assertFalse(questions[self.other_question.pk].is_favorited)
+
+    def test_annotate_favorites_defaults_anonymous_state_to_false(self):
+        QuestionFavoriteService.add_favorite(self.viewer, self.question)
+
+        annotated_question = QuestionFavoriteService.annotate_favorites(
+            Question.objects.filter(pk=self.question.pk),
+            user=AnonymousUser(),
+        ).get()
+
+        self.assertEqual(annotated_question.favorites_count, 1)
+        self.assertFalse(annotated_question.is_favorited)
+
+    def test_get_favorite_state_uses_annotations_or_database_truth(self):
+        QuestionFavoriteService.add_favorite(self.viewer, self.question)
+        annotated_question = QuestionFavoriteService.annotate_favorites(
+            Question.objects.filter(pk=self.question.pk),
+            user=self.viewer,
+        ).get()
+
+        annotated_state = QuestionFavoriteService.get_favorite_state(annotated_question, self.viewer)
+        direct_state = QuestionFavoriteService.get_favorite_state(self.question, self.viewer)
+        anonymous_state = QuestionFavoriteService.get_favorite_state(self.question, None)
+
+        self.assertEqual(annotated_state, {'favorites_count': 1, 'is_favorited': True})
+        self.assertEqual(direct_state, {'favorites_count': 1, 'is_favorited': True})
+        self.assertEqual(anonymous_state, {'favorites_count': 1, 'is_favorited': False})
+
+
+class QuestionFavoriteApiTests(APITestCase):
+    def setUp(self):
+        self.author = CustomUser.objects.create_user(
+            user_email='favorite-api-author@example.com',
+            user_name='favorite-api-author',
+            password='password',
+        )
+        self.viewer = CustomUser.objects.create_user(
+            user_email='favorite-api-viewer@example.com',
+            user_name='favorite-api-viewer',
+            password='password',
+        )
+        self.other_viewer = CustomUser.objects.create_user(
+            user_email='favorite-api-other@example.com',
+            user_name='favorite-api-other',
+            password='password',
+        )
+        self.question = Question.objects.create(
+            user=self.author,
+            question_title='Favorite API question',
+            question_body='Need list and detail favorite state.',
+        )
+        self.other_question = Question.objects.create(
+            user=self.author,
+            question_title='Other favorite API question',
+            question_body='Need zero-state coverage.',
+        )
+
+    def _list_item(self, response, question):
+        return next(
+            item
+            for item in response.data['results']
+            if item['question_id'] == str(question.question_id)
+        )
+
+    def test_anonymous_list_and_detail_include_public_count_and_false_viewer_state(self):
+        tag = Tag.objects.create(name='django', questions_count=1)
+        self.question.tags.add(tag)
+        QuestionFavoriteService.add_favorite(self.viewer, self.question)
+        QuestionFavoriteService.add_favorite(self.other_viewer, self.question)
+
+        list_response = self.client.get('/question/', {'ordering': 'question_created_at'})
+        detail_response = self.client.get(f'/question/{self.question.question_id}/')
+
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
+        list_item = self._list_item(list_response, self.question)
+        self.assertEqual(list_item['favorites_count'], 2)
+        self.assertFalse(list_item['is_favorited'])
+        self.assertEqual(list_item['tags'], [{'name': 'django', 'questions_count': 1}])
+        self.assertIn('results', list_response.data)
+
+        self.assertEqual(detail_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(detail_response.data['favorites_count'], 2)
+        self.assertFalse(detail_response.data['is_favorited'])
+        self.assertEqual(detail_response.data['tags'], [{'name': 'django', 'questions_count': 1}])
+
+    def test_authenticated_list_and_detail_state_is_viewer_specific_while_count_stays_public(self):
+        QuestionFavoriteService.add_favorite(self.viewer, self.question)
+        QuestionFavoriteService.add_favorite(self.other_viewer, self.question)
+
+        self.client.force_authenticate(self.viewer)
+        viewer_list_response = self.client.get('/question/')
+        viewer_detail_response = self.client.get(f'/question/{self.question.question_id}/')
+
+        self.client.force_authenticate(self.other_viewer)
+        other_detail_response = self.client.get(f'/question/{self.question.question_id}/')
+        other_list_response = self.client.get('/question/')
+
+        self.assertEqual(viewer_list_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(viewer_detail_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(other_list_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(other_detail_response.status_code, status.HTTP_200_OK)
+
+        viewer_item = self._list_item(viewer_list_response, self.question)
+        other_item = self._list_item(other_list_response, self.question)
+        viewer_zero_item = self._list_item(viewer_list_response, self.other_question)
+
+        self.assertEqual(viewer_item['favorites_count'], 2)
+        self.assertTrue(viewer_item['is_favorited'])
+        self.assertEqual(viewer_detail_response.data['favorites_count'], 2)
+        self.assertTrue(viewer_detail_response.data['is_favorited'])
+
+        self.assertEqual(other_item['favorites_count'], 2)
+        self.assertTrue(other_item['is_favorited'])
+        self.assertEqual(other_detail_response.data['favorites_count'], 2)
+        self.assertTrue(other_detail_response.data['is_favorited'])
+
+        self.assertEqual(viewer_zero_item['favorites_count'], 0)
+        self.assertFalse(viewer_zero_item['is_favorited'])
+
+    def test_non_favoriting_authenticated_viewer_gets_false_state_with_public_count(self):
+        QuestionFavoriteService.add_favorite(self.viewer, self.question)
+
+        self.client.force_authenticate(self.other_viewer)
+        list_response = self.client.get('/question/')
+        detail_response = self.client.get(f'/question/{self.question.question_id}/')
+
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(detail_response.status_code, status.HTTP_200_OK)
+        list_item = self._list_item(list_response, self.question)
+        self.assertEqual(list_item['favorites_count'], 1)
+        self.assertFalse(list_item['is_favorited'])
+        self.assertEqual(detail_response.data['favorites_count'], 1)
+        self.assertFalse(detail_response.data['is_favorited'])
+
+    def test_search_ordering_and_repeated_tag_filters_still_use_main_list_contract(self):
+        django = Tag.objects.create(name='django', questions_count=2)
+        drf = Tag.objects.create(name='drf', questions_count=1)
+        self.question.question_title = 'Favorite tagged django drf question'
+        self.question.save(update_fields=['question_title'])
+        self.question.tags.add(django, drf)
+        self.other_question.tags.add(django)
+        QuestionFavoriteService.add_favorite(self.viewer, self.question)
+
+        response = self.client.get(
+            '/question/',
+            {
+                'search': 'tagged',
+                'ordering': 'question_created_at',
+                'tag': ['django', 'drf', 'django'],
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data['results']), 1)
+        item = response.data['results'][0]
+        self.assertEqual(item['question_id'], str(self.question.question_id))
+        self.assertEqual(item['favorites_count'], 1)
+        self.assertFalse(item['is_favorited'])
+        self.assertEqual(
+            item['tags'],
+            [
+                {'name': 'django', 'questions_count': 2},
+                {'name': 'drf', 'questions_count': 1},
+            ],
+        )
+
+    def test_favorite_mutations_require_authentication(self):
+        post_response = self.client.post(f'/question/{self.question.question_id}/favorite/')
+        delete_response = self.client.delete(f'/question/{self.question.question_id}/favorite/')
+        list_response = self.client.get('/question/favorites/')
+
+        self.assertEqual(post_response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(delete_response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(list_response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_repeated_post_is_idempotent_and_returns_server_truth(self):
+        QuestionFavoriteService.add_favorite(self.other_viewer, self.question)
+        self.client.force_authenticate(self.viewer)
+
+        first_response = self.client.post(f'/question/{self.question.question_id}/favorite/')
+        second_response = self.client.post(f'/question/{self.question.question_id}/favorite/')
+
+        self.assertEqual(first_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(second_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(QuestionFavorite.objects.filter(user=self.viewer, question=self.question).count(), 1)
+        self.assertEqual(second_response.data, {
+            'question_id': str(self.question.question_id),
+            'favorites_count': 2,
+            'is_favorited': True,
+        })
+
+    def test_repeated_delete_is_idempotent_and_returns_server_truth(self):
+        QuestionFavoriteService.add_favorite(self.viewer, self.question)
+        QuestionFavoriteService.add_favorite(self.other_viewer, self.question)
+        self.client.force_authenticate(self.viewer)
+
+        first_response = self.client.delete(f'/question/{self.question.question_id}/favorite/')
+        second_response = self.client.delete(f'/question/{self.question.question_id}/favorite/')
+
+        self.assertEqual(first_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(second_response.status_code, status.HTTP_200_OK)
+        self.assertFalse(QuestionFavorite.objects.filter(user=self.viewer, question=self.question).exists())
+        self.assertEqual(second_response.data, {
+            'question_id': str(self.question.question_id),
+            'favorites_count': 1,
+            'is_favorited': False,
+        })
+
+    def test_favorite_mutation_nonexistent_question_returns_404(self):
+        self.client.force_authenticate(self.viewer)
+        missing_question_id = '00000000-0000-0000-0000-000000000001'
+
+        post_response = self.client.post(f'/question/{missing_question_id}/favorite/')
+        delete_response = self.client.delete(f'/question/{missing_question_id}/favorite/')
+
+        self.assertEqual(post_response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(delete_response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_favorites_list_is_owner_only_and_empty_when_viewer_has_no_favorites(self):
+        QuestionFavoriteService.add_favorite(self.other_viewer, self.question)
+
+        self.client.force_authenticate(self.viewer)
+        viewer_response = self.client.get('/question/favorites/')
+
+        self.client.force_authenticate(self.other_viewer)
+        other_response = self.client.get('/question/favorites/')
+
+        self.assertEqual(viewer_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(other_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(viewer_response.data['results'], [])
+        self.assertEqual([item['question_id'] for item in other_response.data['results']], [str(self.question.question_id)])
+
+    def test_favorites_list_reuses_search_repeated_tag_ordering_and_public_counts(self):
+        django = Tag.objects.create(name='django', questions_count=2)
+        drf = Tag.objects.create(name='drf', questions_count=1)
+        python = Tag.objects.create(name='python', questions_count=1)
+        self.question.question_title = 'Favorite tagged django drf question'
+        self.other_question.question_title = 'Favorite tagged django only question'
+        self.question.save(update_fields=['question_title'])
+        self.other_question.save(update_fields=['question_title'])
+        self.question.tags.add(django, drf)
+        self.other_question.tags.add(django, python)
+        QuestionFavoriteService.add_favorite(self.viewer, self.question)
+        QuestionFavoriteService.add_favorite(self.viewer, self.other_question)
+        QuestionFavoriteService.add_favorite(self.other_viewer, self.question)
+        self.client.force_authenticate(self.viewer)
+
+        response = self.client.get(
+            '/question/favorites/',
+            {
+                'search': 'tagged',
+                'ordering': 'question_created_at',
+                'tag': ['django', 'drf', 'django'],
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data['results']), 1)
+        item = response.data['results'][0]
+        self.assertEqual(item['question_id'], str(self.question.question_id))
+        self.assertEqual(item['favorites_count'], 2)
+        self.assertTrue(item['is_favorited'])
+        self.assertEqual(
+            item['tags'],
+            [
+                {'name': 'django', 'questions_count': 2},
+                {'name': 'drf', 'questions_count': 1},
+            ],
+        )
+
+    def test_favorites_list_invalid_ordering_falls_back_to_newest_first_and_paginates(self):
+        questions = [self.question, self.other_question]
+        for index in range(5):
+            questions.append(Question.objects.create(
+                user=self.author,
+                question_title=f'Paged favorite {index}',
+                question_body='Need pagination coverage.',
+            ))
+
+        for index, question in enumerate(questions):
+            QuestionFavoriteService.add_favorite(self.viewer, question)
+            Question.objects.filter(pk=question.pk).update(question_created_at=timezone.now() - timedelta(minutes=index))
+
+        self.client.force_authenticate(self.viewer)
+        first_page = self.client.get('/question/favorites/', {'ordering': 'not-supported'})
+        second_page = self.client.get('/question/favorites/', {'ordering': 'not-supported', 'page': 2})
+
+        self.assertEqual(first_page.status_code, status.HTTP_200_OK)
+        self.assertEqual(second_page.status_code, status.HTTP_200_OK)
+        self.assertEqual(first_page.data['count'], 7)
+        self.assertEqual(len(first_page.data['results']), 5)
+        self.assertEqual(len(second_page.data['results']), 2)
+        self.assertEqual(first_page.data['results'][0]['question_id'], str(self.question.question_id))
+        self.assertIn('next', first_page.data)
+        self.assertIn('previous', first_page.data)
+
+    def test_favorites_list_filtered_empty_uses_paginated_envelope(self):
+        QuestionFavoriteService.add_favorite(self.viewer, self.question)
+        self.client.force_authenticate(self.viewer)
+
+        response = self.client.get('/question/favorites/', {'search': 'no matching title'})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['count'], 0)
+        self.assertEqual(response.data['results'], [])
 
 
 class QuestionProtectionServiceTests(APITestCase):
@@ -507,6 +929,109 @@ class QuestionExpertInvitationServiceTests(APITestCase):
         self.assertFalse(Notification.objects.filter(source_question=self.question).exists())
 
 
+class QuestionExpertInvitationRankingTests(APITestCase):
+    def setUp(self):
+        self.author = CustomUser.objects.create_user(
+            user_email='ranking-author@example.com',
+            user_name='ranking-author',
+            password='password',
+        )
+        self.expert_low_rep = CustomUser.objects.create_user(
+            user_email='low-rep-expert@example.com',
+            user_name='LowRepExpert',
+            password='password',
+        )
+        self.expert_low_rep.user_reputation_score = 100
+        self.expert_low_rep.save()
+
+        self.expert_high_rep = CustomUser.objects.create_user(
+            user_email='high-rep-expert@example.com',
+            user_name='HighRepExpert',
+            password='password',
+        )
+        self.expert_high_rep.user_reputation_score = 500
+        self.expert_high_rep.save()
+
+        self.question = Question.objects.create(
+            user=self.author,
+            question_title='Ranking question',
+            question_body='Question for ranking tests.',
+        )
+        # Make question protected
+        from apps.user.models import ReputationPolicyConfig
+        ReputationPolicyConfig.objects.get_or_create(protected_newcomer_window_hours=12)
+
+        # Create a concept and link it to the question
+        self.concept = KnowledgeConcept.objects.create(name='Django', slug='django')
+        QuestionConceptEdge.objects.create(question=self.question, concept=self.concept)
+
+        # Give low-rep expert some activity in this concept
+        UserConceptActivity.objects.create(
+            user=self.expert_low_rep,
+            concept=self.concept,
+            activity_type=UserConceptActivity.ActivityType.POSTED_SOLUTION,
+            weight_delta=50.0,
+            source=UserConceptActivity.Source.SOLUTION,
+            source_content_type=ContentType.objects.get_for_model(Question),
+            source_object_id=self.question.pk,
+            idempotency_key='test-activity-1'
+        )
+
+    def test_default_ordering_prefers_topic_strength_over_reputation(self):
+        result = QuestionExpertInvitationService.get_eligible_experts(self.question)
+        candidates = result.candidates
+
+        # LowRepExpert should be first because of topic_score=50, HighRepExpert has topic_score=0
+        self.assertEqual(candidates[0]['user_id'], str(self.expert_low_rep.pk))
+        self.assertEqual(candidates[1]['user_id'], str(self.expert_high_rep.pk))
+        self.assertEqual(candidates[0]['topic_score'], 50.0)
+        self.assertEqual(candidates[1]['topic_score'], 0.0)
+
+    def test_explicit_reputation_ordering_overrides_topic_strength(self):
+        # Rep ascending
+        result_asc = QuestionExpertInvitationService.get_eligible_experts(self.question, ordering='user_reputation_score')
+        self.assertEqual(result_asc.candidates[0]['user_id'], str(self.expert_low_rep.pk))
+        self.assertEqual(result_asc.candidates[1]['user_id'], str(self.expert_high_rep.pk))
+
+        # Rep descending
+        result_desc = QuestionExpertInvitationService.get_eligible_experts(self.question, ordering='-user_reputation_score')
+        self.assertEqual(result_desc.candidates[0]['user_id'], str(self.expert_high_rep.pk))
+        self.assertEqual(result_desc.candidates[1]['user_id'], str(self.expert_low_rep.pk))
+
+    def test_tag_fallback_when_no_concepts(self):
+        # Create another question with same tag but no concept edges
+        tag = Tag.objects.create(name='vue')
+        self.question.tags.add(tag)
+        QuestionConceptEdge.objects.filter(question=self.question).delete()
+
+        # Create another question with vue tag and a solution by high-rep expert
+        q2 = Question.objects.create(user=self.author, question_title='Vue question')
+        q2.tags.add(tag)
+        Solution.objects.create(user=self.expert_high_rep, question=q2, solution_body='vue solution')
+
+        result = QuestionExpertInvitationService.get_eligible_experts(self.question)
+        # HighRepExpert should be first now because of tag overlap (1 solution)
+        self.assertEqual(result.candidates[0]['user_id'], str(self.expert_high_rep.pk))
+        self.assertEqual(result.candidates[0]['topic_score'], 1.0)
+
+    def test_api_ordering_and_pagination(self):
+        self.client.force_authenticate(self.author)
+        # Default (topic strength)
+        response = self.client.get(f'/question/{self.question.question_id}/eligible-experts/')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['results'][0]['user_id'], str(self.expert_low_rep.pk))
+
+        # Explicit reputation
+        response = self.client.get(f'/question/{self.question.question_id}/eligible-experts/', {'ordering': '-user_reputation_score'})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['results'][0]['user_id'], str(self.expert_high_rep.pk))
+
+        # Pagination envelope
+        self.assertIn('count', response.data)
+        self.assertIn('next', response.data)
+        self.assertIn('results', response.data)
+
+
 class QuestionTagModelTests(APITestCase):
     def setUp(self):
         self.user = CustomUser.objects.create_user(
@@ -690,6 +1215,55 @@ class QuestionTagResponseSerializerTests(APITestCase):
             [{'name': 'django', 'questions_count': 1}],
         )
         self.assertEqual(response_by_id[str(untagged_question.question_id)]['tags'], [])
+
+    def test_author_reputation_contract_is_available_for_rank_badges(self):
+        self.user.user_reputation_score = 300
+        self.user.user_avatar_url = 'avatars/master.jpg'
+        self.user.user_avatar_updated_at = timezone.now()
+        self.user.save(update_fields=['user_reputation_score', 'user_avatar_url', 'user_avatar_updated_at'])
+        solution = Solution.objects.create(
+            user=self.user,
+            question=self.question,
+            solution_body='Solution with a master author rank.',
+        )
+        question_content_type = ContentType.objects.get_for_model(Question)
+        comment = Comment.objects.create(
+            user=self.user,
+            content_type=question_content_type,
+            object_id=self.question.pk,
+            body='Comment with a master author rank.',
+        )
+        reply = Comment.objects.create(
+            user=self.user,
+            content_type=question_content_type,
+            object_id=self.question.pk,
+            parent=comment,
+            body='Reply with a master author rank.',
+        )
+
+        payloads = [
+            QuestionListSerializer(self.question).data,
+            QuestionGetSerializer(self.question).data,
+            SolutionListSerializer(solution).data,
+            SolutionCreateResponseSerializer(solution).data,
+            CommentListSerializer(comment).data,
+            CommentCreateResponseSerializer(comment).data,
+            CommentDetailSerializer(comment).data,
+        ]
+
+        for payload in payloads:
+            with self.subTest(serializer=payload):
+                self.assertEqual(payload['user_name'], self.user.user_name)
+                self.assertIn('user_avatar_url', payload)
+                self.assertIn('user_avatar_updated_at', payload)
+                self.assertIn('avatars/master.jpg', str(payload['user_avatar_url']))
+                self.assertEqual(payload['user_reputation_score'], 300)
+                self.assertEqual(payload['reputation']['level'], CustomUser.ReputationLevel.MASTER)
+                self.assertEqual(payload['reputation']['level_label'], CustomUser.ReputationLevel.MASTER.label)
+
+        detail_payload = CommentDetailSerializer(comment).data
+        self.assertEqual(detail_payload['replies'][0]['comment_id'], str(reply.comment_id))
+        self.assertEqual(detail_payload['replies'][0]['reputation']['level'], CustomUser.ReputationLevel.MASTER)
 
     def test_question_serializers_expose_protection_metadata_with_safe_defaults(self):
         Question.objects.filter(pk=self.question.pk).update(

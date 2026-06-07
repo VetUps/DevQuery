@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// Кратко: отвечает за часть интерфейса.
 import { onBeforeUnmount, useAttrs, watch } from 'vue'
 
 defineOptions({ inheritAttrs: false })

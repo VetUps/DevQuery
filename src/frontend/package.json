@@ -7,10 +7,11 @@
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
-    "typecheck": "vue-tsc --noEmit",
-    "test": "vitest",
-    "test:run": "vitest run",
-    "smoke:profile-knowledge-graph": "playwright test --config=playwright.config.ts e2e/profile-knowledge-graph.spec.ts"
+    "typecheck": "node ./node_modules/vue-tsc/bin/vue-tsc.js --noEmit",
+    "test": "node ./node_modules/vitest/vitest.mjs",
+    "test:run": "node ./node_modules/vitest/vitest.mjs run",
+    "smoke:profile-knowledge-graph": "npm run build && playwright test --config=playwright.config.ts e2e/profile-knowledge-graph.spec.ts",
+    "smoke:question-favorites": "npm run build && playwright test --config=playwright.config.ts e2e/question-favorites-flow.spec.ts"
   },
   "dependencies": {
     "@fontsource/ibm-plex-sans": "^5.2.8",
@@ -19,10 +20,13 @@
     "cytoscape": "^3.33.3",
     "diff": "^8.0.4",
     "dompurify": "^3.3.3",
+    "echarts": "^6.0.0",
+    "highlight.js": "^11.11.1",
     "lucide-vue-next": "^1.0.0",
     "marked": "^17.0.6",
     "pinia": "^3.0.4",
     "vue": "^3.5.32",
+    "vue-echarts": "^8.0.1",
     "vue-router": "^5.0.4"
   },
   "devDependencies": {

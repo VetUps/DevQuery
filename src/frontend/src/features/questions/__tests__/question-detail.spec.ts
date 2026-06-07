@@ -3,7 +3,6 @@ import { createPinia, setActivePinia } from 'pinia'
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMemoryHistory, createRouter } from 'vue-router'
-import { VueQueryPlugin } from '@tanstack/vue-query'
 
 import { queryClient } from '@/app/query-client'
 import { useSessionStore } from '@/features/auth/stores/session'
@@ -103,6 +102,11 @@ const createExpertInvitationsMutationState = {
   mutateAsync: vi.fn(),
 }
 
+const favoriteMutationState = {
+  isPending: ref(false),
+  mutateAsync: vi.fn(),
+}
+
 vi.mock('@/features/questions/queries/useQuestionDetailQuery', () => ({
   useQuestionDetailQuery: vi.fn(() => questionDetailState),
 }))
@@ -156,6 +160,10 @@ vi.mock('@/features/questions/mutations/useCreateExpertInvitationsMutation', () 
   useCreateExpertInvitationsMutation: vi.fn(() => createExpertInvitationsMutationState),
 }))
 
+vi.mock('@/features/questions/mutations/useQuestionFavoriteMutation', () => ({
+  useQuestionFavoriteMutation: vi.fn(() => favoriteMutationState),
+}))
+
 function buildInvitationNotification(overrides: Partial<NotificationItem> = {}): NotificationItem {
   return {
     notification_id: 'notification-1',
@@ -188,6 +196,8 @@ function buildQuestionDetail(overrides: Partial<QuestionDetail> = {}): QuestionD
     question_created_at: '2026-03-01T12:00:00Z',
     question_updated_at: '2026-03-02T12:00:00Z',
     tags: [],
+    favorites_count: 0,
+    is_favorited: false,
     upvotes: 12,
     downvotes: 3,
     score: 9,
@@ -307,6 +317,8 @@ async function mountQuestionDetailPage(authenticated = false) {
     history: createMemoryHistory(),
     routes: [
       { path: '/', component: { template: '<div>home</div>' } },
+      { path: '/login', component: { template: '<div>login</div>' } },
+      { path: '/register', component: { template: '<div>register</div>' } },
       { path: '/questions/:questionId', component: QuestionDetailPage },
     ],
   })
@@ -317,7 +329,7 @@ async function mountQuestionDetailPage(authenticated = false) {
   const wrapper = mount(QuestionDetailPage, {
     attachTo: document.body,
     global: {
-      plugins: [pinia, router, [VueQueryPlugin, { queryClient }]],
+      plugins: [pinia, router],
       stubs: {
         teleport: true,
       },
@@ -396,6 +408,9 @@ describe('question detail page', () => {
 
     createExpertInvitationsMutationState.isPending.value = false
     createExpertInvitationsMutationState.mutateAsync.mockReset()
+
+    favoriteMutationState.isPending.value = false
+    favoriteMutationState.mutateAsync.mockReset()
   })
 
   it('renders the loading skeleton while the detail query is pending', async () => {
@@ -418,6 +433,56 @@ describe('question detail page', () => {
     expect(questionDetailState.refetch).toHaveBeenCalled()
   })
 
+  it('renders authenticated favorite controls in the question detail hero and keeps vote rail behavior', async () => {
+    questionDetailState.data.value = buildQuestionDetail({
+      question_id: 'question-1',
+      favorites_count: 4,
+      is_favorited: true,
+    })
+
+    const { wrapper } = await mountQuestionDetailPage(true)
+
+    const favoriteAction = wrapper.get('[data-testid="question-favorite-action"]')
+    expect(favoriteAction.attributes('data-authenticated')).toBe('true')
+    expect(favoriteAction.attributes('data-favorited')).toBe('true')
+    expect(wrapper.get('[data-testid="question-favorite-count"]').text()).toBe('4')
+    expect(wrapper.get('[data-testid="question-favorite-button"]').attributes('aria-pressed')).toBe('true')
+    expect(wrapper.findComponent(SignalVoteRail).exists()).toBe(true)
+  })
+
+  it('toggles favorites from the authenticated question detail hero', async () => {
+    questionDetailState.data.value = buildQuestionDetail({
+      question_id: 'question-1',
+      favorites_count: 2,
+      is_favorited: false,
+    })
+
+    const { wrapper } = await mountQuestionDetailPage(true)
+
+    await wrapper.get('[data-testid="question-favorite-button"]').trigger('click')
+
+    expect(favoriteMutationState.mutateAsync).toHaveBeenCalledWith({
+      questionId: 'question-1',
+      isFavorited: true,
+    })
+  })
+
+  it('renders anonymous favorite login affordance on the question detail hero without mutating', async () => {
+    questionDetailState.data.value = buildQuestionDetail({
+      question_id: 'question-1',
+      favorites_count: 6,
+      is_favorited: false,
+    })
+
+    const { wrapper } = await mountQuestionDetailPage(false)
+
+    expect(wrapper.find('[data-testid="question-favorite-button"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="question-favorite-action"]').attributes('data-authenticated')).toBe('false')
+    expect(wrapper.get('[data-testid="question-favorite-login-link"]').attributes('href')).toBe('/login')
+    expect(wrapper.get('[data-testid="question-favorite-count"]').text()).toBe('6')
+    expect(favoriteMutationState.mutateAsync).not.toHaveBeenCalled()
+  })
+
   it('renders the vote rail in readonly mode on the public detail route', async () => {
     questionDetailState.data.value = {
       question_id: 'question-1',
@@ -428,6 +493,8 @@ describe('question detail page', () => {
       question_created_at: '2026-03-01T12:00:00Z',
       question_updated_at: '2026-03-02T12:00:00Z',
       tags: [],
+      favorites_count: 0,
+      is_favorited: false,
       upvotes: 12,
       downvotes: 3,
       score: 9,
@@ -604,8 +671,12 @@ describe('question detail page', () => {
 
     expect(wrapper.get('[data-testid="expert-invitation-available-section"]').text()).toContain('Кого можно пригласить сейчас')
     expect(wrapper.get('[data-testid="expert-invitation-available-list"]').text()).toContain('Expert Alice')
+    expect(wrapper.get('[data-testid="expert-invitation-available-row-expert-1"] [data-testid="reputation-rank-icon"]').attributes('data-rank-level')).toBe('expert')
+    expect(wrapper.get('[data-testid="expert-invitation-available-row-master-1"] [data-testid="reputation-rank-icon"]').attributes('data-rank-level')).toBe('master')
     expect(wrapper.get('[data-testid="expert-invitation-invited-section"]').text()).toContain('Получатели приглашений')
     expect(wrapper.get('[data-testid="expert-invitation-invited-row-expert-2"]').text()).toContain('Invited Eve')
+    expect(wrapper.get('[data-testid="expert-invitation-invited-row-expert-2"] [data-testid="reputation-rank-icon"]').attributes('data-rank-level')).toBe('expert')
+    expect(wrapper.get('[data-testid="expert-invitation-invited-row-master-2"] [data-testid="reputation-rank-icon"]').attributes('data-rank-level')).toBe('master')
     expect(wrapper.get('[data-testid="expert-invitation-status-expert-2"]').text()).toContain('Приглашение активно')
     expect(wrapper.get('[data-testid="expert-invitation-read-expert-2"]').text()).toContain('Уведомление не прочитано')
     expect(wrapper.get('[data-testid="expert-invitation-window-expert-2"]').text()).toContain('Защитное окно активно')
@@ -1047,6 +1118,8 @@ describe('question detail page', () => {
     const badge = wrapper.get('[data-testid="author-reputation-badge"]')
     expect(badge.text()).toContain('Master')
     expect(badge.text()).toContain('510')
+    expect(badge.get('[data-testid="reputation-rank-icon"]').attributes('data-rank-level')).toBe('master')
+    expect(badge.findAll('[data-rank-part="star"]')).toHaveLength(3)
     expect(wrapper.text()).not.toContain('manual_level')
   })
 

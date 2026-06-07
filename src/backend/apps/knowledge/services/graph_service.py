@@ -1,3 +1,4 @@
+# Кратко: строит и читает граф знаний.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -17,7 +18,7 @@ from apps.qa.models import Question, Tag
 
 
 class KnowledgeGraphBuildError(RuntimeError):
-    """Safe graph build failure suitable for logs and caller-visible diagnostics."""
+    """Безопасная ошибка сборки графа для логов и диагностики."""
 
 
 @dataclass(frozen=True)
@@ -33,40 +34,49 @@ class KnowledgeGraphSummary:
 
     @property
     def created_concepts(self) -> int:
+        """Обрабатывает created concepts."""
         return len(self.created_concept_ids)
 
     @property
     def updated_concepts(self) -> int:
+        """Обрабатывает updated concepts."""
         return len(self.updated_concept_ids)
 
     @property
     def created_mappings(self) -> int:
+        """Обрабатывает created связки."""
         return len(self.created_mapping_ids)
 
     @property
     def updated_mappings(self) -> int:
+        """Обрабатывает updated связки."""
         return len(self.updated_mapping_ids)
 
     @property
     def created_edges(self) -> int:
+        """Обрабатывает created связи."""
         return len(self.created_edge_ids)
 
     @property
     def updated_edges(self) -> int:
+        """Обрабатывает updated связи."""
         return len(self.updated_edge_ids)
 
     @property
     def removed_edges(self) -> int:
+        """Обрабатывает removed связи."""
         return len(self.removed_edge_ids)
 
 
 class KnowledgeGraphService:
-    """Builds durable question-to-concept graph rows from extracted concept candidates."""
+    """Строит устойчивые связи вопроса с концептами."""
 
     def __init__(self, provider: ConceptExtractionProvider | None = None) -> None:
+        """Готовит объект к работе и сохраняет начальные данные."""
         self.provider = provider or TagBasedConceptExtractionProvider()
 
     def build_question_graph(self, question: Question) -> KnowledgeGraphSummary:
+        """Собирает данные вопроса графа в нужный формат."""
         if not isinstance(question, Question):
             raise KnowledgeGraphBuildError('question graph build requires a Question instance')
         if question.pk is None:
@@ -147,6 +157,7 @@ class KnowledgeGraphService:
         return summary
 
     def _validated_unique_candidates(self, candidates: Iterable[ConceptCandidate]) -> list[ConceptCandidate]:
+        """Обрабатывает validated unique кандидатов."""
         candidates_by_slug: dict[str, ConceptCandidate] = {}
         for candidate in candidates:
             normalized = self._validate_candidate(candidate)
@@ -154,6 +165,7 @@ class KnowledgeGraphService:
         return [candidates_by_slug[slug] for slug in sorted(candidates_by_slug)]
 
     def _validate_candidate(self, candidate: ConceptCandidate) -> ConceptCandidate:
+        """Проверяет кандидата."""
         if not isinstance(candidate, ConceptCandidate):
             raise ConceptExtractionError('provider candidates must be ConceptCandidate instances')
         return ConceptCandidate(
@@ -167,6 +179,7 @@ class KnowledgeGraphService:
         )
 
     def _tag_for_candidate(self, candidate: ConceptCandidate, tags: list[Tag]) -> Tag | None:
+        """Обрабатывает тег кандидата."""
         if candidate.originating_tag_id is None:
             return None
         for tag in tags:
@@ -175,6 +188,7 @@ class KnowledgeGraphService:
         raise ConceptExtractionError('candidate references a tag outside the question')
 
     def _upsert_concept(self, candidate: ConceptCandidate) -> tuple[KnowledgeConcept, bool]:
+        """Обрабатывает concept."""
         return KnowledgeConcept.objects.get_or_create(
             slug=candidate.slug,
             defaults={
@@ -191,6 +205,7 @@ class KnowledgeGraphService:
         concept: KnowledgeConcept,
         candidate: ConceptCandidate,
     ) -> tuple[ConceptTagMapping, bool]:
+        """Обрабатывает связку."""
         return ConceptTagMapping.objects.get_or_create(
             tag=tag,
             concept=concept,
@@ -209,6 +224,7 @@ class KnowledgeGraphService:
         mapping: ConceptTagMapping | None,
         candidate: ConceptCandidate,
     ) -> tuple[QuestionConceptEdge, bool]:
+        """Обрабатывает связь."""
         return QuestionConceptEdge.objects.get_or_create(
             question=question,
             concept=concept,
@@ -222,6 +238,7 @@ class KnowledgeGraphService:
         )
 
     def _sync_model_fields(self, instance, desired_values: dict[str, object]) -> bool:
+        """Синхронизирует model поля."""
         changed_fields: list[str] = []
         for field_name, desired_value in desired_values.items():
             current_value = getattr(instance, field_name)
@@ -242,4 +259,5 @@ def build_question_graph(
     question: Question,
     provider: ConceptExtractionProvider | None = None,
 ) -> KnowledgeGraphSummary:
+    """Собирает данные вопроса графа в нужный формат."""
     return KnowledgeGraphService(provider=provider).build_question_graph(question)

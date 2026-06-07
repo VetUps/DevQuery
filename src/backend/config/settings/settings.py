@@ -1,3 +1,4 @@
+# Кратко: хранит настройки Django и внешних сервисов.
 from pathlib import Path
 from dotenv import load_dotenv
 import os
@@ -12,6 +13,7 @@ VOTE_TYPE_CHOICES = [
 
 
 def get_float_env(name, default):
+    """Возвращает данные float env."""
     raw_value = os.getenv(name)
     if raw_value is None or raw_value.strip() == '':
         return default
@@ -20,6 +22,61 @@ def get_float_env(name, default):
     except ValueError:
         return default
     return value if value > 0 else default
+
+
+def get_int_env(name, default):
+    """Возвращает данные int env."""
+    raw_value = os.getenv(name)
+    if raw_value is None or raw_value.strip() == '':
+        return default
+    try:
+        value = int(raw_value)
+    except ValueError:
+        return default
+    return value if value > 0 else default
+
+
+def get_bool_env(name, default):
+    """Возвращает данные bool env."""
+    raw_value = os.getenv(name)
+    if raw_value is None or raw_value.strip() == '':
+        return default
+    normalized = raw_value.strip().lower()
+    if normalized in {'1', 'true', 'yes', 'on'}:
+        return True
+    if normalized in {'0', 'false', 'no', 'off'}:
+        return False
+    return default
+
+
+DJANGO_TEST_SQLITE = os.getenv('DJANGO_TEST_SQLITE', '').strip().lower() in {'1', 'true', 'yes', 'on'}
+KNOWLEDGE_GRAPH_AI_ENABLED = get_bool_env('KNOWLEDGE_GRAPH_AI_ENABLED', False)
+KNOWLEDGE_GRAPH_AI_DRY_RUN = get_bool_env('KNOWLEDGE_GRAPH_AI_DRY_RUN', True)
+KNOWLEDGE_GRAPH_EMBEDDING_PROVIDER = os.getenv('KNOWLEDGE_GRAPH_EMBEDDING_PROVIDER', 'gigachat').strip().lower()
+KNOWLEDGE_GRAPH_EMBEDDING_API_KEY = os.getenv('KNOWLEDGE_GRAPH_EMBEDDING_API_KEY')
+KNOWLEDGE_GRAPH_EMBEDDING_BASE_URL = os.getenv('KNOWLEDGE_GRAPH_EMBEDDING_BASE_URL')
+KNOWLEDGE_GRAPH_EMBEDDING_MODEL = os.getenv('KNOWLEDGE_GRAPH_EMBEDDING_MODEL')
+KNOWLEDGE_GRAPH_EMBEDDING_DIMENSIONS = get_int_env('KNOWLEDGE_GRAPH_EMBEDDING_DIMENSIONS', 1536)
+KNOWLEDGE_GRAPH_EMBEDDING_TIMEOUT_SECONDS = get_float_env('KNOWLEDGE_GRAPH_EMBEDDING_TIMEOUT_SECONDS', 10.0)
+KNOWLEDGE_GRAPH_EMBEDDING_PRICE_PER_1K_TOKENS = get_float_env(
+    'KNOWLEDGE_GRAPH_EMBEDDING_PRICE_PER_1K_TOKENS',
+    0.0,
+)
+KNOWLEDGE_GRAPH_CHAT_PROVIDER = os.getenv('KNOWLEDGE_GRAPH_CHAT_PROVIDER', 'deepseek').strip().lower()
+KNOWLEDGE_GRAPH_CHAT_API_KEY = os.getenv('KNOWLEDGE_GRAPH_CHAT_API_KEY')
+KNOWLEDGE_GRAPH_CHAT_BASE_URL = os.getenv('KNOWLEDGE_GRAPH_CHAT_BASE_URL', 'https://api.deepseek.com')
+KNOWLEDGE_GRAPH_CHAT_MODEL = os.getenv('KNOWLEDGE_GRAPH_CHAT_MODEL')
+KNOWLEDGE_GRAPH_CHAT_TIMEOUT_SECONDS = get_float_env('KNOWLEDGE_GRAPH_CHAT_TIMEOUT_SECONDS', 20.0)
+KNOWLEDGE_GRAPH_CHAT_PRICE_PER_1K_TOKENS = get_float_env(
+    'KNOWLEDGE_GRAPH_CHAT_PRICE_PER_1K_TOKENS',
+    0.0,
+)
+KNOWLEDGE_GRAPH_REBUILD_BUDGET_CAP = get_float_env('KNOWLEDGE_GRAPH_REBUILD_BUDGET_CAP', 0.0)
+KNOWLEDGE_GRAPH_GIGACHAT_SCOPE = os.getenv('KNOWLEDGE_GRAPH_GIGACHAT_SCOPE', 'GIGACHAT_API_PERS')
+KNOWLEDGE_GRAPH_GIGACHAT_AUTH_URL = os.getenv('KNOWLEDGE_GRAPH_GIGACHAT_AUTH_URL')
+KNOWLEDGE_GRAPH_GIGACHAT_VERIFY_SSL_CERTS = get_bool_env('KNOWLEDGE_GRAPH_GIGACHAT_VERIFY_SSL_CERTS', True)
+KNOWLEDGE_GRAPH_GIGACHAT_CA_BUNDLE_FILE = os.getenv('KNOWLEDGE_GRAPH_GIGACHAT_CA_BUNDLE_FILE')
+KNOWLEDGE_GRAPH_GIGACHAT_MAX_RETRIES = get_int_env('KNOWLEDGE_GRAPH_GIGACHAT_MAX_RETRIES', 0)
 
 
 QUESTION_DRAFT_ASSISTANT_OPENAI_API_KEY = os.getenv('QUESTION_DRAFT_ASSISTANT_OPENAI_API_KEY')
@@ -66,6 +123,7 @@ THIRD_PARTY_APPS = [
     'drf_spectacular',
     'django_filters',
     'corsheaders',
+    'storages',
 ]
 
 LOCAL_APPS = [
@@ -118,7 +176,7 @@ WSGI_APPLICATION = 'config.wsgi.application'
 # База данных
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
-if os.getenv('DJANGO_TEST_SQLITE', '').strip().lower() in {'1', 'true', 'yes', 'on'}:
+if DJANGO_TEST_SQLITE:
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.sqlite3',
@@ -195,6 +253,9 @@ REST_FRAMEWORK = {
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.LimitOffsetPagination',
     'PAGE_SIZE': 5,
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+    'DEFAULT_THROTTLE_RATES': {
+        'knowledge_graph_rebuild': os.getenv('KNOWLEDGE_GRAPH_REBUILD_RATE_LIMIT', '3/hour'),
+    },
 }
 
 SIMPLE_JWT = {
@@ -220,3 +281,30 @@ SPECTACULAR_SETTINGS = {
         ],
     },
 }
+# S3 Boto3 Storage Configuration
+CLOUD_TENANT_ID = os.getenv('CLOUD_TENANT_ID')
+CLOUD_ACCESS_KEY = os.getenv('CLOUD_ACCESS_KEY')
+
+if CLOUD_TENANT_ID and CLOUD_ACCESS_KEY:
+    AWS_ACCESS_KEY_ID = f"{CLOUD_TENANT_ID}:{CLOUD_ACCESS_KEY}"
+else:
+    AWS_ACCESS_KEY_ID = CLOUD_ACCESS_KEY
+
+AWS_SECRET_ACCESS_KEY = os.getenv('CLOUD_SECRET_KEY')
+AWS_STORAGE_BUCKET_NAME = os.getenv('CLOUD_BUCKET_NAME', 'stackoverflow-avatars')
+AWS_S3_ENDPOINT_URL = os.getenv('CLOUD_ENDPOINT_URL', 'https://s3.cloud.ru')
+AWS_S3_REGION_NAME = os.getenv('CLOUD_REGION', 'ru-central-1')
+
+AWS_DEFAULT_ACL = 'public-read'
+AWS_S3_FILE_OVERWRITE = True
+AWS_QUERYSTRING_AUTH = True
+
+if AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY:
+    STORAGES = {
+        "default": {
+            "BACKEND": "storages.backends.s3boto3.S3Boto3Storage",
+        },
+        "staticfiles": {
+            "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+        },
+    }

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// Кратко: отвечает за часть интерфейса.
 import type { SolutionEditRecord } from '@/features/solutions/api/solutionEdits'
 import type { SolutionEditGroup } from '@/features/solutions/libs/group-solution-edits'
 import { formatDateTime } from '@/shared/libs/formatting'

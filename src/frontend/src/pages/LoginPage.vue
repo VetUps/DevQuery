@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// Кратко: собирает страницу из данных и компонентов.
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 

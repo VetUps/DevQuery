@@ -1,5 +1,7 @@
 <script setup lang="ts">
+// Кратко: отвечает за часть интерфейса.
 import { computed } from 'vue'
+import type { LocationQueryRaw } from 'vue-router'
 
 import type { QuestionTag } from '@/features/questions/api/questions'
 
@@ -7,10 +9,14 @@ const props = withDefaults(defineProps<{
   tags?: QuestionTag[]
   variant?: 'compact' | 'large'
   linkToDiscovery?: boolean
+  tagLinkPath?: string
+  tagLinkQueryBase?: LocationQueryRaw
 }>(), {
   tags: () => [],
   variant: 'compact',
   linkToDiscovery: true,
+  tagLinkPath: '/',
+  tagLinkQueryBase: () => ({}),
 })
 
 const visibleTags = computed(() =>
@@ -33,7 +39,7 @@ const visibleTags = computed(() =>
         v-for="tag in visibleTags"
         :key="tag.name"
         class="question-tag-chips__chip"
-        :to="{ path: '/', query: { tag: tag.name } }"
+        :to="{ path: tagLinkPath, query: { ...tagLinkQueryBase, tag: tag.name } }"
         :aria-label="`Фильтровать вопросы по тегу ${tag.name}`"
       >
         #{{ tag.name }}

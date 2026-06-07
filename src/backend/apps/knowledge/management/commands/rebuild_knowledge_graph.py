@@ -1,3 +1,4 @@
+# Кратко: запускает служебную команду для графа знаний.
 from __future__ import annotations
 
 from django.core.exceptions import ValidationError
@@ -11,6 +12,7 @@ class Command(BaseCommand):
     help = 'Rebuild durable question knowledge graph structure from current question tags.'
 
     def add_arguments(self, parser):
+        """Создаёт данные add arguments."""
         parser.add_argument(
             '--question-id',
             dest='question_id',
@@ -18,6 +20,7 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+        """Запускает основную логику management-команды."""
         question_id = options.get('question_id')
         queryset = Question.objects.all().order_by('pk')
 

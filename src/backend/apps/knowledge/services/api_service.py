@@ -1,3 +1,4 @@
+# Кратко: держит основную логику этого файла.
 from __future__ import annotations
 
 from collections import defaultdict
@@ -15,6 +16,9 @@ from apps.knowledge.models import (
     QuestionConceptEdge,
     UserConceptActivity,
     UserKnowledgeGraphLayout,
+    UserKnowledgeGraphSemanticCandidate,
+    UserKnowledgeGraphSemanticGroup,
+    UserKnowledgeGraphSemanticState,
     UserKnowledgeGraphState,
 )
 from apps.knowledge.services.graph_state_service import UserKnowledgeGraphRebuildSummary, get_user_graph_state
@@ -26,24 +30,132 @@ LAYOUT_SCHEMA_VERSION = 1
 MAX_LAYOUT_POSITIONS = 500
 MAX_LAYOUT_CONCEPT_ID_LENGTH = 20
 MAX_LAYOUT_COORDINATE_ABS = 100000
+SEMANTIC_VISIBLE_LIFECYCLE_STATUSES = (
+    UserKnowledgeGraphSemanticGroup.LifecycleStatus.ACTIVE,
+    UserKnowledgeGraphSemanticGroup.LifecycleStatus.STALE,
+)
+SEMANTIC_REDACTED_ERROR_MESSAGE = 'Knowledge graph semantic diagnostics unavailable.'
+SEMANTIC_UNSAFE_ERROR_MARKERS = (
+    '@',
+    '<',
+    '>',
+    'body=',
+    'content_hash',
+    'private source text',
+    'provider.py',
+    'raw',
+    'secret',
+    'sk_',
+    'source_id',
+    'stack',
+    'traceback',
+    'token=',
+    'vector',
+)
 
 
 def _safe_decimal(value: Decimal | None) -> Decimal:
+    """Возвращает Decimal без пустого значения."""
     return value if value is not None else ZERO_WEIGHT
 
 
-def _state_payload(state: UserKnowledgeGraphState) -> dict[str, Any]:
+def _state_payload(state: UserKnowledgeGraphState, *, include_private_diagnostics: bool = True) -> dict[str, Any]:
+    """Собирает данные состояния для ответа API."""
     return {
         'status': state.status,
         'stale_reason': state.stale_reason,
-        'last_error_message': state.last_error_message,
-        'last_failed_phase': state.last_failed_phase,
-        'last_rebuild_started_at': state.last_rebuild_started_at,
-        'last_rebuild_finished_at': state.last_rebuild_finished_at,
+        'last_error_message': state.last_error_message if include_private_diagnostics else '',
+        'last_failed_phase': state.last_failed_phase if include_private_diagnostics else '',
+        'last_rebuild_started_at': state.last_rebuild_started_at if include_private_diagnostics else None,
+        'last_rebuild_finished_at': state.last_rebuild_finished_at if include_private_diagnostics else None,
+    }
+
+
+def _safe_semantic_error_message(message: str) -> str:
+    """Возвращает безопасный текст семантической ошибки."""
+    if not message:
+        return ''
+    normalized = message.lower()
+    if any(marker in normalized for marker in SEMANTIC_UNSAFE_ERROR_MARKERS):
+        return SEMANTIC_REDACTED_ERROR_MESSAGE
+    return message[:255]
+
+
+def _semantic_diagnostics_payload(user) -> dict[str, Any]:
+    """Собирает owner-only диагностику семантического графа."""
+
+    try:
+        state = user.knowledge_graph_semantic_state
+    except UserKnowledgeGraphSemanticState.DoesNotExist:
+        return {
+            'status': UserKnowledgeGraphSemanticState.Status.PENDING,
+            'reason_code': '',
+            'phase': '',
+            'enabled': False,
+            'dry_run': True,
+            'source_item_count': 0,
+            'total_source_count': 0,
+            'changed_source_count': 0,
+            'provider_called_source_count': 0,
+            'reused_snapshot_count': 0,
+            'persisted_snapshot_count': 0,
+            'neighbour_candidate_count': 0,
+            'semantic_group_count': 0,
+            'semantic_group_membership_count': 0,
+            'semantic_group_reused_count': 0,
+            'semantic_group_created_count': 0,
+            'semantic_group_changed_count': 0,
+            'semantic_group_stale_count': 0,
+            'semantic_group_archived_count': 0,
+            'estimated_token_count': 0,
+            'estimated_cost': Decimal('0.000000'),
+            'budget_cap': Decimal('0.000000'),
+            'last_error_message': '',
+            'started_at': None,
+            'finished_at': None,
+            'view': {
+                'mode': 'semantic',
+                'visible_lifecycle_statuses': [status.value for status in SEMANTIC_VISIBLE_LIFECYCLE_STATUSES],
+                'archived_groups_included': False,
+            },
+        }
+
+    return {
+        'status': state.status,
+        'reason_code': state.reason_code,
+        'phase': state.phase,
+        'enabled': state.enabled,
+        'dry_run': state.dry_run,
+        'source_item_count': state.source_item_count,
+        'total_source_count': state.source_item_count,
+        'changed_source_count': state.changed_source_item_count,
+        'provider_called_source_count': state.changed_source_item_count,
+        'reused_snapshot_count': state.reused_snapshot_count,
+        'persisted_snapshot_count': state.snapshot_item_count,
+        'neighbour_candidate_count': state.neighbor_candidate_count,
+        'semantic_group_count': state.semantic_group_count,
+        'semantic_group_membership_count': state.semantic_group_membership_count,
+        'semantic_group_reused_count': state.semantic_group_reused_count,
+        'semantic_group_created_count': state.semantic_group_created_count,
+        'semantic_group_changed_count': state.semantic_group_changed_count,
+        'semantic_group_stale_count': state.semantic_group_stale_count,
+        'semantic_group_archived_count': state.semantic_group_archived_count,
+        'estimated_token_count': state.estimated_token_count,
+        'estimated_cost': state.estimated_cost,
+        'budget_cap': state.budget_cap,
+        'last_error_message': _safe_semantic_error_message(state.last_error_message),
+        'started_at': state.started_at,
+        'finished_at': state.finished_at,
+        'view': {
+            'mode': 'semantic',
+            'visible_lifecycle_statuses': [status.value for status in SEMANTIC_VISIBLE_LIFECYCLE_STATUSES],
+            'archived_groups_included': False,
+        },
     }
 
 
 def _activity_breakdown_payload(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Собирает разбивку активности по типам."""
     return [
         {
             'activity_type': row['activity_type'],
@@ -59,6 +171,7 @@ def _shared_question_edges_payload(
     node_concept_ids: set[int],
     related_question_ids: set[Any],
 ) -> list[dict[str, Any]]:
+    """Собирает связи между общими вопросами."""
     if len(node_concept_ids) < 2 or not related_question_ids:
         return []
 
@@ -108,7 +221,191 @@ def _shared_question_edges_payload(
     return edge_payloads
 
 
+def _semantic_candidate_edges_payload(
+    *,
+    user,
+    node_concept_ids: set[int],
+    concept_ids_by_question_id: dict[str, set[int]],
+) -> list[dict[str, Any]]:
+    """Собирает безопасные семантические связи для графа."""
+
+    if len(node_concept_ids) < 2 or not concept_ids_by_question_id:
+        return []
+
+    pair_summaries: dict[tuple[int, int], dict[str, Any]] = {}
+    candidates = (
+        UserKnowledgeGraphSemanticCandidate.objects.filter(
+            user=user,
+            source_snapshot__source_type='question',
+            target_snapshot__source_type='question',
+        )
+        .select_related('source_snapshot', 'target_snapshot')
+        .order_by('-similarity_score', 'rank', 'source_snapshot_id', 'target_snapshot_id', 'id')
+    )
+
+    for candidate in candidates:
+        source_concept_ids = concept_ids_by_question_id.get(str(candidate.source_snapshot.source_id), set())
+        target_concept_ids = concept_ids_by_question_id.get(str(candidate.target_snapshot.source_id), set())
+        if not source_concept_ids or not target_concept_ids:
+            continue
+
+        for source_concept_id in sorted(source_concept_ids):
+            if source_concept_id not in node_concept_ids:
+                continue
+            for target_concept_id in sorted(target_concept_ids):
+                if target_concept_id not in node_concept_ids or source_concept_id == target_concept_id:
+                    continue
+
+                pair = tuple(sorted((source_concept_id, target_concept_id)))
+                summary = pair_summaries.get(pair)
+                if summary is None:
+                    pair_summaries[pair] = {
+                        'similarity_score': candidate.similarity_score,
+                        'rank': candidate.rank,
+                        'candidate_count': 1,
+                    }
+                    continue
+
+                summary['candidate_count'] += 1
+                if (candidate.similarity_score, -candidate.rank) > (summary['similarity_score'], -summary['rank']):
+                    summary['similarity_score'] = candidate.similarity_score
+                    summary['rank'] = candidate.rank
+
+    semantic_edges = []
+    for (source_concept_id, target_concept_id), summary in pair_summaries.items():
+        similarity_score = summary['similarity_score']
+        rank = summary['rank']
+        semantic_edges.append(
+            {
+                'id': f'semantic-neighbour:{source_concept_id}:{target_concept_id}',
+                'source_concept_id': source_concept_id,
+                'target_concept_id': target_concept_id,
+                'weight': similarity_score,
+                'similarity_score': similarity_score,
+                'confidence': similarity_score,
+                'rank': rank,
+                'reason': 'semantic_neighbour',
+                'evidence': {
+                    'candidate_count': summary['candidate_count'],
+                    'best_rank': rank,
+                },
+            }
+        )
+
+    return sorted(
+        semantic_edges,
+        key=lambda edge: (-edge['similarity_score'], edge['rank'], edge['source_concept_id'], edge['target_concept_id']),
+    )
+
+
+def _semantic_groups_payload(*, user, node_concept_ids: set[int]) -> list[dict[str, Any]]:
+    """Собирает безопасные группы семантического графа."""
+
+    if not node_concept_ids:
+        return []
+
+    groups = (
+        UserKnowledgeGraphSemanticGroup.objects.filter(
+            user=user,
+            lifecycle_status__in=SEMANTIC_VISIBLE_LIFECYCLE_STATUSES,
+        )
+        .prefetch_related('memberships__concept')
+        .order_by('-generated_at', 'group_key', 'id')
+    )
+
+    payloads = []
+    for group in groups:
+        members = []
+        memberships = sorted(
+            group.memberships.all(),
+            key=lambda membership: (membership.rank, membership.concept.slug, membership.concept_id),
+        )
+        for membership in memberships:
+            concept = membership.concept
+            if concept.id not in node_concept_ids:
+                continue
+            members.append(
+                {
+                    'concept_id': concept.id,
+                    'slug': concept.slug,
+                    'name': concept.name,
+                    'rank': membership.rank,
+                    'confidence': membership.confidence,
+                    'evidence': membership.evidence,
+                }
+            )
+
+        if not members:
+            continue
+
+        payloads.append(
+            {
+                'group_key': group.group_key,
+                'label': group.label,
+                'description': group.description,
+                'rationale': group.rationale,
+                'confidence': group.confidence,
+                'generated_at': group.generated_at,
+                'evidence': group.evidence,
+                'reuse_evidence': group.reuse_evidence,
+                'member_count': len(members),
+                'lifecycle_status': group.lifecycle_status,
+                'lifecycle_reason_code': group.lifecycle_reason_code,
+                'first_seen_at': group.first_seen_at,
+                'last_seen_at': group.last_seen_at,
+                'stale_at': group.stale_at,
+                'archived_at': group.archived_at,
+                'members': members,
+            }
+        )
+
+    return payloads
+
+
+def _semantic_graph_view_payload(
+    *,
+    semantic_groups: list[dict[str, Any]],
+    semantic_edges: list[dict[str, Any]],
+    semantic_diagnostics: dict[str, Any],
+) -> dict[str, Any]:
+    """Собирает метаданные режима семантического графа."""
+
+    supported_lifecycle_statuses = [status.value for status in SEMANTIC_VISIBLE_LIFECYCLE_STATUSES]
+    lifecycle_counts = {status: 0 for status in supported_lifecycle_statuses}
+    visible_member_count = 0
+
+    for group in semantic_groups:
+        lifecycle_status = group.get('lifecycle_status')
+        if lifecycle_status in lifecycle_counts:
+            lifecycle_counts[lifecycle_status] += 1
+        visible_member_count += len(group.get('members', []))
+
+    status = semantic_diagnostics.get('status', UserKnowledgeGraphSemanticState.Status.PENDING)
+    enabled = bool(semantic_diagnostics.get('enabled', False))
+    available = enabled and status not in {
+        UserKnowledgeGraphSemanticState.Status.PENDING,
+        UserKnowledgeGraphSemanticState.Status.PROVIDER_ERROR,
+    }
+
+    return {
+        'schema_version': 1,
+        'mode': 'semantic',
+        'status': status,
+        'reason_code': semantic_diagnostics.get('reason_code', ''),
+        'phase': semantic_diagnostics.get('phase', ''),
+        'enabled': enabled,
+        'available': available,
+        'visible_group_count': len(semantic_groups),
+        'visible_member_count': visible_member_count,
+        'semantic_edge_count': len(semantic_edges),
+        'lifecycle_counts': lifecycle_counts,
+        'supported_lifecycle_statuses': supported_lifecycle_statuses,
+        'archived_groups_included': False,
+    }
+
+
 def _get_layout_for_user(user) -> UserKnowledgeGraphLayout | None:
+    """Возвращает разметку пользователя."""
     try:
         return user.knowledge_graph_layout
     except UserKnowledgeGraphLayout.DoesNotExist:
@@ -116,6 +413,7 @@ def _get_layout_for_user(user) -> UserKnowledgeGraphLayout | None:
 
 
 def _layout_payload(layout: UserKnowledgeGraphLayout | None, *, allowed_concept_ids: set[int]) -> dict[str, Any]:
+    """Собирает разметку графа для ответа API."""
     if layout is None:
         return {
             'schema_version': LAYOUT_SCHEMA_VERSION,
@@ -148,14 +446,17 @@ def _layout_payload(layout: UserKnowledgeGraphLayout | None, *, allowed_concept_
 
 
 def _user_graph_concept_ids(user) -> set[int]:
+    """Возвращает id концептов графа пользователя."""
     return set(UserConceptActivity.objects.filter(user=user).values_list('concept_id', flat=True).distinct())
 
 
 def get_user_graph_layout_payload(user) -> dict[str, Any]:
+    """Возвращает разметку графа пользователя для ответа API."""
     return _layout_payload(_get_layout_for_user(user), allowed_concept_ids=_user_graph_concept_ids(user))
 
 
 def save_user_graph_layout(user, *, schema_version: int, positions: dict[str, dict[str, float]]) -> dict[str, Any]:
+    """Сохраняет разметку графа пользователя."""
     if schema_version != LAYOUT_SCHEMA_VERSION:
         raise serializers.ValidationError({'schema_version': 'Unsupported layout schema version.'})
 
@@ -212,6 +513,7 @@ def save_user_graph_layout(user, *, schema_version: int, positions: dict[str, di
 
 
 def reset_user_graph_layout(user) -> dict[str, Any]:
+    """Сбрасывает сохранённую разметку графа пользователя."""
     UserKnowledgeGraphLayout.objects.filter(user=user).delete()
     return {
         'schema_version': LAYOUT_SCHEMA_VERSION,
@@ -221,12 +523,7 @@ def reset_user_graph_layout(user) -> dict[str, Any]:
 
 
 def get_user_graph_payload(user, *, is_owner: bool) -> dict[str, Any]:
-    """Build a redacted aggregate user knowledge graph DTO.
-
-    The response is intentionally derived from grouped UserConceptActivity rows.
-    It never serializes raw event ids, source object ids, idempotency keys, source
-    bodies, email addresses, provider exception text, or stack traces.
-    """
+    """Возвращает граф знаний пользователя для ответа API."""
 
     state = get_user_graph_state(user)
     activity_rows = UserConceptActivity.objects.filter(user=user)
@@ -270,15 +567,19 @@ def get_user_graph_payload(user, *, is_owner: bool) -> dict[str, Any]:
         breakdown_by_concept[row['concept_id']].append(row)
 
     questions_by_concept: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    concept_ids_by_question_id: dict[str, set[int]] = defaultdict(set)
     seen_related_questions: set[tuple[int, Any]] = set()
     for row in related_question_rows:
-        key = (row['concept_id'], row['related_question_id'])
+        concept_id = row['concept_id']
+        related_question_id = row['related_question_id']
+        concept_ids_by_question_id[str(related_question_id)].add(concept_id)
+        key = (concept_id, related_question_id)
         if key in seen_related_questions:
             continue
         seen_related_questions.add(key)
-        questions_by_concept[row['concept_id']].append(
+        questions_by_concept[concept_id].append(
             {
-                'question_id': row['related_question_id'],
+                'question_id': related_question_id,
                 'title': row['related_question__question_title'],
                 'status': row['related_question__question_status'],
             }
@@ -314,7 +615,7 @@ def get_user_graph_payload(user, *, is_owner: bool) -> dict[str, Any]:
     payload = {
         'user_id': user.pk,
         'viewer': {'is_owner': is_owner},
-        'state': _state_payload(state),
+        'state': _state_payload(state, include_private_diagnostics=is_owner),
         'total_weight': total_weight,
         'activity_breakdown': _activity_breakdown_payload(overall_breakdown_rows),
         'concepts': concepts,
@@ -324,14 +625,29 @@ def get_user_graph_payload(user, *, is_owner: bool) -> dict[str, Any]:
 
     if is_owner:
         payload['layout'] = _layout_payload(_get_layout_for_user(user), allowed_concept_ids=node_concept_ids)
+        semantic_edges = _semantic_candidate_edges_payload(
+            user=user,
+            node_concept_ids=node_concept_ids,
+            concept_ids_by_question_id=concept_ids_by_question_id,
+        )
+        semantic_groups = _semantic_groups_payload(user=user, node_concept_ids=node_concept_ids)
+        semantic_diagnostics = _semantic_diagnostics_payload(user)
+        payload['semantic_edges'] = semantic_edges
+        payload['semantic_groups'] = semantic_groups
+        payload['semantic_graph'] = _semantic_graph_view_payload(
+            semantic_groups=semantic_groups,
+            semantic_edges=semantic_edges,
+            semantic_diagnostics=semantic_diagnostics,
+        )
+        payload['semantic'] = semantic_diagnostics
 
     return payload
 
 
 def get_rebuild_summary_payload(summary: UserKnowledgeGraphRebuildSummary) -> dict[str, Any]:
-    """Build a redacted aggregate owner rebuild response DTO."""
+    """Возвращает сводку пересборки для ответа API."""
 
-    return {
+    payload = {
         'user_id': summary.user_id,
         'processed_questions': summary.processed_questions,
         'processed_activity_sources': summary.processed_activity_sources,
@@ -339,10 +655,13 @@ def get_rebuild_summary_payload(summary: UserKnowledgeGraphRebuildSummary) -> di
         'activity_summary': summary.activity_summary.as_stdout_fields(),
         'state': _state_payload(summary.state),
     }
+    if summary.semantic is not None:
+        payload['semantic'] = summary.semantic
+    return payload
 
 
 def get_rebuild_error_payload(user, *, code: str = 'knowledge_graph_rebuild_failed') -> dict[str, Any]:
-    """Build a redacted rebuild failure DTO from persisted graph state only."""
+    """Возвращает безопасную ошибку для ответа API."""
 
     state = get_user_graph_state(user)
     return {
@@ -355,7 +674,7 @@ def get_rebuild_error_payload(user, *, code: str = 'knowledge_graph_rebuild_fail
 
 
 def get_question_graph_payload(question: Question) -> dict[str, Any]:
-    """Build a redacted aggregate question graph DTO from structural edges."""
+    """Возвращает граф вопроса для ответа API."""
 
     edges = (
         QuestionConceptEdge.objects.filter(question=question)

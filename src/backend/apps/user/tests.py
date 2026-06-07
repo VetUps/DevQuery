@@ -1,9 +1,13 @@
 from datetime import timedelta
+from pathlib import Path
+import shutil
+import tempfile
 
 from django.contrib import admin
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.test import RequestFactory, TestCase
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import RequestFactory, TestCase, override_settings
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 from rest_framework.test import APIClient
@@ -89,6 +93,7 @@ class UserRegisterEndpointTests(TestCase):
                 'user_role',
                 'user_reputation_score',
                 'user_avatar_url',
+                'user_avatar_updated_at',
                 'user_bio',
                 'user_created_at',
                 'reputation',
@@ -103,6 +108,74 @@ class UserRegisterEndpointTests(TestCase):
         self.assertEqual(response.data['reputation_ledger'], [])
         self.assertNotIn('password', response.data)
         self.assertNotIn('password_confirm', response.data)
+
+
+class UserAvatarUploadEndpointTests(TestCase):
+    def setUp(self):
+        self.media_root = tempfile.mkdtemp()
+        self.client = APIClient()
+        self.user = CustomUser.objects.create_user(
+            user_email='avatar@example.com',
+            user_name='avatar-user',
+            password='password123',
+        )
+        self.client.force_authenticate(user=self.user)
+
+    def tearDown(self):
+        shutil.rmtree(self.media_root, ignore_errors=True)
+
+    def _settings_override(self):
+        return override_settings(
+            STORAGES={
+                'default': {
+                    'BACKEND': 'django.core.files.storage.FileSystemStorage',
+                    'OPTIONS': {'location': self.media_root},
+                },
+                'staticfiles': {
+                    'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage',
+                },
+            },
+        )
+
+    def test_avatar_upload_uses_stable_user_uuid_key_and_updates_cache_buster(self):
+        image = SimpleUploadedFile(
+            'first.gif',
+            b'GIF89a\x01\x00\x01\x00\x80\x00\x00\x00\x00\x00\xff\xff\xff!\xf9\x04\x01\x00\x00\x00\x00,\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02D\x01\x00;',
+            content_type='image/gif',
+        )
+
+        with self._settings_override():
+            response = self.client.patch('/user/profile/avatar/', {'user_avatar_url': image}, format='multipart')
+
+        self.assertEqual(response.status_code, 200, response.data)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.user_avatar_url.name, f'avatars/{self.user.user_id}.gif')
+        self.assertIsNotNone(self.user.user_avatar_updated_at)
+        self.assertIn(str(self.user.user_id), response.data['user_avatar_url'])
+        self.assertIsNotNone(response.data['user_avatar_updated_at'])
+
+    def test_avatar_upload_removes_previous_extension_object_when_extension_changes(self):
+        first_image = SimpleUploadedFile(
+            'first.gif',
+            b'GIF89a\x01\x00\x01\x00\x80\x00\x00\x00\x00\x00\xff\xff\xff!\xf9\x04\x01\x00\x00\x00\x00,\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02D\x01\x00;',
+            content_type='image/gif',
+        )
+        second_image = SimpleUploadedFile(
+            'second.png',
+            b'GIF89a\x01\x00\x01\x00\x80\x00\x00\x00\x00\x00\xff\xff\xff!\xf9\x04\x01\x00\x00\x00\x00,\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02D\x01\x00;',
+            content_type='image/png',
+        )
+
+        with self._settings_override():
+            first_response = self.client.patch('/user/profile/avatar/', {'user_avatar_url': first_image}, format='multipart')
+            second_response = self.client.patch('/user/profile/avatar/', {'user_avatar_url': second_image}, format='multipart')
+
+        self.assertEqual(first_response.status_code, 200, first_response.data)
+        self.assertEqual(second_response.status_code, 200, second_response.data)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.user_avatar_url.name, f'avatars/{self.user.user_id}.png')
+        self.assertFalse((Path(self.media_root) / 'avatars' / f'{self.user.user_id}.gif').exists())
+        self.assertTrue((Path(self.media_root) / 'avatars' / f'{self.user.user_id}.png').exists())
 
 
 class TokenRefreshTests(TestCase):
@@ -393,7 +466,7 @@ class ReputationServiceOverrideTests(TestCase):
             password='password123',
         )
 
-    def test_apply_manual_override_keeps_score_and_records_audit_transaction(self):
+    def test_apply_manual_override_adjusts_score_and_records_audit_transaction(self):
         updated_user = ReputationService.set_manual_level_override(
             user=self.user,
             manual_level=CustomUser.ReputationLevel.MASTER,
@@ -402,25 +475,25 @@ class ReputationServiceOverrideTests(TestCase):
         )
 
         updated_user.refresh_from_db()
-        self.assertEqual(updated_user.user_reputation_score, 30)
+        self.assertEqual(updated_user.user_reputation_score, 300)
         self.assertEqual(updated_user.manual_reputation_level, CustomUser.ReputationLevel.MASTER)
 
         resolution = ReputationService.resolve_level(user=updated_user)
         self.assertTrue(resolution.is_manual_override)
         self.assertEqual(resolution.value, CustomUser.ReputationLevel.MASTER)
-        self.assertEqual(resolution.derived_level, CustomUser.ReputationLevel.PARTICIPANT)
+        self.assertEqual(resolution.derived_level, CustomUser.ReputationLevel.MASTER)
 
         transaction = ReputationTransaction.objects.get(
             user=updated_user,
             reputation_transaction_reason=ReputationTransaction.TransactionReason.MANUAL_LEVEL_OVERRIDE,
         )
-        self.assertEqual(transaction.reputation_transaction_amount, 0)
+        self.assertEqual(transaction.reputation_transaction_amount, 270)
         self.assertEqual(transaction.actor, self.actor)
         self.assertIn('Новый ручной уровень: Мастер.', transaction.note)
-        self.assertIn('Расчетный уровень по очкам: Участник.', transaction.note)
+        self.assertIn('Изменение очков: +270.', transaction.note)
         self.assertIn('Escalated during moderation review.', transaction.note)
 
-    def test_clear_manual_override_keeps_history_and_restores_derived_level(self):
+    def test_clear_manual_override_keeps_history_and_preserves_adjusted_score(self):
         ReputationService.set_manual_level_override(
             user=self.user,
             manual_level=CustomUser.ReputationLevel.MASTER,
@@ -437,12 +510,12 @@ class ReputationServiceOverrideTests(TestCase):
 
         updated_user.refresh_from_db()
         self.assertIsNone(updated_user.manual_reputation_level)
-        self.assertEqual(updated_user.user_reputation_score, 30)
+        self.assertEqual(updated_user.user_reputation_score, 300)
 
         progress = ReputationService.get_progress(updated_user)
         self.assertFalse(progress['is_manual_override'])
-        self.assertEqual(progress['level'], CustomUser.ReputationLevel.PARTICIPANT)
-        self.assertEqual(progress['derived_level'], CustomUser.ReputationLevel.PARTICIPANT)
+        self.assertEqual(progress['level'], CustomUser.ReputationLevel.MASTER)
+        self.assertEqual(progress['derived_level'], CustomUser.ReputationLevel.MASTER)
         self.assertEqual(
             ReputationTransaction.objects.filter(
                 user=updated_user,
@@ -456,7 +529,7 @@ class ReputationServiceOverrideTests(TestCase):
                     'reputation_transaction_amount', flat=True
                 )
             ),
-            [0, 0],
+            [0, 270],
         )
         latest_transaction = ReputationTransaction.objects.filter(user=updated_user).first()
         self.assertIn('Ручной уровень очищен.', latest_transaction.note)
@@ -627,18 +700,18 @@ class AdminApiBoundaryTests(TestCase):
 
         self.assertEqual(response.status_code, 200, response.data)
         self.target_user.refresh_from_db()
-        self.assertEqual(self.target_user.user_reputation_score, 125)
+        self.assertEqual(self.target_user.user_reputation_score, 30)
         self.assertEqual(self.target_user.manual_reputation_level, CustomUser.ReputationLevel.PARTICIPANT)
         self.assertEqual(response.data['user_id'], str(self.target_user.user_id))
-        self.assertEqual(response.data['user_reputation_score'], 125)
-        self.assertEqual(response.data['reputation']['score'], 125)
+        self.assertEqual(response.data['user_reputation_score'], 30)
+        self.assertEqual(response.data['reputation']['score'], 30)
         self.assertEqual(response.data['reputation']['level'], CustomUser.ReputationLevel.PARTICIPANT)
         self.assertTrue(response.data['reputation']['is_manual_override'])
         self.assertEqual(response.data['reputation']['manual_level'], CustomUser.ReputationLevel.PARTICIPANT)
-        self.assertEqual(response.data['reputation']['derived_level'], CustomUser.ReputationLevel.EXPERT)
+        self.assertEqual(response.data['reputation']['derived_level'], CustomUser.ReputationLevel.PARTICIPANT)
         self.assertEqual(len(response.data['reputation_ledger']), 10)
         latest_entry = response.data['reputation_ledger'][0]
-        self.assertEqual(latest_entry['amount'], 0)
+        self.assertEqual(latest_entry['amount'], -95)
         self.assertEqual(latest_entry['reason'], ReputationTransaction.TransactionReason.MANUAL_LEVEL_OVERRIDE)
         self.assertEqual(latest_entry['actor_name'], self.admin_user.user_name)
         self.assertIn('Temporary downgrade during appeal review.', latest_entry['note'])
@@ -1013,7 +1086,7 @@ class AdminApiActivityTimelineTests(TestCase):
 
         self.assertEqual(response.status_code, 200, response.data)
         self.assertEqual(response.data['count'], 9)
-        self.assertEqual(response.data['limit'], 25)
+        self.assertEqual(response.data['limit'], 10)
         items = response.data['items']
         self.assertEqual(
             [item['type'] for item in items],
@@ -1085,7 +1158,8 @@ class AdminApiActivityTimelineTests(TestCase):
 
         self.assertEqual(response.status_code, 200, response.data)
         self.assertEqual(response.data['limit'], 50)
-        self.assertEqual(response.data['count'], 50)
+        self.assertEqual(len(response.data['items']), 50)
+        self.assertEqual(response.data['count'], 60)
         self.assertEqual(len(response.data['items']), 50)
         serialized = str(response.data).lower()
         for forbidden in ['full raw body', 'password', 'token', 'content_type', 'object_id']:
@@ -1181,15 +1255,15 @@ class AdminApiIntegratedWorkspaceTests(TestCase):
         )
         self.assertEqual(override_response.status_code, 200, override_response.data)
         self.target_user.refresh_from_db()
-        self.assertEqual(self.target_user.user_reputation_score, original_score)
+        self.assertEqual(self.target_user.user_reputation_score, 300)
         self.assertEqual(self.target_user.manual_reputation_level, CustomUser.ReputationLevel.MASTER)
         self.assertEqual(override_response.data['reputation']['level'], CustomUser.ReputationLevel.MASTER)
-        self.assertEqual(override_response.data['reputation']['derived_level'], CustomUser.ReputationLevel.EXPERT)
+        self.assertEqual(override_response.data['reputation']['derived_level'], CustomUser.ReputationLevel.MASTER)
         override_audit = ReputationTransaction.objects.filter(
             user=self.target_user,
             reputation_transaction_reason=ReputationTransaction.TransactionReason.MANUAL_LEVEL_OVERRIDE,
         ).latest('created_at')
-        self.assertEqual(override_audit.reputation_transaction_amount, 0)
+        self.assertEqual(override_audit.reputation_transaction_amount, 175)
         self.assertEqual(override_audit.actor, self.admin_user)
         self.assertIn('Integrated workspace appeal approval.', override_audit.note)
 
@@ -1200,14 +1274,14 @@ class AdminApiIntegratedWorkspaceTests(TestCase):
         )
         self.assertEqual(clear_response.status_code, 200, clear_response.data)
         self.target_user.refresh_from_db()
-        self.assertEqual(self.target_user.user_reputation_score, original_score)
+        self.assertEqual(self.target_user.user_reputation_score, 300)
         self.assertIsNone(self.target_user.manual_reputation_level)
         self.assertFalse(clear_response.data['reputation']['is_manual_override'])
-        self.assertEqual(clear_response.data['reputation']['level'], CustomUser.ReputationLevel.EXPERT)
+        self.assertEqual(clear_response.data['reputation']['level'], CustomUser.ReputationLevel.MASTER)
 
         refreshed_detail_response = self.client.get(detail_url)
         self.assertEqual(refreshed_detail_response.status_code, 200, refreshed_detail_response.data)
-        self.assertEqual(refreshed_detail_response.data['user_reputation_score'], original_score)
+        self.assertEqual(refreshed_detail_response.data['user_reputation_score'], 300)
         self.assertLessEqual(len(refreshed_detail_response.data['reputation_ledger']), 10)
         self.assertEqual(refreshed_detail_response.data['reputation_ledger'][0]['amount'], 0)
         self.assertEqual(
@@ -1384,7 +1458,7 @@ class CustomUserAdminTests(TestCase):
 
         self.assertIn('manual_override_note', form.fields)
 
-    def test_admin_save_model_records_override_audit_entry_without_touching_score(self):
+    def test_admin_save_model_records_override_audit_entry_and_adjusts_score(self):
         form = CustomUserAdminForm(
             data={
                 'user_email': self.target_user.user_email,
@@ -1413,13 +1487,14 @@ class CustomUserAdminTests(TestCase):
         self.model_admin.save_model(request, updated_user, form, change=True)
 
         self.target_user.refresh_from_db()
-        self.assertEqual(self.target_user.user_reputation_score, 30)
+        self.assertEqual(self.target_user.user_reputation_score, 100)
         self.assertEqual(self.target_user.manual_reputation_level, CustomUser.ReputationLevel.EXPERT)
         audit_entry = ReputationTransaction.objects.get(
             user=self.target_user,
             reputation_transaction_reason=ReputationTransaction.TransactionReason.MANUAL_LEVEL_OVERRIDE,
         )
         self.assertEqual(audit_entry.actor, self.superuser)
+        self.assertEqual(audit_entry.reputation_transaction_amount, 70)
         self.assertIn('Temporary expert override.', audit_entry.note)
 
 

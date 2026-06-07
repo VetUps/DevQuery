@@ -80,6 +80,65 @@ class KnowledgeGraphLayoutAPITests(APITestCase):
         self.assertEqual(reset_response.data, {'schema_version': 1, 'positions': {}, 'updated_at': None})
         self.assertFalse(UserKnowledgeGraphLayout.objects.filter(user=self.owner).exists())
 
+    def test_repeated_layout_saves_replace_single_unnamed_owner_record(self):
+        self.client.force_authenticate(self.owner)
+        first_payload = {
+            'schema_version': 1,
+            'positions': {
+                str(self.django.pk): {'x': 10, 'y': 20},
+            },
+        }
+        second_payload = {
+            'schema_version': 1,
+            'positions': {
+                str(self.vue.pk): {'x': -30.5, 'y': 40.25},
+            },
+        }
+
+        first_response = self.client.put('/knowledge-graph/me/layout/', first_payload, format='json')
+        layout_id = UserKnowledgeGraphLayout.objects.get(user=self.owner).pk
+        second_response = self.client.put('/knowledge-graph/me/layout/', second_payload, format='json')
+
+        self.assertEqual(first_response.status_code, status.HTTP_200_OK, first_response.data)
+        self.assertEqual(second_response.status_code, status.HTTP_200_OK, second_response.data)
+        self.assertEqual(UserKnowledgeGraphLayout.objects.filter(user=self.owner).count(), 1)
+        layout = UserKnowledgeGraphLayout.objects.get(user=self.owner)
+        self.assertEqual(layout.pk, layout_id)
+        self.assertEqual(layout.positions, {str(self.vue.pk): {'x': -30.5, 'y': 40.25}})
+        self.assertNotIn(str(self.django.pk), layout.positions)
+        self.assertEqual(second_response.data['positions'], {str(self.vue.pk): {'x': -30.5, 'y': 40.25}})
+
+    def test_named_layout_payload_fields_are_rejected_or_ignored_without_persistence_expansion(self):
+        self.client.force_authenticate(self.owner)
+        forbidden_named_layout_fields = {
+            'name': 'Preferred layout',
+            'title': 'Presentation layout',
+            'layout_name': 'Daily work',
+            'layouts': [{'name': 'secondary', 'positions': {}}],
+        }
+        payload = {
+            'schema_version': 1,
+            'positions': {str(self.django.pk): {'x': 12, 'y': 34}},
+            **forbidden_named_layout_fields,
+        }
+
+        response = self.client.put('/knowledge-graph/me/layout/', payload, format='json')
+
+        self.assertIn(response.status_code, {status.HTTP_200_OK, status.HTTP_400_BAD_REQUEST}, response.data)
+        self.assertLessEqual(UserKnowledgeGraphLayout.objects.filter(user=self.owner).count(), 1)
+        if response.status_code == status.HTTP_200_OK:
+            layout = UserKnowledgeGraphLayout.objects.get(user=self.owner)
+            self.assertEqual(layout.positions, {str(self.django.pk): {'x': 12.0, 'y': 34.0}})
+            for forbidden_key in forbidden_named_layout_fields:
+                self.assertNotIn(forbidden_key, response.data)
+                self.assertNotIn(forbidden_key, layout.positions)
+                self.assertFalse(hasattr(layout, forbidden_key))
+
+            layout_response = self.client.get('/knowledge-graph/me/layout/')
+            self.assertEqual(layout_response.status_code, status.HTTP_200_OK, layout_response.data)
+            for forbidden_key in forbidden_named_layout_fields:
+                self.assertNotIn(forbidden_key, layout_response.data)
+
     def test_public_graph_does_not_expose_owner_layout_even_to_authenticated_viewers(self):
         UserKnowledgeGraphLayout.objects.create(
             user=self.owner,
