@@ -1,3 +1,4 @@
+# Подключает маршруты API для графа знаний.
 from django.urls import path
 
 from apps.knowledge.views import (

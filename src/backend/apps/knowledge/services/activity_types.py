@@ -1,3 +1,4 @@
+# Кратко: собирает активность пользователя.
 from decimal import Decimal
 
 

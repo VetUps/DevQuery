@@ -1,3 +1,4 @@
+# Кратко: работает с семантическими группами графа.
 from __future__ import annotations
 
 import logging
@@ -91,7 +92,7 @@ class SemanticGroupPersistenceStats:
 
 
 def create_source_provider(config: KnowledgeGraphEmbeddingConfig) -> KnowledgeGraphEmbeddingProvider:
-    """Factory seam for live or explicit-fake embedding providers."""
+    """Создаёт данные source провайдера."""
 
     provider = (config.provider or '').strip().lower()
     if provider in {'fake', 'local', 'test', 'fake-knowledge-graph-embedding'}:
@@ -102,7 +103,7 @@ def create_source_provider(config: KnowledgeGraphEmbeddingConfig) -> KnowledgeGr
 
 
 def create_grouping_provider(config: KnowledgeGraphGroupingConfig) -> KnowledgeGraphGroupingProvider:
-    """Factory seam for live or explicit-fake grouping providers."""
+    """Создаёт данные grouping провайдера."""
 
     provider = (config.provider or '').strip().lower()
     if provider in {'fake', 'local', 'test', 'fake-knowledge-graph-grouping'}:
@@ -113,11 +114,12 @@ def create_grouping_provider(config: KnowledgeGraphGroupingConfig) -> KnowledgeG
 
 
 def _decimal_cost(value: float | Decimal) -> Decimal:
+    """Обрабатывает decimal cost."""
     return Decimal(str(value)).quantize(Decimal('0.000001'), rounding=ROUND_HALF_UP)
 
 
 def _read_owner_stable_semantic_counts(user) -> OwnerStableSemanticCounts:
-    """Read aggregate active/stale semantic map size without loading unsafe provider data."""
+    """Возвращает owner stable семантические данные counts."""
 
     stable_statuses = (
         UserKnowledgeGraphSemanticGroup.LifecycleStatus.ACTIVE,
@@ -134,6 +136,7 @@ def _read_owner_stable_semantic_counts(user) -> OwnerStableSemanticCounts:
 
 
 def _state_payload(state: UserKnowledgeGraphSemanticState) -> dict[str, Any]:
+    """Собирает данные состояния для ответа API."""
     return {
         'status': state.status,
         'reason_code': state.reason_code,
@@ -168,6 +171,7 @@ def _state_payload(state: UserKnowledgeGraphSemanticState) -> dict[str, Any]:
 
 
 def get_owner_semantic_state_payload(user) -> dict[str, Any]:
+    """Возвращает данные владельца семантических данных состояния ответа API."""
     state, _ = UserKnowledgeGraphSemanticState.objects.get_or_create(user=user)
     return _state_payload(state)
 
@@ -179,6 +183,7 @@ def estimate_owner_semantic_rebuild(
     embedding_config: KnowledgeGraphEmbeddingConfig | None = None,
     grouping_config: KnowledgeGraphGroupingConfig | None = None,
 ) -> OwnerSemanticRebuildEstimate:
+    """Считает значение для estimate владельца семантических данных."""
     semantic_config = semantic_config or KnowledgeGraphSemanticConfig.from_django_settings()
     embedding_config = embedding_config or KnowledgeGraphEmbeddingConfig.from_django_settings()
     grouping_config = grouping_config or KnowledgeGraphGroupingConfig.from_django_settings()
@@ -243,6 +248,7 @@ _PROVIDER_TEXT_MAX_CHARS = 2000
 
 
 def _redact_source_text(value: str) -> str:
+    """Возвращает безопасные данные: source текст."""
     value = value or ''
     for pattern in (_SECRET_TOKEN_RE, _BEARER_TOKEN_RE, _AWS_ACCESS_KEY_RE, _JWT_LIKE_RE, _CONNECTION_URL_RE):
         value = pattern.sub('[redacted-secret]', value)
@@ -251,6 +257,7 @@ def _redact_source_text(value: str) -> str:
 
 
 def _canonical_question_source_text(question, tag_names: list[str]) -> str:
+    """Обрабатывает канонический вид вопрос источник текст."""
     safe_tag_names = [_redact_source_text(tag_name) for tag_name in tag_names]
     return '\n'.join(
         [
@@ -263,6 +270,7 @@ def _canonical_question_source_text(question, tag_names: list[str]) -> str:
 
 
 def _safe_error_payload(error: Exception) -> tuple[str, str, str, str, str, str]:
+    """Возвращает безопасные данные: ошибку ответ API."""
     if isinstance(error, KnowledgeGraphProviderError):
         code = error.code
         phase = error.phase
@@ -299,6 +307,7 @@ def _persist_state(
     semantic_group_stale_count: int = 0,
     semantic_group_archived_count: int = 0,
 ) -> UserKnowledgeGraphSemanticState:
+    """Обрабатывает сохранение состояние."""
     now = timezone.now()
     with transaction.atomic():
         state, _ = UserKnowledgeGraphSemanticState.objects.select_for_update().get_or_create(user=user)
@@ -334,6 +343,7 @@ def _persist_state(
 
 
 def _find_reusable_snapshots(user, estimate: OwnerSemanticRebuildEstimate, embedding_config: KnowledgeGraphEmbeddingConfig):
+    """Обрабатывает поиск повторно используемые данные snapshots."""
     reusable = {}
     missing_indexes = []
     for index, summary in enumerate(estimate.source_summaries):
@@ -364,13 +374,7 @@ def _estimate_changed_rebuild_cost(
     embedding_config: KnowledgeGraphEmbeddingConfig,
     grouping_config: KnowledgeGraphGroupingConfig,
 ) -> OwnerSemanticRebuildEstimate:
-    """Return diagnostics with provider-budget cost scoped to eligible provider work.
-
-    Embedding cost is estimated only for changed/missing sources. Grouping cost is
-    included only when the owner has enough sources to produce semantic candidate
-    pairs, including the unchanged-snapshot path where grouping can run without a
-    fresh embedding provider call.
-    """
+    """Считает changed cost."""
 
     changed_texts = [estimate.source_texts[index] for index in missing_indexes]
     embedding_tokens = estimate_text_tokens(changed_texts) if changed_texts else 0
@@ -389,6 +393,7 @@ def _estimate_changed_rebuild_cost(
 
 
 def _validate_embedding_vectors(vectors: list[list[float]], expected_count: int, dimensions: int) -> list[list[float]]:
+    """Проверяет embedding vectors."""
     if len(vectors) != expected_count:
         raise KnowledgeGraphProviderMalformedResponse('Knowledge graph embedding vector count did not match source count.', phase='embedding')
     normalized = []
@@ -410,6 +415,7 @@ def _validate_embedding_vectors(vectors: list[list[float]], expected_count: int,
 
 
 def _persist_snapshots(user, estimate: OwnerSemanticRebuildEstimate, provider_metadata, indexes: list[int], vectors: list[list[float]], generated_at):
+    """Обрабатывает сохранение snapshots."""
     snapshots = {}
     for index, vector in zip(indexes, vectors):
         summary = estimate.source_summaries[index]
@@ -428,6 +434,7 @@ def _persist_snapshots(user, estimate: OwnerSemanticRebuildEstimate, provider_me
 
 
 def _cosine_similarity(left: list[float], right: list[float]) -> Decimal:
+    """Обрабатывает cosine сходство."""
     dot = sum(a * b for a, b in zip(left, right))
     left_norm = _vector_norm(left)
     right_norm = _vector_norm(right)
@@ -438,11 +445,13 @@ def _cosine_similarity(left: list[float], right: list[float]) -> Decimal:
 
 
 def _vector_norm(vector: list[float]) -> float:
+    """Обрабатывает вектор норму."""
     return math.sqrt(sum(value * value for value in vector))
 
 
 
 def _semantic_candidate_source_ids(user) -> set[str]:
+    """Обрабатывает семантические данные кандидата источник ids."""
     source_ids: set[str] = set()
     candidates = UserKnowledgeGraphSemanticCandidate.objects.filter(user=user).select_related('source_snapshot', 'target_snapshot')
     for candidate in candidates:
@@ -452,7 +461,7 @@ def _semantic_candidate_source_ids(user) -> set[str]:
 
 
 def _build_grouping_concept_summaries(user) -> list[dict[str, Any]]:
-    """Build bounded provider input from owner-visible concepts touched by semantic candidates only."""
+    """Собирает grouping концепт summaries."""
 
     candidate_source_ids = _semantic_candidate_source_ids(user)
     if not candidate_source_ids:
@@ -508,6 +517,7 @@ def _build_grouping_concept_summaries(user) -> list[dict[str, Any]]:
 
 
 def _assert_safe_group_text(value: str, *, field: str) -> str:
+    """Возвращает безопасные данные: assert текст."""
     normalized = ' '.join((value or '').split()).strip()
     if not normalized:
         raise KnowledgeGraphProviderMalformedResponse('Knowledge graph grouping provider returned blank safe text.', phase='grouping')
@@ -526,6 +536,7 @@ def _assert_safe_group_text(value: str, *, field: str) -> str:
 
 
 def _normalize_grouping_result(user, result, concept_summaries: list[dict[str, Any]]):
+    """Приводит grouping result к рабочему виду."""
     known_slugs = {summary['slug'] for summary in concept_summaries}
     concepts_by_slug = {concept.slug: concept for concept in KnowledgeConcept.objects.filter(slug__in=known_slugs)}
     if not known_slugs or not result.groups:
@@ -589,6 +600,7 @@ def _normalize_grouping_result(user, result, concept_summaries: list[dict[str, A
 
 
 def _reconcile_semantic_groups(user, result, concept_summaries: list[dict[str, Any]], generated_at) -> tuple[int, int]:
+    """Обрабатывает reconcile семантические данные группы."""
     normalized_groups = _normalize_grouping_result(user, result, concept_summaries)
     provider = result.metadata.provider
     model = result.metadata.model
@@ -660,6 +672,7 @@ def _reconcile_semantic_groups(user, result, concept_summaries: list[dict[str, A
 
 
 def _quantized_centroid(vectors: list[list[float]]) -> list[float]:
+    """Обрабатывает quantized центроид."""
     if not vectors:
         return []
     dimensions = len(vectors[0])
@@ -671,17 +684,20 @@ def _quantized_centroid(vectors: list[list[float]]) -> list[float]:
 
 
 def _centroid_changed(left: list[float], right: list[float]) -> bool:
+    """Обрабатывает центроид changed."""
     if len(left) != len(right):
         return True
     return any(abs(float(a) - float(b)) > 0.000001 for a, b in zip(left, right))
 
 
 def _semantic_member_signature(slugs: list[str]) -> tuple[str, str]:
+    """Обрабатывает семантические данные участника подпись."""
     member_slug_signature = '|'.join(sorted(slugs))
     return hashlib.sha256(member_slug_signature.encode('utf-8')).hexdigest(), member_slug_signature
 
 
 def _semantic_group_slugs(group: UserKnowledgeGraphSemanticGroup) -> list[str]:
+    """Обрабатывает семантические данные группу slug."""
     if group.member_slug_signature:
         return [slug for slug in group.member_slug_signature.split('|') if slug]
     if group.top_member_slugs:
@@ -690,6 +706,7 @@ def _semantic_group_slugs(group: UserKnowledgeGraphSemanticGroup) -> list[str]:
 
 
 def _member_overlap_score(left_slugs: list[str], right_slugs: list[str]) -> float:
+    """Обрабатывает участника пересечение оценку."""
     left = set(left_slugs)
     right = set(right_slugs)
     if not left or not right:
@@ -698,6 +715,7 @@ def _member_overlap_score(left_slugs: list[str], right_slugs: list[str]) -> floa
 
 
 def _candidate_group_match(cluster: dict[str, Any], group: UserKnowledgeGraphSemanticGroup) -> tuple[bool, tuple[float, float, float, str], dict[str, Any]]:
+    """Обрабатывает кандидата группу совпадение."""
     exact_signature = bool(group.member_signature and group.member_signature == cluster['member_signature'])
     existing_slugs = _semantic_group_slugs(group)
     overlap = _member_overlap_score(cluster['top_member_slugs'], existing_slugs[:10])
@@ -720,6 +738,7 @@ def _candidate_group_match(cluster: dict[str, Any], group: UserKnowledgeGraphSem
 
 
 def _concept_vectors_by_slug(user, snapshots_by_index: dict[int, UserKnowledgeGraphEmbeddingSnapshot]) -> dict[str, list[list[float]]]:
+    """Обрабатывает concept векторы slug."""
     snapshots_by_source_id = {str(snapshot.source_id): snapshot for snapshot in snapshots_by_index.values()}
     if not snapshots_by_source_id:
         return {}
@@ -743,6 +762,7 @@ def _deterministic_semantic_clusters(
     *,
     similarity_threshold: Decimal = Decimal('0.90000'),
 ) -> list[dict[str, Any]]:
+    """Обрабатывает детерминированные данные семантические данные кластеры."""
     concepts = []
     for summary in concept_summaries:
         vectors = concept_vectors.get(summary['slug'], [])
@@ -755,12 +775,14 @@ def _deterministic_semantic_clusters(
     parent = {item['summary']['slug']: item['summary']['slug'] for item in concepts}
 
     def find(slug):
+        """Обрабатывает поиск."""
         while parent[slug] != slug:
             parent[slug] = parent[parent[slug]]
             slug = parent[slug]
         return slug
 
     def union(left, right):
+        """Обрабатывает объединение."""
         left_root = find(left)
         right_root = find(right)
         if left_root != right_root:
@@ -810,6 +832,7 @@ def _deterministic_semantic_clusters(
 
 
 def _truncate_safe_text(value: str, max_length: int) -> str:
+    """Возвращает безопасные данные: truncate текст."""
     normalized = ' '.join((value or '').split()).strip()
     if len(normalized) <= max_length:
         return normalized
@@ -817,7 +840,7 @@ def _truncate_safe_text(value: str, max_length: int) -> str:
 
 
 def _semantic_enrichment_by_membership(normalized_groups: list[dict[str, Any]]) -> tuple[dict[tuple[str, ...], dict[str, str]], list[dict[str, Any]]]:
-    """Index safe provider text without letting it define deterministic groups."""
+    """Обрабатывает семантические данные обогащение связь."""
 
     exact: dict[tuple[str, ...], dict[str, str]] = {}
     entries: list[dict[str, Any]] = []
@@ -841,14 +864,7 @@ def _semantic_enrichment_for_cluster(
     exact_enrichment: dict[tuple[str, ...], dict[str, str]],
     provider_entries: list[dict[str, Any]],
 ) -> dict[str, str]:
-    """Return safe provider text for a deterministic cluster.
-
-    Prefer exact member-set matches. When deterministic clustering produces a
-    larger stable cluster than the provider did, compose labels/rationales from
-    provider subgroups that are mostly inside the deterministic cluster. This
-    avoids the unhelpful "Semantic cluster N" fallback while still preventing
-    provider output from changing identity or membership.
-    """
+    """Обрабатывает семантические данные обогащение кластер."""
 
     cluster_key = tuple(sorted(cluster_slugs))
     if cluster_key in exact_enrichment:
@@ -897,6 +913,7 @@ def _reconcile_deterministic_semantic_groups(
     # Validate provider text/shape for S01 failure semantics. Deterministic
     # clustering owns identity/membership; provider output can only enrich
     # label/description/rationale for exact matching member sets.
+    """Обрабатывает reconcile детерминированные данные семантические данные группы."""
     exact_provider_enrichment, provider_enrichment_entries = _semantic_enrichment_by_membership(
         _normalize_grouping_result(user, grouping_result, concept_summaries)
     )
@@ -1017,6 +1034,7 @@ def _reconcile_deterministic_semantic_groups(
     )
 
 def _replace_semantic_candidates(user, snapshots_by_index: dict[int, UserKnowledgeGraphEmbeddingSnapshot], generated_at, limit: int = 10) -> int:
+    """Обрабатывает replace семантические данные кандидатов."""
     snapshots = [snapshots_by_index[index] for index in sorted(snapshots_by_index)]
     if snapshots:
         snapshot_ids = [snapshot.pk for snapshot in snapshots]
@@ -1058,7 +1076,7 @@ def run_owner_semantic_boundary(
     source_provider_factory: Callable[[KnowledgeGraphEmbeddingConfig], KnowledgeGraphEmbeddingProvider] | None = None,
     grouping_provider_factory: Callable[[KnowledgeGraphGroupingConfig], KnowledgeGraphGroupingProvider] | None = None,
 ) -> dict[str, Any]:
-    """Run the M016 S03 owner semantic boundary and persist portable snapshots/candidates."""
+    """Запускает обработку: owner семантические данные boundary."""
 
     source_provider_factory = source_provider_factory or create_source_provider
     grouping_provider_factory = grouping_provider_factory or create_grouping_provider

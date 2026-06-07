@@ -1,3 +1,4 @@
+# Кратко: проверяет и связывает теги вопросов.
 from django.db import IntegrityError, transaction
 from django.db.models import F
 
@@ -7,10 +8,7 @@ from ..models import Question, Tag
 class QuestionTagService:
     @staticmethod
     def attach_tags_to_question(question: Question, tag_names: list[str]) -> None:
-        """
-        Attach normalized unique tag names to a saved question and increment stored
-        question counters exactly once per associated tag.
-        """
+        """Обрабатывает attach теги вопрос."""
         unique_tag_names = list(dict.fromkeys(tag_names))
 
         if not unique_tag_names:
@@ -27,6 +25,7 @@ class QuestionTagService:
 
     @staticmethod
     def _get_or_create_tag(tag_name: str) -> Tag:
+        """Возвращает or тег."""
         try:
             return Tag.objects.get(name=tag_name)
         except Tag.DoesNotExist:

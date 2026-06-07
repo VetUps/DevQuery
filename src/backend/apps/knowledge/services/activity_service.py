@@ -1,3 +1,4 @@
+# Кратко: собирает активность пользователя.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -29,7 +30,7 @@ from apps.user.models import ReputationTransaction
 
 
 class UserConceptActivityRebuildError(Exception):
-    """Safe aggregate exception for user concept activity rebuild failures."""
+    """Безопасная ошибка пересборки активности концептов пользователя."""
 
 
 SUPPORTED_LEDGER_REASON_TO_ACTIVITY = {
@@ -59,7 +60,7 @@ class ActivitySource:
 
 @dataclass
 class UserConceptActivityRebuildSummary:
-    """Aggregate, redaction-safe summary for activity rebuilds."""
+    """Безопасная сводка по пересборке активности."""
 
     processed_sources: int = 0
     created_rows: int = 0
@@ -69,10 +70,12 @@ class UserConceptActivityRebuildSummary:
     rows_by_activity_type: dict[str, int] = field(default_factory=dict)
 
     def mark_skipped(self, reason: str) -> None:
+        """Увеличивает счётчик пропущенных источников."""
         self.skipped_sources += 1
         self.skipped_by_reason[reason] = self.skipped_by_reason.get(reason, 0) + 1
 
     def mark_rows(self, activity_type: str, *, created: int, updated: int) -> None:
+        """Добавляет в сводку созданные и обновлённые строки."""
         self.created_rows += created
         self.updated_rows += updated
         self.rows_by_activity_type[activity_type] = (
@@ -80,6 +83,7 @@ class UserConceptActivityRebuildSummary:
         )
 
     def as_stdout_fields(self) -> dict[str, int]:
+        """Возвращает поля сводки для вывода в консоль."""
         fields = {
             'processed_sources': self.processed_sources,
             'created_rows': self.created_rows,
@@ -95,7 +99,7 @@ class UserConceptActivityRebuildSummary:
 
 @dataclass(frozen=True)
 class UserConceptActivitySummary:
-    """Explainable per-user concept totals without exposing raw activity rows."""
+    """Понятная сводка по концептам без раскрытия сырых строк активности."""
 
     user_id: object
     total_weight: Decimal
@@ -106,14 +110,17 @@ class UserConceptActivitySummary:
 
 
 def _source_label(source_object: object) -> str:
+    """Обрабатывает источник метку."""
     return source_object.__class__.__name__.lower()
 
 
 def _idempotency_key(*, source_object: object, concept_id: int, activity_type: str) -> str:
+    """Обрабатывает idempotency ключ."""
     return f'{activity_type}:{_source_label(source_object)}:{source_object.pk}:concept:{concept_id}'
 
 
 def _question_edges(question: Question) -> list[QuestionConceptEdge]:
+    """Обрабатывает вопрос связи."""
     prefetched = getattr(question, '_prefetched_objects_cache', {}).get('concept_edges')
     if prefetched is not None:
         return list(prefetched)
@@ -121,10 +128,12 @@ def _question_edges(question: Question) -> list[QuestionConceptEdge]:
 
 
 def _safe_pk(source_object: object) -> object:
+    """Возвращает безопасные данные: pk."""
     return getattr(source_object, 'pk', None)
 
 
 def _upsert_activity_for_source(source: ActivitySource, *, edges: list[QuestionConceptEdge] | None = None) -> tuple[int, int, bool]:
+    """Обрабатывает активность источник."""
     edges = edges if edges is not None else _question_edges(source.related_question)
     if not edges:
         return 0, 0, True
@@ -173,6 +182,7 @@ def _upsert_activity_for_source(source: ActivitySource, *, edges: list[QuestionC
 
 
 def _question_sources(queryset: Iterable[Question]) -> Iterable[ActivitySource | str]:
+    """Обрабатывает вопрос источники."""
     for question in queryset:
         if question.user_id is None:
             yield 'missing_user'
@@ -186,6 +196,7 @@ def _question_sources(queryset: Iterable[Question]) -> Iterable[ActivitySource |
 
 
 def _solution_sources(queryset: Iterable[Solution]) -> Iterable[ActivitySource | str]:
+    """Обрабатывает решение источники."""
     for solution in queryset:
         if solution.user_id is None:
             yield 'missing_user'
@@ -202,6 +213,7 @@ def _solution_sources(queryset: Iterable[Solution]) -> Iterable[ActivitySource |
 
 
 def _source_question_for_transaction(transaction_row: ReputationTransaction) -> Question | None:
+    """Обрабатывает источник вопрос транзакцию."""
     source_object = transaction_row.source
     if source_object is None:
         return None
@@ -217,6 +229,7 @@ def _source_question_for_transaction(transaction_row: ReputationTransaction) -> 
 
 
 def _ledger_sources(queryset: Iterable[ReputationTransaction]) -> Iterable[ActivitySource | str]:
+    """Обрабатывает журнал источники."""
     for transaction_row in queryset:
         activity_type = SUPPORTED_LEDGER_REASON_TO_ACTIVITY.get(transaction_row.reputation_transaction_reason)
         if activity_type is None:
@@ -238,6 +251,7 @@ def _ledger_sources(queryset: Iterable[ReputationTransaction]) -> Iterable[Activ
 
 
 def _apply_sources(sources: Iterable[ActivitySource | str], summary: UserConceptActivityRebuildSummary) -> None:
+    """Обрабатывает источники."""
     edge_cache: dict[object, list[QuestionConceptEdge]] = {}
     for source in sources:
         summary.processed_sources += 1
@@ -259,7 +273,7 @@ def _apply_sources(sources: Iterable[ActivitySource | str], summary: UserConcept
 
 @dataclass(frozen=True)
 class UserConceptActivitySyncResult:
-    """Small runtime sync result safe to expose in logs/tests."""
+    """Короткий результат синхронизации, безопасный для логов."""
 
     phase: str
     activity_type: str | None
@@ -271,6 +285,7 @@ class UserConceptActivitySyncResult:
 
 
 def _sync_single_source(source: ActivitySource | str, *, phase: str) -> UserConceptActivitySyncResult:
+    """Синхронизирует single source."""
     summary = UserConceptActivityRebuildSummary()
     _apply_sources([source], summary)
     activity_type = None if isinstance(source, str) else source.activity_type
@@ -287,7 +302,7 @@ def _sync_single_source(source: ActivitySource | str, *, phase: str) -> UserConc
 
 
 def sync_authored_question_activity(question: Question) -> UserConceptActivitySyncResult:
-    """Upsert authored-question concept activity for a live question create."""
+    """Синхронизирует данные authored вопроса активности."""
 
     if question.user_id is None:
         return _sync_single_source('missing_user', phase='question_authoring')
@@ -303,7 +318,7 @@ def sync_authored_question_activity(question: Question) -> UserConceptActivitySy
 
 
 def sync_posted_solution_activity(solution: Solution) -> UserConceptActivitySyncResult:
-    """Upsert posted-solution concept activity for a live solution create."""
+    """Синхронизирует данные posted решения активности."""
 
     if solution.user_id is None:
         return _sync_single_source('missing_user', phase='solution_posting')
@@ -325,7 +340,7 @@ def sync_reputation_transaction_activity(
     *,
     phase: str,
 ) -> UserConceptActivitySyncResult:
-    """Upsert concept activity for supported positive reputation ledger facts."""
+    """Синхронизирует данные репутации transaction активности."""
 
     if transaction_row is None:
         return UserConceptActivitySyncResult(
@@ -342,6 +357,7 @@ def sync_reputation_transaction_activity(
 
 
 def _empty_recoverable_result(*, phase: str, skipped_reason: str) -> UserConceptActivitySyncResult:
+    """Обрабатывает пустой результат recoverable result."""
     return UserConceptActivitySyncResult(
         phase=phase,
         activity_type=None,
@@ -359,13 +375,7 @@ def _run_recoverable_activity_sync(
     phase: str,
     sync_callable: Callable[[], UserConceptActivitySyncResult],
 ) -> UserConceptActivitySyncResult:
-    """Run a runtime activity sync without letting it roll back the source Q&A action.
-
-    The sync itself is isolated in a savepoint so activity write failures can be
-    caught even when callers are already inside a Q&A transaction. Graph-state
-    diagnostics are intentionally fixed/aggregate only; raw exception text and
-    event payloads are never persisted.
-    """
+    """Запускает обработку: recoverable активность."""
 
     user_id = getattr(user, 'pk', user)
     try:
@@ -398,7 +408,7 @@ def _run_recoverable_activity_sync(
 
 
 def recover_sync_authored_question_activity(question: Question) -> UserConceptActivitySyncResult:
-    """Recoverably sync authored-question activity for runtime Q&A actions."""
+    """Синхронизирует данные authored вопроса активности."""
 
     return _run_recoverable_activity_sync(
         user=getattr(question, 'user', None),
@@ -408,7 +418,7 @@ def recover_sync_authored_question_activity(question: Question) -> UserConceptAc
 
 
 def recover_sync_posted_solution_activity(solution: Solution) -> UserConceptActivitySyncResult:
-    """Recoverably sync posted-solution activity for runtime Q&A actions."""
+    """Синхронизирует данные posted решения активности."""
 
     return _run_recoverable_activity_sync(
         user=getattr(solution, 'user', None),
@@ -422,7 +432,7 @@ def recover_sync_reputation_transaction_activity(
     *,
     phase: str,
 ) -> UserConceptActivitySyncResult:
-    """Recoverably sync supported positive reputation-ledger activity."""
+    """Синхронизирует данные репутации transaction активности."""
 
     return _run_recoverable_activity_sync(
         user=getattr(transaction_row, 'user', None),
@@ -432,7 +442,7 @@ def recover_sync_reputation_transaction_activity(
 
 
 def rebuild_user_concept_activity(*, user_id=None) -> UserConceptActivityRebuildSummary:
-    """Rebuild durable positive user-concept activity from current source facts and ledger facts."""
+    """Пересобирает данные пользователя concept активности."""
 
     question_queryset = (
         Question.objects.select_related('user')
@@ -469,7 +479,7 @@ def rebuild_user_concept_activity(*, user_id=None) -> UserConceptActivityRebuild
 
 
 def get_user_concept_activity_summary(user_or_id) -> UserConceptActivitySummary:
-    """Return redacted explainable totals for a single user."""
+    """Возвращает данные пользователя concept активности сводки."""
 
     user_id = getattr(user_or_id, 'pk', user_or_id)
     rows = UserConceptActivity.objects.filter(user_id=user_id)
@@ -505,6 +515,7 @@ def get_user_concept_activity_summary(user_or_id) -> UserConceptActivitySummary:
 
 
 def validate_user_exists(user_id):
+    """Проверяет поле пользователя exists перед сохранением."""
     if user_id is None:
         return None
     User = get_user_model()

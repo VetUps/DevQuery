@@ -1,3 +1,4 @@
+# Кратко: подключает маршруты API для вопросов и ответов.
 from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 

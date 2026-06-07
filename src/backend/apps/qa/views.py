@@ -1,3 +1,4 @@
+# Обрабатывает HTTP-запросы для вопросов и ответов.
 from django.db.models import Prefetch
 from django.shortcuts import get_object_or_404
 from drf_spectacular.types import OpenApiTypes
@@ -41,6 +42,7 @@ class TagViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
     autocomplete_limit = 10
 
     def get_queryset(self):
+        """Возвращает queryset с учётом текущего запроса."""
         search = self.request.query_params.get('search', '').strip().lower()
 
         if not search:
@@ -59,6 +61,7 @@ class TagViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         responses=TagSerializer(many=True),
     )
     def list(self, request, *args, **kwargs):
+        """Возвращает данные для ответа API."""
         return super().list(request, *args, **kwargs)
 
 
@@ -85,6 +88,7 @@ class QuestionViewSet(mixins.ListModelMixin,
     question_ordering_fields = {'question_created_at', '-question_created_at'}
 
     def get_serializer_class(self):
+        """Выбирает сериализатор для текущего действия."""
         if self.action in ['list', 'favorites']:
             return self.question_list_serializer
         if self.action == 'retrieve':
@@ -98,6 +102,7 @@ class QuestionViewSet(mixins.ListModelMixin,
         return self.serializer_class
 
     def get_permissions(self):
+        """Возвращает проверки прав для текущего действия."""
         if self.action in ['create', 'favorite', 'favorites']:
             permission_classes = [IsAuthenticated]
         elif self.action in [
@@ -119,6 +124,7 @@ class QuestionViewSet(mixins.ListModelMixin,
         return [permission() for permission in permission_classes]
 
     def _apply_discovery_filters(self, queryset):
+        """Применяет фильтры поиска вопросов."""
         search = self.request.query_params.get('search', '').strip()
         ordering = self.request.query_params.get('ordering', '-question_created_at')
         raw_tag_filters = self.request.query_params.getlist('tag')
@@ -147,6 +153,7 @@ class QuestionViewSet(mixins.ListModelMixin,
         return queryset.order_by(ordering)
 
     def get_queryset(self):
+        """Возвращает queryset с учётом текущего запроса."""
         queryset = Question.objects.select_related('user').prefetch_related('tags')
         user = getattr(self.request, 'user', None)
 
@@ -166,15 +173,18 @@ class QuestionViewSet(mixins.ListModelMixin,
         return queryset
 
     def get_object(self):
+        """Возвращает данные объекта."""
         obj = super().get_object()
         if self.action in ['update', 'partial_update'] and obj.user != self.request.user:
             self.permission_denied(self.request)
         return obj
 
     def perform_create(self, serializer):
+        """Сохраняет новый объект с данными из текущего запроса."""
         serializer.save(user=self.request.user)
 
     def perform_update(self, serializer):
+        """Сохраняет изменения объекта с данными из текущего запроса."""
         question = self.get_object()
         payload = QuestionChangePayload(
             title=serializer.validated_data['question_title'],
@@ -207,6 +217,7 @@ class QuestionViewSet(mixins.ListModelMixin,
         responses=QuestionListSerializer(many=True),
     )
     def list(self, request, *args, **kwargs):
+        """Возвращает данные для ответа API."""
         return super().list(request, *args, **kwargs)
 
     @extend_schema(
@@ -230,9 +241,11 @@ class QuestionViewSet(mixins.ListModelMixin,
     )
     @action(detail=False, methods=['get'], url_path='favorites')
     def favorites(self, request, *args, **kwargs):
+        """Возвращает избранные вопросы пользователя."""
         return super().list(request, *args, **kwargs)
 
     def _favorite_response(self, question, request):
+        """Собирает ответ API для избранного вопроса."""
         annotated_question = QuestionFavoriteService.annotate_favorites(
             Question.objects.filter(question_id=question.question_id),
             request.user,
@@ -250,6 +263,7 @@ class QuestionViewSet(mixins.ListModelMixin,
     )
     @action(detail=True, methods=['post', 'delete'], url_path='favorite')
     def favorite(self, request, question_id=None):
+        """Добавляет или убирает вопрос из избранного."""
         question = self.get_object()
 
         if request.method == 'POST':
@@ -264,6 +278,7 @@ class QuestionViewSet(mixins.ListModelMixin,
         responses={201: QuestionCreateResponseSerializer},
     )
     def create(self, request, *args, **kwargs):
+        """Создаёт объект из проверенных данных."""
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         self.perform_create(serializer)
@@ -278,6 +293,7 @@ class QuestionViewSet(mixins.ListModelMixin,
         responses={200: QuestionGetSerializer},
     )
     def update(self, request, *args, **kwargs):
+        """Обновляет объект проверенными данными."""
         partial = kwargs.pop('partial', False)
         instance = self.get_object()
         serializer = self.get_serializer(instance, data=request.data, partial=partial)
@@ -301,6 +317,7 @@ class QuestionViewSet(mixins.ListModelMixin,
     )
     @action(detail=False, methods=['post'], url_path='propose_edit')
     def propose_edit(self, request):
+        """Создаёт предложение правки вопроса."""
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         proposal = serializer.save()
@@ -313,6 +330,7 @@ class QuestionViewSet(mixins.ListModelMixin,
     )
     @action(detail=False, methods=['post'], url_path='draft-assist')
     def draft_assist(self, request):
+        """Проверяет черновик вопроса через помощника."""
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
@@ -330,6 +348,7 @@ class QuestionViewSet(mixins.ListModelMixin,
     @action(detail=False, methods=['get'], url_path='pending_edits/(?P<question_id>[^/.]+)')
     @extend_schema(responses=QuestionEditProposalResponseSerializer(many=True))
     def pending_edits(self, request, question_id):
+        """Возвращает ожидающие правки вопроса."""
         result = QuestionEditService.pending_proposals(question_id, request.user)
         serializer = self.question_edit_proposal_response_serializer(result, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
@@ -337,6 +356,7 @@ class QuestionViewSet(mixins.ListModelMixin,
     @action(detail=False, methods=['get'], url_path='review_queue')
     @extend_schema(responses=QuestionEditProposalResponseSerializer(many=True))
     def review_queue(self, request):
+        """Возвращает очередь правок на проверку."""
         result = QuestionEditService.review_queue(request.user)
         serializer = self.question_edit_proposal_response_serializer(result, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
@@ -353,6 +373,7 @@ class QuestionViewSet(mixins.ListModelMixin,
         responses=TagSerializer(many=True),
     )
     def tags_autocomplete(self, request):
+        """Возвращает подсказки тегов для поиска."""
         query = request.query_params.get('q', '').strip().lower()
         if len(query) < 2:
             return Response([], status=status.HTTP_200_OK)
@@ -383,6 +404,7 @@ class QuestionViewSet(mixins.ListModelMixin,
     )
     @action(detail=True, methods=['get'], url_path='eligible-experts')
     def eligible_experts(self, request, *args, **kwargs):
+        """Возвращает экспертов, которых можно пригласить."""
         question = self.get_object()
         search = request.query_params.get('search', '').strip()
         ordering = request.query_params.get('ordering', '').strip()
@@ -419,6 +441,7 @@ class QuestionViewSet(mixins.ListModelMixin,
 
     @staticmethod
     def _eligible_experts_metadata(question, slot_state):
+        """Собирает метаданные для списка подходящих экспертов."""
         return {
             'question_id': str(question.pk),
             'max_invites': slot_state['max'],
@@ -439,6 +462,7 @@ class QuestionViewSet(mixins.ListModelMixin,
     )
     @action(detail=True, methods=['get', 'post'], url_path='expert-invitations')
     def expert_invitations(self, request, *args, **kwargs):
+        """Создаёт или возвращает приглашения экспертов."""
         question = self.get_object()
 
         if request.method == 'GET':
@@ -508,6 +532,7 @@ class QuestionViewSet(mixins.ListModelMixin,
 
     @staticmethod
     def _invited_experts_metadata(question, invited_count):
+        """Собирает метаданные по приглашённым экспертам."""
         return {
             'question_id': str(question.pk),
             'invited_count': invited_count,
@@ -516,6 +541,7 @@ class QuestionViewSet(mixins.ListModelMixin,
     @action(detail=False, methods=['patch'], url_path='approve_edit/(?P<question_edit_id>[^/.]+)')
     @extend_schema(responses=QuestionEditApprovalSerializer)
     def approve_edit(self, request, question_edit_id):
+        """Одобряет предложенную правку вопроса."""
         QuestionEditService.change_proposal_approval(
             proposal_id=question_edit_id,
             actor=request.user,
@@ -526,6 +552,7 @@ class QuestionViewSet(mixins.ListModelMixin,
     @action(detail=False, methods=['patch'], url_path='reject_edit/(?P<question_edit_id>[^/.]+)')
     @extend_schema(responses=QuestionEditApprovalSerializer)
     def reject_edit(self, request, question_edit_id):
+        """Отклоняет предложенную правку вопроса."""
         QuestionEditService.change_proposal_approval(
             proposal_id=question_edit_id,
             actor=request.user,
@@ -536,6 +563,7 @@ class QuestionViewSet(mixins.ListModelMixin,
     @action(detail=False, methods=['get'], url_path='history/(?P<question_id>[^/.]+)/events')
     @extend_schema(responses=QuestionEditEventSerializer(many=True))
     def events(self, request, question_id):
+        """Возвращает события жизненного цикла вопроса."""
         result = QuestionEditService.event_history(question_id)
         serializer = self.question_edit_event_serializer(result, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
@@ -543,6 +571,7 @@ class QuestionViewSet(mixins.ListModelMixin,
     @action(detail=False, methods=['get'], url_path='history/(?P<question_id>[^/.]+)/revisions')
     @extend_schema(responses=QuestionRevisionSerializer(many=True))
     def revisions(self, request, question_id):
+        """Возвращает историю версий вопроса."""
         result = QuestionEditService.revision_history(question_id)
         serializer = self.question_revision_serializer(result, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
@@ -554,14 +583,17 @@ class QuestionEditsViewSet(mixins.CreateModelMixin,
     question_edit_response_serializer = QuestionEditProposalResponseSerializer
 
     def get_queryset(self):
+        """Возвращает queryset с учётом текущего запроса."""
         return QuestionEditProposal.objects.select_related('question__user', 'author', 'reviewed_by')
 
     def get_serializer_class(self):
+        """Выбирает сериализатор для текущего действия."""
         if self.action == 'create':
             return self.question_edit_create_serializer
         return self.serializer_class
 
     def get_permissions(self):
+        """Возвращает проверки прав для текущего действия."""
         if self.action in ['create', 'approve', 'disapprove', 'review_queue']:
             permission_classes = [IsAuthenticated]
         else:
@@ -574,6 +606,7 @@ class QuestionEditsViewSet(mixins.CreateModelMixin,
         responses={201: QuestionEditProposalResponseSerializer},
     )
     def create(self, request, *args, **kwargs):
+        """Создаёт объект из проверенных данных."""
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         proposal = serializer.save()
@@ -584,6 +617,7 @@ class QuestionEditsViewSet(mixins.CreateModelMixin,
     @action(detail=False, methods=['get'], url_path='review_queue')
     @extend_schema(responses=QuestionEditProposalResponseSerializer(many=True))
     def review_queue(self, request):
+        """Возвращает очередь правок на проверку."""
         result = QuestionEditService.review_queue(request.user)
         serializer = self.question_edit_response_serializer(result, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
@@ -591,6 +625,7 @@ class QuestionEditsViewSet(mixins.CreateModelMixin,
     @action(detail=False, methods=['patch'], url_path='approve/(?P<question_edit_id>[^/.]+)')
     @extend_schema(responses=QuestionEditApprovalSerializer)
     def approve(self, request, question_edit_id):
+        """Одобряет объект текущей очереди."""
         QuestionEditService.change_proposal_approval(
             proposal_id=question_edit_id,
             actor=request.user,
@@ -601,6 +636,7 @@ class QuestionEditsViewSet(mixins.CreateModelMixin,
     @action(detail=False, methods=['patch'], url_path='disapprove/(?P<question_edit_id>[^/.]+)')
     @extend_schema(responses=QuestionEditApprovalSerializer)
     def disapprove(self, request, question_edit_id):
+        """Отклоняет объект текущей очереди."""
         QuestionEditService.change_proposal_approval(
             proposal_id=question_edit_id,
             actor=request.user,
@@ -621,6 +657,7 @@ class SolutionViewSet(mixins.ListModelMixin,
     solution_best_serializer = SolutionBestSerializer
 
     def get_queryset(self):
+        """Возвращает queryset с учётом текущего запроса."""
         base_queryset = Solution.objects.select_related('user', 'question')
 
         if self.action == 'list':
@@ -633,6 +670,7 @@ class SolutionViewSet(mixins.ListModelMixin,
         return queryset
 
     def get_serializer_class(self):
+        """Выбирает сериализатор для текущего действия."""
         if self.action == 'list':
             return self.solution_list_serializer
         if self.action == 'create':
@@ -642,6 +680,7 @@ class SolutionViewSet(mixins.ListModelMixin,
         return self.serializer_class
 
     def get_permissions(self):
+        """Возвращает проверки прав для текущего действия."""
         if self.action in ['create', 'best']:
             permission_classes = [IsAuthenticated]
         else:
@@ -650,6 +689,7 @@ class SolutionViewSet(mixins.ListModelMixin,
         return [permission() for permission in permission_classes]
 
     def perform_create(self, serializer):
+        """Сохраняет новый объект с данными из текущего запроса."""
         solution = serializer.save(user=self.request.user)
         recover_sync_posted_solution_activity(solution)
 
@@ -658,6 +698,7 @@ class SolutionViewSet(mixins.ListModelMixin,
         responses={201: SolutionCreateResponseSerializer},
     )
     def create(self, request, *args, **kwargs):
+        """Создаёт объект из проверенных данных."""
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         self.perform_create(serializer)
@@ -676,6 +717,7 @@ class SolutionViewSet(mixins.ListModelMixin,
         ]
     )
     def list(self, request, *args, **kwargs):
+        """Возвращает данные для ответа API."""
         return super().list(request, *args, **kwargs)
 
     @extend_schema(
@@ -684,6 +726,7 @@ class SolutionViewSet(mixins.ListModelMixin,
     )
     @action(detail=True, methods=['patch'], url_path='best')
     def best(self, request, *args, **kwargs):
+        """Помечает решение как лучшее."""
         solution = self.get_object()
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -710,14 +753,17 @@ class SolutionEditsViewSet(mixins.CreateModelMixin,
     solution_edit_history_serializer = SolutionEditHistorySerializer
 
     def get_queryset(self):
+        """Возвращает queryset с учётом текущего запроса."""
         return SolutionEdits.objects.select_related('solution__question', 'solution__user', 'user')
 
     def get_serializer_class(self):
+        """Выбирает сериализатор для текущего действия."""
         if self.action == 'create':
             return self.solution_edit_create_serializer
         return self.serializer_class
 
     def get_permissions(self):
+        """Возвращает проверки прав для текущего действия."""
         if self.action in ['create', 'approve', 'disapprove', 'not_approved', 'review_queue', 'my_history']:
             permission_classes = [IsAuthenticated]
         else:
@@ -726,6 +772,7 @@ class SolutionEditsViewSet(mixins.CreateModelMixin,
         return [permission() for permission in permission_classes]
 
     def perform_create(self, serializer):
+        """Сохраняет новый объект с данными из текущего запроса."""
         solution = serializer.validated_data['solution']
         user = self.request.user
         is_author = solution.user == user
@@ -744,6 +791,7 @@ class SolutionEditsViewSet(mixins.CreateModelMixin,
         responses={201: SolutionEditCreateResponseSerializer},
     )
     def create(self, request, *args, **kwargs):
+        """Создаёт объект из проверенных данных."""
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         self.perform_create(serializer)
@@ -756,6 +804,7 @@ class SolutionEditsViewSet(mixins.CreateModelMixin,
     @action(detail=False, methods=['get'], url_path='history/(?P<solution_id>[^/.]+)')
     @extend_schema(responses=SolutionEditHistorySerializer(many=True))
     def history(self, request, solution_id):
+        """Возвращает историю правок."""
         result = SolutionEditService.history(solution_id)
         serializer = self.solution_edit_history_serializer(result, many=True)
 
@@ -767,6 +816,7 @@ class SolutionEditsViewSet(mixins.CreateModelMixin,
     @action(detail=False, methods=['get'], url_path='not_approved/(?P<solution_id>[^/.]+)')
     @extend_schema(responses=SolutionEditHistorySerializer(many=True))
     def not_approved(self, request, solution_id):
+        """Возвращает неодобренные правки."""
         user = request.user
         result = SolutionEditService.not_approved(solution_id, user)
         serializer = self.solution_edit_history_serializer(result, many=True)
@@ -779,6 +829,7 @@ class SolutionEditsViewSet(mixins.CreateModelMixin,
     @action(detail=False, methods=['get'], url_path='review_queue')
     @extend_schema(responses=SolutionEditHistorySerializer(many=True))
     def review_queue(self, request):
+        """Возвращает очередь правок на проверку."""
         result = SolutionEditService.review_queue(request.user)
         serializer = self.solution_edit_history_serializer(result, many=True)
 
@@ -790,6 +841,7 @@ class SolutionEditsViewSet(mixins.CreateModelMixin,
     @action(detail=False, methods=['get'], url_path='my_history')
     @extend_schema(responses=SolutionEditHistorySerializer(many=True))
     def my_history(self, request):
+        """Возвращает историю правок текущего пользователя."""
         result = SolutionEditService.my_history(request.user)
         serializer = self.solution_edit_history_serializer(result, many=True)
 
@@ -801,6 +853,7 @@ class SolutionEditsViewSet(mixins.CreateModelMixin,
     @action(detail=False, methods=['patch'], url_path='approve/(?P<solution_edit_id>[^/.]+)')
     @extend_schema(responses=SolutionEditApprovalSerializer)
     def approve(self, request, solution_edit_id):
+        """Одобряет объект текущей очереди."""
         user = request.user
         SolutionEditService.change_approve(solution_edit_id, True, user)
 
@@ -812,6 +865,7 @@ class SolutionEditsViewSet(mixins.CreateModelMixin,
     @action(detail=False, methods=['patch'], url_path='disapprove/(?P<solution_edit_id>[^/.]+)')
     @extend_schema(responses=SolutionEditApprovalSerializer)
     def disapprove(self, request, solution_edit_id):
+        """Отклоняет объект текущей очереди."""
         user = request.user
         SolutionEditService.change_approve(solution_edit_id, False, user)
 
@@ -868,6 +922,7 @@ class CommentViewSet(mixins.ListModelMixin,
         ]
     )
     def list(self, request, *args, **kwargs):
+        """Возвращает данные для ответа API."""
         return super().list(request, *args, **kwargs)
 
     @extend_schema(
@@ -875,6 +930,7 @@ class CommentViewSet(mixins.ListModelMixin,
         responses={201: CommentCreateResponseSerializer},
     )
     def create(self, request, *args, **kwargs):
+        """Создаёт объект из проверенных данных."""
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         self.perform_create(serializer)
@@ -885,6 +941,7 @@ class CommentViewSet(mixins.ListModelMixin,
         return Response(response_serializer.data, status=status.HTTP_201_CREATED, headers=headers)
 
     def get_queryset(self):
+        """Возвращает queryset с учётом текущего запроса."""
         target_type = self.request.query_params.get('target_type')
         target_id = self.request.query_params.get('target_id')
         parent_id = self.request.query_params.get('parent_id')
@@ -904,7 +961,7 @@ class CommentViewSet(mixins.ListModelMixin,
         return base_queryset
 
     def get_object(self):
-        """Для destroy действия получаем объект напрямую по ID"""
+        """Возвращает данные объекта."""
         if self.action == 'destroy':
             queryset = Comment.objects.all()
         else:
@@ -918,6 +975,7 @@ class CommentViewSet(mixins.ListModelMixin,
         return obj
 
     def get_serializer_class(self):
+        """Выбирает сериализатор для текущего действия."""
         if self.action == 'list':
             return self.comment_detail_serializer
         if self.action == 'create':
@@ -927,6 +985,7 @@ class CommentViewSet(mixins.ListModelMixin,
         return self.serializer_class
 
     def get_permissions(self):
+        """Возвращает проверки прав для текущего действия."""
         if self.action in ['create', 'destroy']:
             permission_classes = [IsAuthenticated]
         else:
@@ -934,9 +993,11 @@ class CommentViewSet(mixins.ListModelMixin,
         return [permission() for permission in permission_classes]
 
     def perform_create(self, serializer):
+        """Сохраняет новый объект с данными из текущего запроса."""
         serializer.save(user=self.request.user)
 
     def perform_destroy(self, instance):
+        """Удаляет объект через стандартный сценарий viewset."""
         user = self.request.user
         CommentService.validate_delete_permission(instance, user)
 
@@ -957,6 +1018,7 @@ class VoteViewSet(viewsets.ViewSet):
     serializer_class = VoteCreateSerializer
 
     def get_permissions(self):
+        """Возвращает проверки прав для текущего действия."""
         if self.action in ['cast_vote', 'remove_vote']:
             permission_classes = [IsAuthenticated]
         else:
@@ -969,10 +1031,7 @@ class VoteViewSet(viewsets.ViewSet):
     )
     @action(detail=False, methods=['post'], url_path='cast')
     def cast_vote(self, request):
-        """
-        Поставить или изменить голос за объект.
-        Повторный запрос с тем же типом голоса не меняет состояние.
-        """
+        """Применяет голос пользователя к объекту."""
         serializer = VoteCreateSerializer(data=request.data, context={'request': request})
         serializer.is_valid(raise_exception=True)
 
@@ -993,9 +1052,7 @@ class VoteViewSet(viewsets.ViewSet):
     )
     @action(detail=False, methods=['delete'], url_path='remove')
     def remove_vote(self, request):
-        """
-        Снять голос пользователя за объект.
-        """
+        """Удаляет или отвязывает данные голоса."""
         target_type = request.query_params.get('target_type')
         target_id = request.query_params.get('target_id')
 
@@ -1021,9 +1078,7 @@ class VoteViewSet(viewsets.ViewSet):
     )
     @action(detail=False, methods=['get'], url_path='stats/(?P<target_type>[^/.]+)/(?P<target_id>[^/.]+)')
     def get_stats(self, request, target_type, target_id):
-        """
-        Получить статистику голосов для объекта.
-        """
+        """Возвращает данные stats."""
         stats = VoteService.get_vote_stats(target_type, target_id)
         return Response(stats, status=status.HTTP_200_OK)
 
@@ -1036,9 +1091,7 @@ class VoteViewSet(viewsets.ViewSet):
     )
     @action(detail=False, methods=['get'], url_path='my/(?P<target_type>[^/.]+)/(?P<target_id>[^/.]+)')
     def get_my_vote(self, request, target_type, target_id):
-        """
-        Получить голос текущего пользователя за объект.
-        """
+        """Возвращает данные my голоса."""
         user = request.user
         if not user or not user.is_authenticated:
             return Response({'user_vote': None}, status=status.HTTP_200_OK)

@@ -1,3 +1,4 @@
+# Кратко: обрабатывает HTTP-запросы для пользователей.
 from rest_framework_simplejwt.views import TokenRefreshView
 
 from .token_serializers import SafeTokenRefreshSerializer

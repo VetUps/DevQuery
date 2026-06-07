@@ -1,3 +1,4 @@
+# Кратко: готовит выводы для графа знаний.
 from __future__ import annotations
 
 from collections import Counter, defaultdict
@@ -133,10 +134,12 @@ UNSAFE_RECOMMENDATION_VALUE_MARKERS = ('<', '>', 'sk_', 'source_id', 'content_ha
 
 
 def _safe_decimal(value: Decimal | None) -> Decimal:
+    """Возвращает Decimal без пустого значения."""
     return value if value is not None else ZERO_WEIGHT
 
 
 def _bounded_score(value: Decimal | int | float | None) -> Decimal:
+    """Обрабатывает bounded оценку."""
     if value is None:
         return SCORE_ZERO
     score = Decimal(str(value))
@@ -148,12 +151,14 @@ def _bounded_score(value: Decimal | int | float | None) -> Decimal:
 
 
 def _ratio_score(value: Decimal | int, cap: Decimal) -> Decimal:
+    """Обрабатывает ratio оценку."""
     if cap <= ZERO_WEIGHT:
         return SCORE_ZERO
     return _bounded_score(Decimal(str(value)) / cap)
 
 
 def _freshness_score(last_activity_at) -> Decimal:
+    """Обрабатывает freshness оценку."""
     if not last_activity_at:
         return SCORE_ZERO
     age_days = Decimal(str(max((timezone.now() - last_activity_at).total_seconds(), 0))) / Decimal('86400')
@@ -169,6 +174,7 @@ def _freshness_score(last_activity_at) -> Decimal:
 
 
 def _confidence_band(confidence_score: Decimal) -> str:
+    """Обрабатывает confidence band."""
     if confidence_score >= SCORING_HIGH_CONFIDENCE_MIN:
         return CONFIDENCE_HIGH
     if confidence_score >= SCORING_MEDIUM_CONFIDENCE_MIN:
@@ -177,6 +183,7 @@ def _confidence_band(confidence_score: Decimal) -> str:
 
 
 def _state_score(*, strength_score: Decimal, freshness_score: Decimal, connectivity_score: Decimal, diversity_score: Decimal, confidence_score: Decimal) -> Decimal:
+    """Обрабатывает состояние оценку."""
     return _bounded_score(
         (strength_score * SCORING_STATE_STRENGTH_WEIGHT)
         + (freshness_score * SCORING_STATE_FRESHNESS_WEIGHT)
@@ -187,7 +194,7 @@ def _state_score(*, strength_score: Decimal, freshness_score: Decimal, connectiv
 
 
 def _insights_state_payload(state: UserKnowledgeGraphState) -> dict[str, Any]:
-    """Return graph state diagnostics without provider error text."""
+    """Обрабатывает выводы состояние ответ API."""
 
     return {
         'status': state.status,
@@ -199,6 +206,7 @@ def _insights_state_payload(state: UserKnowledgeGraphState) -> dict[str, Any]:
 
 
 def get_insights_error_payload(user) -> dict[str, Any]:
+    """Возвращает данные выводов ошибки ответа API."""
     return {
         'error': {
             'code': 'knowledge_graph_insights_unavailable',
@@ -209,7 +217,7 @@ def get_insights_error_payload(user) -> dict[str, Any]:
 
 
 def _owner_visible_topology(concept_ids: set[int], owner_question_ids: set[Any]) -> tuple[dict[int, int], dict[int, int]]:
-    """Return owner-visible related-question counts and shared-question degree per concept."""
+    """Обрабатывает владельца visible topology."""
 
     if not concept_ids or not owner_question_ids:
         return {}, {}
@@ -242,6 +250,7 @@ def _owner_visible_topology(concept_ids: set[int], owner_question_ids: set[Any])
 
 
 def _activity_metrics_by_concept(user, concept_ids: set[int]) -> dict[int, dict[str, Any]]:
+    """Обрабатывает активность metrics concept."""
     if not concept_ids:
         return {}
 
@@ -290,6 +299,7 @@ def _classify_state_v2(
     confidence_score: Decimal,
 ) -> str:
     # Stale wins before strength so old-but-heavy concepts prompt refresh instead of maintenance.
+    """Обрабатывает classify состояние v2."""
     if last_activity_at and last_activity_at <= timezone.now() - timezone.timedelta(days=CONCEPT_STATE_STALE_AFTER_DAYS):
         return STATE_STALE
     if freshness_score <= SCORING_STALE_FRESHNESS_MAX and strength_score >= SCORING_STALE_STRENGTH_MIN:
@@ -323,6 +333,7 @@ def _evidence_entries(
     owner_visible_related_question_count: int,
     semantic_state: str,
 ) -> list[dict[str, Any]]:
+    """Обрабатывает evidence entries."""
     entries = [
         {
             'code': 'activity_diversity',
@@ -377,6 +388,7 @@ def _evidence_entries(
 
 
 def _base_action_payload(slug: str, name: str) -> dict[str, str | int]:
+    """Обрабатывает base action ответ API."""
     return {
         'query': name,
         'tag': slug,
@@ -387,6 +399,7 @@ def _base_action_payload(slug: str, name: str) -> dict[str, str | int]:
 
 
 def _recommendation_for_state(*, concept_id: int, slug: str, name: str, state: str) -> dict[str, Any]:
+    """Обрабатывает recommendation состояние."""
     payload = _base_action_payload(slug, name)
     if state == STATE_WEAK:
         action_type = ACTION_REVIEW_RELATED
@@ -429,6 +442,7 @@ def _recommendation_for_state(*, concept_id: int, slug: str, name: str, state: s
 
 
 def _is_safe_recommendation_value(value: Any) -> bool:
+    """Возвращает безопасные данные: recommendation value."""
     if isinstance(value, dict):
         for key, child in value.items():
             normalized_key = str(key).lower().replace('-', '_')
@@ -446,6 +460,7 @@ def _is_safe_recommendation_value(value: Any) -> bool:
 
 
 def _recommendation_evidence_entry(code: str, label: str, value: Decimal | int | str, weight: Decimal | int | float) -> dict[str, Any]:
+    """Обрабатывает recommendation evidence entry."""
     entry = {
         'code': code,
         'label': label,
@@ -456,6 +471,7 @@ def _recommendation_evidence_entry(code: str, label: str, value: Decimal | int |
 
 
 def _concept_question_index(user, visible_concept_ids: set[int], owner_question_ids: set[Any]) -> dict[str, set[int]]:
+    """Обрабатывает concept вопрос index."""
     if not visible_concept_ids or not owner_question_ids:
         return {}
 
@@ -488,6 +504,7 @@ def _semantic_neighbour_summaries(
     visible_concept_ids: set[int],
     concept_ids_by_question_id: dict[str, set[int]],
 ) -> dict[int, list[dict[str, Any]]]:
+    """Обрабатывает семантические данные neighbour summaries."""
     if len(visible_concept_ids) < 2 or not concept_ids_by_question_id:
         return {}
 
@@ -537,6 +554,7 @@ def _semantic_neighbour_summaries(
 
 
 def _semantic_group_summaries(*, user, visible_concepts_by_id: dict[int, dict[str, Any]]) -> dict[int, list[dict[str, Any]]]:
+    """Обрабатывает семантические данные группу summaries."""
     if not visible_concepts_by_id:
         return {}
 
@@ -574,6 +592,7 @@ def _semantic_group_summaries(*, user, visible_concepts_by_id: dict[int, dict[st
 
 
 def _recommendation_priority(score: Decimal) -> str:
+    """Обрабатывает recommendation priority."""
     if score >= Decimal('0.7500'):
         return 'high'
     if score >= Decimal('0.4500'):
@@ -588,6 +607,7 @@ def _top_level_recommendation_for_concept(
     semantic_groups: list[dict[str, Any]],
     visible_concepts_by_id: dict[int, dict[str, Any]],
 ) -> dict[str, Any]:
+    """Обрабатывает top level recommendation concept."""
     semantic_state = concept['semantic_state']
     best_neighbour = semantic_neighbours[0] if semantic_neighbours else None
     has_semantic_bridge = bool(best_neighbour or semantic_groups)
@@ -683,6 +703,7 @@ def _top_level_recommendation_for_concept(
 
 
 def _diversified_top_recommendations(recommendations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Обрабатывает diversified top recommendations."""
     ordered = sorted(
         recommendations,
         key=lambda item: (-item['score'], item['_sort_reason_priority'], item['_sort_slug'], item['_sort_concept_id']),
@@ -719,7 +740,7 @@ def _diversified_top_recommendations(recommendations: list[dict[str, Any]]) -> l
     return reranked
 
 def get_owner_insights_payload(user) -> dict[str, Any]:
-    """Build owner-only, redacted knowledge graph insight DTOs from aggregate activity rows."""
+    """Возвращает данные владельца выводов ответа API."""
 
     state = get_user_graph_state(user)
     activity_rows = UserConceptActivity.objects.filter(user=user)

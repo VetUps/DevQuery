@@ -1,3 +1,4 @@
+# Кратко: хранит настройки Django и внешних сервисов.
 from pathlib import Path
 from dotenv import load_dotenv
 import os
@@ -12,6 +13,7 @@ VOTE_TYPE_CHOICES = [
 
 
 def get_float_env(name, default):
+    """Возвращает данные float env."""
     raw_value = os.getenv(name)
     if raw_value is None or raw_value.strip() == '':
         return default
@@ -23,6 +25,7 @@ def get_float_env(name, default):
 
 
 def get_int_env(name, default):
+    """Возвращает данные int env."""
     raw_value = os.getenv(name)
     if raw_value is None or raw_value.strip() == '':
         return default
@@ -34,6 +37,7 @@ def get_int_env(name, default):
 
 
 def get_bool_env(name, default):
+    """Возвращает данные bool env."""
     raw_value = os.getenv(name)
     if raw_value is None or raw_value.strip() == '':
         return default

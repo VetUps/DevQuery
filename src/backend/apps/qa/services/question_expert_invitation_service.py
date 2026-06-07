@@ -1,3 +1,4 @@
+# Кратко: работает с подбором экспертов.
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -55,6 +56,7 @@ class QuestionExpertInvitationService:
 
     @classmethod
     def build_dedupe_key(cls, question_id, recipient_id) -> str:
+        """Собирает данные dedupe key в нужный формат."""
         return f'expert-invitation:{question_id}:{recipient_id}'
 
     @classmethod
@@ -66,6 +68,7 @@ class QuestionExpertInvitationService:
         search: str | None = None,
         ordering: str | None = None,
     ) -> EligibleExpertsResult:
+        """Возвращает данные eligible экспертов."""
         if requester is not None:
             cls._validate_author(question, requester)
             cls._validate_protection_state(question)
@@ -106,6 +109,7 @@ class QuestionExpertInvitationService:
         *,
         requester: CustomUser,
     ) -> InvitedExpertsResult:
+        """Возвращает данные invited экспертов."""
         cls._validate_author(question, requester)
         invitations = [
             cls._serialize_invited_expert(notification)
@@ -123,6 +127,7 @@ class QuestionExpertInvitationService:
         requester: CustomUser,
         recipient_ids,
     ) -> InvitationCreationResult:
+        """Создаёт данные приглашений."""
         normalized_recipient_ids = cls._normalize_recipient_ids(recipient_ids)
 
         with transaction.atomic():
@@ -188,6 +193,7 @@ class QuestionExpertInvitationService:
 
     @classmethod
     def _normalize_recipient_ids(cls, recipient_ids) -> list[UUID]:
+        """Приводит recipient ids к рабочему виду."""
         if not recipient_ids:
             cls._raise_validation(cls.EMPTY_RECIPIENTS)
 
@@ -213,11 +219,13 @@ class QuestionExpertInvitationService:
 
     @classmethod
     def _validate_author(cls, question: Question, requester: CustomUser) -> None:
+        """Проверяет author."""
         if question.user_id != requester.pk:
             cls._raise_validation(cls.NOT_QUESTION_AUTHOR)
 
     @classmethod
     def _validate_protection_state(cls, question: Question):
+        """Проверяет protection состояние."""
         state = QuestionProtectionService.get_protection_state(question)
         required_state_attributes = [
             'is_protected',
@@ -242,6 +250,7 @@ class QuestionExpertInvitationService:
 
     @classmethod
     def _eligible_recipients_by_id(cls, recipient_ids: list[UUID]) -> dict[UUID, CustomUser]:
+        """Обрабатывает eligible recipients id."""
         candidates = CustomUser.objects.filter(pk__in=recipient_ids, is_active=True)
         eligible = {}
         for user in candidates:
@@ -252,6 +261,7 @@ class QuestionExpertInvitationService:
 
     @classmethod
     def _existing_invitation_queryset(cls, question: Question):
+        """Обрабатывает existing приглашение queryset."""
         return Notification.objects.filter(
             source_question=question,
             notification_type=Notification.NotificationType.EXPERT_INVITATION,
@@ -259,6 +269,7 @@ class QuestionExpertInvitationService:
 
     @classmethod
     def _build_slot_state(cls, question: Question, *, used: int | None = None) -> dict:
+        """Собирает slot состояние."""
         used_count = cls._existing_invitation_queryset(question).count() if used is None else used
         remaining = max(cls.MAX_INVITES_PER_QUESTION - used_count, 0)
         return {
@@ -271,6 +282,7 @@ class QuestionExpertInvitationService:
 
     @classmethod
     def _serialize_candidate(cls, user: CustomUser, resolution) -> dict:
+        """Готовит serialize кандидата для вывода."""
         return {
             'user_id': str(user.pk),
             'user_name': user.user_name,
@@ -284,10 +296,12 @@ class QuestionExpertInvitationService:
 
     @classmethod
     def _get_topic_score_annotations(cls, question: Question):
+        """Возвращает topic score annotations."""
         return ExpertTopicStrengthService.build_candidate_annotations(question)
 
     @classmethod
     def _build_base_payload(cls, *, question: Question, requester: CustomUser, protection_state, expires_at) -> dict:
+        """Собирает base ответ API."""
         protected_until = protection_state.protected_until
         return {
             'question_id': str(question.pk),
@@ -313,6 +327,7 @@ class QuestionExpertInvitationService:
 
     @classmethod
     def _build_payload(cls, *, base_payload: dict, recipient: CustomUser) -> dict:
+        """Собирает ответ API."""
         recipient_resolution = ReputationService.resolve_level(user=recipient)
         payload = dict(base_payload)
         payload.update(
@@ -326,6 +341,7 @@ class QuestionExpertInvitationService:
 
     @classmethod
     def _serialize_invited_expert(cls, notification: Notification) -> dict:
+        """Готовит serialize invited expert для вывода."""
         recipient = notification.recipient
         recipient_resolution = ReputationService.resolve_level(user=recipient)
         notification_metadata = NotificationSerializer(notification).data
@@ -345,6 +361,7 @@ class QuestionExpertInvitationService:
 
     @classmethod
     def _serialize_invitation(cls, notification: Notification) -> dict:
+        """Готовит serialize приглашение для вывода."""
         return {
             'notification_id': str(notification.pk),
             'recipient_id': str(notification.recipient_id),
@@ -356,6 +373,7 @@ class QuestionExpertInvitationService:
 
     @classmethod
     def _raise_validation(cls, code: str, **details) -> None:
+        """Обрабатывает validation."""
         payload = {'code': code}
         payload.update(details)
         raise ValidationError(payload)

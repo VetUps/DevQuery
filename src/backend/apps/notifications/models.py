@@ -1,3 +1,4 @@
+# Кратко: описывает данные уведомлений.
 import uuid
 
 from django.db import models
@@ -70,4 +71,5 @@ class Notification(models.Model):
         ]
 
     def __str__(self):
+        """Возвращает короткое текстовое описание объекта."""
         return f'{self.notification_type} for {self.recipient_id}'

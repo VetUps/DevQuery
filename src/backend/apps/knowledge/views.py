@@ -1,3 +1,4 @@
+# Обрабатывает HTTP-запросы для графа знаний.
 import logging
 
 from django.contrib.auth import get_user_model
@@ -50,6 +51,7 @@ class OwnUserGraphView(APIView):
         ),
     )
     def get(self, request):
+        """Обрабатывает HTTP GET-запрос."""
         payload = get_user_graph_payload(request.user, is_owner=True)
         return Response(UserGraphResponseSerializer(payload).data)
 
@@ -68,6 +70,7 @@ class OwnUserGraphInsightsView(APIView):
         ),
     )
     def get(self, request):
+        """Обрабатывает HTTP GET-запрос."""
         try:
             payload = get_owner_insights_payload(request.user)
         except Exception:
@@ -93,6 +96,7 @@ class OwnUserGraphLayoutView(APIView):
         description='Return the authenticated owner saved knowledge graph layout positions.',
     )
     def get(self, request):
+        """Обрабатывает HTTP GET-запрос."""
         payload = get_user_graph_layout_payload(request.user)
         return Response(KnowledgeGraphLayoutSerializer(payload).data)
 
@@ -102,6 +106,7 @@ class OwnUserGraphLayoutView(APIView):
         description='Replace the authenticated owner saved knowledge graph layout positions.',
     )
     def put(self, request):
+        """Обрабатывает HTTP PUT-запрос."""
         serializer = KnowledgeGraphLayoutSaveSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         payload = save_user_graph_layout(
@@ -117,6 +122,7 @@ class OwnUserGraphLayoutView(APIView):
         description='Reset the authenticated owner saved knowledge graph layout positions.',
     )
     def delete(self, request):
+        """Обрабатывает HTTP DELETE-запрос."""
         payload = reset_user_graph_layout(request.user)
         return Response(KnowledgeGraphLayoutSerializer(payload).data, status=status.HTTP_200_OK)
 
@@ -137,6 +143,7 @@ class OwnUserGraphRebuildView(APIView):
         ),
     )
     def post(self, request):
+        """Обрабатывает HTTP POST-запрос."""
         try:
             summary = rebuild_user_knowledge_graph(request.user)
         except UserKnowledgeGraphRebuildError:
@@ -158,6 +165,7 @@ class PublicUserGraphView(APIView):
         ),
     )
     def get(self, request, user_id):
+        """Обрабатывает HTTP GET-запрос."""
         user = get_object_or_404(get_user_model(), pk=user_id)
         is_owner = bool(request.user and request.user.is_authenticated and request.user.pk == user.pk)
         payload = get_user_graph_payload(user, is_owner=is_owner)
@@ -174,6 +182,7 @@ class QuestionGraphView(APIView):
         ),
     )
     def get(self, request, question_id):
+        """Обрабатывает HTTP GET-запрос."""
         question = get_object_or_404(Question, pk=question_id)
         payload = get_question_graph_payload(question)
         return Response(QuestionGraphResponseSerializer(payload).data)

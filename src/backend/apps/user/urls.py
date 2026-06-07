@@ -1,3 +1,4 @@
+# Кратко: подключает маршруты API для пользователей.
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from .token_views import SafeTokenRefreshView

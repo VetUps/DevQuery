@@ -1,3 +1,4 @@
+# Кратко: подключает Django к серверу приложения.
 import os
 
 from django.core.asgi import get_asgi_application

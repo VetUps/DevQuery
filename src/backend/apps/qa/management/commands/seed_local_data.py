@@ -1,3 +1,4 @@
+# Кратко: запускает служебную команду для вопросов и ответов.
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -107,6 +108,7 @@ class Command(BaseCommand):
     help = 'Создает воспроизводимые демонстрационные данные для ручной проверки frontend/backend.'
 
     def add_arguments(self, parser):
+        """Создаёт данные add arguments."""
         parser.add_argument(
             '--reset',
             action='store_true',
@@ -119,6 +121,7 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+        """Запускает основную логику management-команды."""
         self._guard_local_database(allow_production=options['allow_production'])
 
         with transaction.atomic():
@@ -157,6 +160,7 @@ class Command(BaseCommand):
         )
 
     def _guard_local_database(self, *, allow_production: bool) -> None:
+        """Проверяет защитное условие: local database."""
         engine = settings.DATABASES['default']['ENGINE']
         is_sqlite = engine.endswith('sqlite3')
         if settings.DEBUG or is_sqlite or allow_production:
@@ -168,6 +172,7 @@ class Command(BaseCommand):
         )
 
     def _reset_seed_data(self) -> None:
+        """Очищает старые seed-данные."""
         seed_emails = [seed_user.email for seed_user in SEED_USERS]
         all_known_seed_emails = [*seed_emails, *LEGACY_SEED_EMAILS]
         seed_tag_names = self._seed_tag_names()
@@ -182,10 +187,12 @@ class Command(BaseCommand):
         Tag.objects.filter(name__in=seed_tag_names).delete()
 
     def _remove_legacy_seed_data(self) -> None:
+        """Удаляет legacy данные."""
         Question.objects.filter(question_title__startswith='[seed]').delete()
         CustomUser.objects.filter(user_email__in=LEGACY_SEED_EMAILS).delete()
 
     def _ensure_reputation_policy(self) -> None:
+        """Проверяет репутацию policy."""
         for level, minimum_score in ReputationLevelThreshold.DEFAULT_THRESHOLDS.items():
             threshold, _ = ReputationLevelThreshold.objects.update_or_create(
                 level=level,
@@ -203,6 +210,7 @@ class Command(BaseCommand):
         )
 
     def _seed_users(self) -> dict[str, CustomUser]:
+        """Создаёт seed-данные: пользователей."""
         users = {}
         for seed_user in SEED_USERS:
             user, _ = CustomUser.objects.update_or_create(
@@ -231,11 +239,13 @@ class Command(BaseCommand):
         return users
 
     def _seed_tag_names(self) -> list[str]:
+        """Создаёт seed-данные: тег names."""
         base_tags = ['django', 'vue', 'typescript', 'docker', 'reputation', 'postgresql']
         graph_tags = [tag for tag, *_ in self._large_graph_tag_topics()]
         return [*base_tags, *graph_tags]
 
     def _base_question_titles(self) -> dict[str, str]:
+        """Обрабатывает base вопрос titles."""
         return {
             'protected': 'Почему computed-свойство во Vue 3 перестает обновляться после деструктуризации props?',
             'm008_invite_flow': 'Как подключить эксперта к вопросу новичка, пока действует защита?',
@@ -247,6 +257,7 @@ class Command(BaseCommand):
         }
 
     def _seed_question_titles(self) -> list[str]:
+        """Создаёт seed-данные: вопрос titles."""
         titles = list(self._base_question_titles().values())
         titles.extend(
             self._graph_question_title(index, tag_names)
@@ -255,6 +266,7 @@ class Command(BaseCommand):
         return titles
 
     def _large_graph_tag_windows(self) -> list[tuple[str, list[str]]]:
+        """Обрабатывает large граф тег windows."""
         profile_windows = [
             ('expert-strong', ['python', 'django', 'drf', 'postgresql', 'api-design'], 3),
             ('expert-growing', ['jwt', 'celery', 'redis', 'pytest', 'websocket'], 2),
@@ -286,6 +298,7 @@ class Command(BaseCommand):
         return windows
 
     def _tag_label(self, tag_name: str) -> str:
+        """Обрабатывает тег метку."""
         labels = {
             'django': 'Django',
             'vue': 'Vue',
@@ -298,6 +311,7 @@ class Command(BaseCommand):
         return labels.get(tag_name, tag_name)
 
     def _graph_question_title(self, index: int, tag_names: list[str]) -> str:
+        """Обрабатывает граф вопрос title."""
         primary, secondary, third = [self._tag_label(tag_name) for tag_name in tag_names[:3]]
         templates = [
             'Как разделить ответственность между {primary} и {secondary}, если {third} уже в продакшене?',
@@ -317,6 +331,7 @@ class Command(BaseCommand):
         return templates[template_index].format(primary=primary, secondary=secondary, third=third)
 
     def _graph_question_body(self, tag_names: list[str]) -> str:
+        """Обрабатывает граф вопрос body."""
         labels = [self._tag_label(tag_name) for tag_name in tag_names]
         return (
             'В рабочем проекте эта зона стала точкой риска: изменения проходят ревью, '
@@ -326,6 +341,7 @@ class Command(BaseCommand):
         )
 
     def _large_graph_tag_topics(self) -> list[tuple[str, str, str]]:
+        """Обрабатывает large граф тег темы."""
         return [
             ('python', 'Python', 'backend'),
             ('drf', 'Django REST Framework', 'backend'),
@@ -360,12 +376,14 @@ class Command(BaseCommand):
         ]
 
     def _seed_tags(self) -> dict[str, Tag]:
+        """Создаёт seed-данные: теги."""
         return {
             tag_name: Tag.objects.update_or_create(name=tag_name, defaults={})[0]
             for tag_name in self._seed_tag_names()
         }
 
     def _seed_questions(self, users: dict[str, CustomUser], tags: dict[str, Tag]) -> dict[str, Question]:
+        """Создаёт seed-данные: вопросы."""
         now = timezone.now()
         titles = self._base_question_titles()
         question_specs = {
@@ -469,6 +487,7 @@ class Command(BaseCommand):
         return questions
 
     def _large_graph_question_specs(self, users: dict[str, CustomUser], now) -> dict[str, dict]:
+        """Обрабатывает large граф вопрос specs."""
         profile_owners = {
             'expert-strong': users['expert_local'],
             'expert-growing': users['expert_local'],
@@ -504,6 +523,7 @@ class Command(BaseCommand):
         return specs
 
     def _seed_solutions(self, users: dict[str, CustomUser], questions: dict[str, Question]) -> dict[str, Solution]:
+        """Создаёт seed-данные: решения."""
         solution_specs = {
             **self._large_graph_solution_specs(users, questions),
             'protected_answer': {
@@ -557,6 +577,7 @@ class Command(BaseCommand):
         users: dict[str, CustomUser],
         questions: dict[str, Question],
     ) -> dict[str, dict]:
+        """Обрабатывает large граф решение specs."""
         answerers = [
             users['participant_local'],
             users['admin_local'],
@@ -592,6 +613,7 @@ class Command(BaseCommand):
         questions: dict[str, Question],
         solutions: dict[str, Solution],
     ) -> None:
+        """Создаёт seed-данные: комментарии."""
         question_type = ContentType.objects.get_for_model(Question)
         solution_type = ContentType.objects.get_for_model(Solution)
         comment_specs = [
@@ -614,6 +636,7 @@ class Command(BaseCommand):
         questions: dict[str, Question],
         solutions: dict[str, Solution],
     ) -> None:
+        """Создаёт seed-данные: голоса."""
         question_type = ContentType.objects.get_for_model(Question)
         solution_type = ContentType.objects.get_for_model(Solution)
         vote_specs = [
@@ -639,6 +662,7 @@ class Command(BaseCommand):
         solutions: dict[str, Solution],
         tags: dict[str, Tag],
     ) -> None:
+        """Создаёт seed-данные: edit history."""
         question = questions['admin']
         proposal, _ = QuestionEditProposal.objects.update_or_create(
             question=question,
@@ -689,6 +713,7 @@ class Command(BaseCommand):
         )
 
     def _seed_reputation_events(self, users: dict[str, CustomUser], questions: dict[str, Question], solutions: dict[str, Solution]) -> None:
+        """Создаёт seed-данные: репутацию events."""
         question_type = ContentType.objects.get_for_model(Question)
         solution_type = ContentType.objects.get_for_model(Solution)
         ReputationTransaction.objects.update_or_create(
@@ -737,6 +762,7 @@ class Command(BaseCommand):
         )
 
     def _seed_m008_invitations(self, users: dict[str, CustomUser], questions: dict[str, Question]) -> None:
+        """Создаёт seed-данные: m008 приглашения."""
         active_question = questions['m008_active_invitation']
         expired_question = questions['m008_expired_invitation']
         ended_question = questions['m008_protected_ended']
@@ -781,6 +807,7 @@ class Command(BaseCommand):
         read: bool,
         title: str = 'Приглашение ответить на защищённый вопрос',
     ) -> None:
+        """Обрабатывает приглашение уведомление."""
         dedupe_key = QuestionExpertInvitationService.build_dedupe_key(question.pk, recipient.pk)
         payload = self._build_m008_invitation_payload(recipient=recipient, question=question, expires_at=expires_at)
         read_at = timezone.now() if read else None
@@ -800,6 +827,7 @@ class Command(BaseCommand):
         )
 
     def _build_m008_invitation_payload(self, *, recipient: CustomUser, question: Question, expires_at) -> dict:
+        """Собирает m008 приглашение ответ API."""
         author = question.user
         protection_state = QuestionProtectionService.get_protection_state(question)
         author_resolution = ReputationService.resolve_level(user=author)
@@ -833,6 +861,7 @@ class Command(BaseCommand):
         }
 
     def _rebuild_seed_knowledge_graph(self, users: dict[str, CustomUser], questions: dict[str, Question]):
+        """Пересобирает knowledge граф."""
         seed_questions = Question.objects.filter(
             pk__in=[question.pk for question in questions.values()]
         ).order_by('pk')
@@ -843,6 +872,7 @@ class Command(BaseCommand):
         return graph_summary, activity_summary
 
     def _refresh_tag_counters(self, tags: dict[str, Tag]) -> None:
+        """Обрабатывает refresh-токен тег counters."""
         for tag in tags.values():
             tag.questions_count = tag.questions.count()
             tag.save(update_fields=['questions_count'])

@@ -1,3 +1,4 @@
+# Кратко: держит основную логику этого файла.
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.contrib.auth import authenticate
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
@@ -10,12 +11,14 @@ from ..models import CustomUser
 class UserService:
     @staticmethod
     def register_user(validated_data: dict) -> CustomUser:
+        """Обрабатывает register пользователя."""
         validated_data = validated_data.copy()
         validated_data.pop('password_confirm', None)
         return CustomUser.objects.create_user(**validated_data)
 
     @staticmethod
     def get_tokens_for_user(user: CustomUser) -> dict:
+        """Возвращает данные tokens for пользователя."""
         refresh = RefreshToken.for_user(user)
         return {
             'refresh': str(refresh),
@@ -24,10 +27,12 @@ class UserService:
 
     @staticmethod
     def get_user_profile(user: CustomUser) -> CustomUser:
+        """Возвращает данные пользователя профиля."""
         return user
 
     @staticmethod
     def get_public_user_profile(user_id: str) -> CustomUser:
+        """Возвращает данные public пользователя профиля."""
         try:
             return CustomUser.objects.get(user_id=user_id, is_active=True)
         except (CustomUser.DoesNotExist, DjangoValidationError, ValueError):
@@ -35,6 +40,7 @@ class UserService:
 
     @staticmethod
     def login_user(user_email: str, password: str) -> tuple[CustomUser, dict]:
+        """Обрабатывает login пользователя."""
         user = authenticate(username=user_email, password=password)
 
         if not user:
@@ -48,6 +54,7 @@ class UserService:
 
     @staticmethod
     def logout_user(refresh_token: str) -> None:
+        """Обрабатывает logout пользователя."""
         try:
             refresh = RefreshToken(refresh_token)
             refresh.blacklist()

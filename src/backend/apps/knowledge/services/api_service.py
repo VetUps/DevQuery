@@ -1,3 +1,4 @@
+# Кратко: держит основную логику этого файла.
 from __future__ import annotations
 
 from collections import defaultdict
@@ -54,10 +55,12 @@ SEMANTIC_UNSAFE_ERROR_MARKERS = (
 
 
 def _safe_decimal(value: Decimal | None) -> Decimal:
+    """Возвращает Decimal без пустого значения."""
     return value if value is not None else ZERO_WEIGHT
 
 
 def _state_payload(state: UserKnowledgeGraphState, *, include_private_diagnostics: bool = True) -> dict[str, Any]:
+    """Собирает данные состояния для ответа API."""
     return {
         'status': state.status,
         'stale_reason': state.stale_reason,
@@ -69,6 +72,7 @@ def _state_payload(state: UserKnowledgeGraphState, *, include_private_diagnostic
 
 
 def _safe_semantic_error_message(message: str) -> str:
+    """Возвращает безопасный текст семантической ошибки."""
     if not message:
         return ''
     normalized = message.lower()
@@ -78,12 +82,7 @@ def _safe_semantic_error_message(message: str) -> str:
 
 
 def _semantic_diagnostics_payload(user) -> dict[str, Any]:
-    """Build owner-only semantic graph diagnostics from persisted state only.
-
-    Missing state is reported as a pending disabled boundary without creating rows
-    or touching semantic providers. Provider/model internals are intentionally not
-    part of this API contract.
-    """
+    """Собирает owner-only диагностику семантического графа."""
 
     try:
         state = user.knowledge_graph_semantic_state
@@ -156,6 +155,7 @@ def _semantic_diagnostics_payload(user) -> dict[str, Any]:
 
 
 def _activity_breakdown_payload(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Собирает разбивку активности по типам."""
     return [
         {
             'activity_type': row['activity_type'],
@@ -171,6 +171,7 @@ def _shared_question_edges_payload(
     node_concept_ids: set[int],
     related_question_ids: set[Any],
 ) -> list[dict[str, Any]]:
+    """Собирает связи между общими вопросами."""
     if len(node_concept_ids) < 2 or not related_question_ids:
         return []
 
@@ -226,12 +227,7 @@ def _semantic_candidate_edges_payload(
     node_concept_ids: set[int],
     concept_ids_by_question_id: dict[str, set[int]],
 ) -> list[dict[str, Any]]:
-    """Build owner-only aggregate semantic edge DTOs from persisted candidate rows.
-
-    Candidate snapshots carry private source ids and vector metadata. This payload
-    only uses source ids as an internal join key to already-visible graph concepts
-    and emits aggregate counts/ranks, never source ids, hashes, vectors, or raw text.
-    """
+    """Собирает безопасные семантические связи для графа."""
 
     if len(node_concept_ids) < 2 or not concept_ids_by_question_id:
         return []
@@ -303,12 +299,7 @@ def _semantic_candidate_edges_payload(
 
 
 def _semantic_groups_payload(*, user, node_concept_ids: set[int]) -> list[dict[str, Any]]:
-    """Build owner-only semantic group DTOs from persisted rows.
-
-    Group rows include provider/model internals and may point at concepts outside
-    the currently visible owner graph. The API emits only whitelisted group text,
-    aggregate evidence, and memberships for concepts already present in nodes.
-    """
+    """Собирает безопасные группы семантического графа."""
 
     if not node_concept_ids:
         return []
@@ -377,12 +368,7 @@ def _semantic_graph_view_payload(
     semantic_edges: list[dict[str, Any]],
     semantic_diagnostics: dict[str, Any],
 ) -> dict[str, Any]:
-    """Build owner-only semantic graph mode metadata from already-materialized DTOs.
-
-    This is deliberately view metadata, not a semantic relationship model: group-to-group
-    relationships are not part of the S03 contract, so the payload exposes stable counts,
-    lifecycle support, and current semantic mode state without provider internals.
-    """
+    """Собирает метаданные режима семантического графа."""
 
     supported_lifecycle_statuses = [status.value for status in SEMANTIC_VISIBLE_LIFECYCLE_STATUSES]
     lifecycle_counts = {status: 0 for status in supported_lifecycle_statuses}
@@ -419,6 +405,7 @@ def _semantic_graph_view_payload(
 
 
 def _get_layout_for_user(user) -> UserKnowledgeGraphLayout | None:
+    """Возвращает разметку пользователя."""
     try:
         return user.knowledge_graph_layout
     except UserKnowledgeGraphLayout.DoesNotExist:
@@ -426,6 +413,7 @@ def _get_layout_for_user(user) -> UserKnowledgeGraphLayout | None:
 
 
 def _layout_payload(layout: UserKnowledgeGraphLayout | None, *, allowed_concept_ids: set[int]) -> dict[str, Any]:
+    """Собирает разметку графа для ответа API."""
     if layout is None:
         return {
             'schema_version': LAYOUT_SCHEMA_VERSION,
@@ -458,14 +446,17 @@ def _layout_payload(layout: UserKnowledgeGraphLayout | None, *, allowed_concept_
 
 
 def _user_graph_concept_ids(user) -> set[int]:
+    """Возвращает id концептов графа пользователя."""
     return set(UserConceptActivity.objects.filter(user=user).values_list('concept_id', flat=True).distinct())
 
 
 def get_user_graph_layout_payload(user) -> dict[str, Any]:
+    """Возвращает разметку графа пользователя для ответа API."""
     return _layout_payload(_get_layout_for_user(user), allowed_concept_ids=_user_graph_concept_ids(user))
 
 
 def save_user_graph_layout(user, *, schema_version: int, positions: dict[str, dict[str, float]]) -> dict[str, Any]:
+    """Сохраняет разметку графа пользователя."""
     if schema_version != LAYOUT_SCHEMA_VERSION:
         raise serializers.ValidationError({'schema_version': 'Unsupported layout schema version.'})
 
@@ -522,6 +513,7 @@ def save_user_graph_layout(user, *, schema_version: int, positions: dict[str, di
 
 
 def reset_user_graph_layout(user) -> dict[str, Any]:
+    """Сбрасывает сохранённую разметку графа пользователя."""
     UserKnowledgeGraphLayout.objects.filter(user=user).delete()
     return {
         'schema_version': LAYOUT_SCHEMA_VERSION,
@@ -531,12 +523,7 @@ def reset_user_graph_layout(user) -> dict[str, Any]:
 
 
 def get_user_graph_payload(user, *, is_owner: bool) -> dict[str, Any]:
-    """Build a redacted aggregate user knowledge graph DTO.
-
-    The response is intentionally derived from grouped UserConceptActivity rows.
-    It never serializes raw event ids, source object ids, idempotency keys, source
-    bodies, email addresses, provider exception text, or stack traces.
-    """
+    """Возвращает граф знаний пользователя для ответа API."""
 
     state = get_user_graph_state(user)
     activity_rows = UserConceptActivity.objects.filter(user=user)
@@ -658,7 +645,7 @@ def get_user_graph_payload(user, *, is_owner: bool) -> dict[str, Any]:
 
 
 def get_rebuild_summary_payload(summary: UserKnowledgeGraphRebuildSummary) -> dict[str, Any]:
-    """Build a redacted aggregate owner rebuild response DTO."""
+    """Возвращает сводку пересборки для ответа API."""
 
     payload = {
         'user_id': summary.user_id,
@@ -674,7 +661,7 @@ def get_rebuild_summary_payload(summary: UserKnowledgeGraphRebuildSummary) -> di
 
 
 def get_rebuild_error_payload(user, *, code: str = 'knowledge_graph_rebuild_failed') -> dict[str, Any]:
-    """Build a redacted rebuild failure DTO from persisted graph state only."""
+    """Возвращает безопасную ошибку для ответа API."""
 
     state = get_user_graph_state(user)
     return {
@@ -687,7 +674,7 @@ def get_rebuild_error_payload(user, *, code: str = 'knowledge_graph_rebuild_fail
 
 
 def get_question_graph_payload(question: Question) -> dict[str, Any]:
-    """Build a redacted aggregate question graph DTO from structural edges."""
+    """Возвращает граф вопроса для ответа API."""
 
     edges = (
         QuestionConceptEdge.objects.filter(question=question)

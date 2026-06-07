@@ -1,3 +1,4 @@
+# Кратко: собирает активность пользователя.
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -27,6 +28,7 @@ class AdminActivityItem:
     route: dict[str, str]
 
     def as_dict(self) -> dict[str, Any]:
+        """Обрабатывает dict."""
         return {
             'id': self.id,
             'type': self.type,
@@ -62,6 +64,7 @@ class AdminActivityService:
         page: int = 1,
         page_size: int = DEFAULT_LIMIT,
     ) -> tuple[list[dict[str, Any]], int]:
+        """Обрабатывает timeline."""
         normalized_page = max(1, int(page))
         normalized_limit = max(0, min(int(page_size), cls.MAX_LIMIT))
         if normalized_limit == 0:
@@ -112,18 +115,21 @@ class AdminActivityService:
 
     @staticmethod
     def _question_label(question: Question | None) -> str:
+        """Обрабатывает вопрос метку."""
         if question is None:
             return 'Вопрос недоступен'
         return question.question_title or 'Вопрос без названия'
 
     @classmethod
     def _solution_label(cls, solution: Solution | None) -> str:
+        """Обрабатывает решение метку."""
         if solution is None:
             return 'Решение недоступно'
         return f'Решение для вопроса: {cls._question_label(solution.question)}'
 
     @classmethod
     def _generic_target_label(cls, target: Any) -> str:
+        """Обрабатывает generic target метку."""
         if isinstance(target, Question):
             return cls._question_label(target)
         if isinstance(target, Solution):
@@ -134,12 +140,14 @@ class AdminActivityService:
 
     @staticmethod
     def _question_route(question: Question | None) -> dict[str, str]:
+        """Обрабатывает вопрос route."""
         if question is None:
             return {}
         return {'kind': 'question', 'question_id': str(question.question_id)}
 
     @classmethod
     def _solution_route(cls, solution: Solution | None) -> dict[str, str]:
+        """Обрабатывает решение route."""
         if solution is None:
             return {}
         route = {'kind': 'solution', 'solution_id': str(solution.solution_id)}
@@ -149,10 +157,12 @@ class AdminActivityService:
 
     @staticmethod
     def _actor_label(actor: CustomUser | None) -> str:
+        """Обрабатывает actor метку."""
         return actor.user_name if actor else 'Неизвестный пользователь'
 
     @classmethod
     def _questions(cls, user: CustomUser, limit: int) -> list[AdminActivityItem]:
+        """Обрабатывает вопросы."""
         return [
             AdminActivityItem(
                 id=str(question.question_id),
@@ -168,6 +178,7 @@ class AdminActivityService:
 
     @classmethod
     def _solutions(cls, user: CustomUser, limit: int) -> list[AdminActivityItem]:
+        """Обрабатывает решения."""
         return [
             AdminActivityItem(
                 id=str(solution.solution_id),
@@ -183,6 +194,7 @@ class AdminActivityService:
 
     @classmethod
     def _comments(cls, user: CustomUser, limit: int) -> list[AdminActivityItem]:
+        """Обрабатывает комментарии."""
         comments = list(Comment.objects.select_related('content_type').filter(user=user).order_by('-created_at')[:limit])
         target_info = cls._generic_target_info(comments)
         items = []
@@ -206,6 +218,7 @@ class AdminActivityService:
 
     @classmethod
     def _votes(cls, user: CustomUser, limit: int) -> list[AdminActivityItem]:
+        """Обрабатывает votes."""
         votes = list(Vote.objects.select_related('content_type').filter(user=user).order_by('-created_at')[:limit])
         target_info = cls._generic_target_info(votes)
         items = []
@@ -230,6 +243,7 @@ class AdminActivityService:
 
     @classmethod
     def _solution_edits(cls, user: CustomUser, limit: int) -> list[AdminActivityItem]:
+        """Обрабатывает решение правки."""
         items = []
         queryset = (
             SolutionEdits.objects.select_related('solution', 'solution__question')
@@ -258,6 +272,7 @@ class AdminActivityService:
 
     @classmethod
     def _question_edit_proposals(cls, user: CustomUser, limit: int) -> list[AdminActivityItem]:
+        """Обрабатывает вопрос правку proposals."""
         items = []
         queryset = (
             QuestionEditProposal.objects.select_related('question')
@@ -286,6 +301,7 @@ class AdminActivityService:
 
     @classmethod
     def _question_revisions(cls, user: CustomUser, limit: int) -> list[AdminActivityItem]:
+        """Обрабатывает вопрос версии."""
         return [
             AdminActivityItem(
                 id=str(revision.revision_id),
@@ -301,6 +317,7 @@ class AdminActivityService:
 
     @classmethod
     def _question_edit_events(cls, user: CustomUser, limit: int) -> list[AdminActivityItem]:
+        """Обрабатывает вопрос правку events."""
         return [
             AdminActivityItem(
                 id=str(event.event_id),
@@ -323,6 +340,7 @@ class AdminActivityService:
         # Wait! In `AdminUserActivityTimeline.vue`, we have:
         # <p class="admin-activity__item-summary">{{ item.summary }}</p>
         # So it just prints `summary`. I should map it here or at least translate the template.
+        """Обрабатывает репутацию events."""
         return [
             AdminActivityItem(
                 id=str(transaction.reputation_transaction_id),
@@ -343,6 +361,7 @@ class AdminActivityService:
 
     @classmethod
     def _route_for_generic_target(cls, target: Any) -> dict[str, str]:
+        """Обрабатывает route generic target."""
         if isinstance(target, Question):
             return cls._question_route(target)
         if isinstance(target, Solution):
@@ -351,6 +370,7 @@ class AdminActivityService:
 
     @classmethod
     def _generic_target_info(cls, objects: Iterable[Any]) -> dict[tuple[int, str], tuple[str, dict[str, str]]]:
+        """Обрабатывает generic target info."""
         question_keys = set()
         solution_keys = set()
         for obj in objects:

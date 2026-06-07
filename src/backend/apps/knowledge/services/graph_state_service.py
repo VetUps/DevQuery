@@ -1,3 +1,4 @@
+# Кратко: строит и читает граф знаний.
 from __future__ import annotations
 
 import logging
@@ -34,12 +35,12 @@ logger = logging.getLogger(__name__)
 
 
 class UserKnowledgeGraphRebuildError(Exception):
-    """Safe owner-scoped graph rebuild failure for service/API callers."""
+    """Безопасная ошибка пересборки графа для владельца."""
 
 
 @dataclass(frozen=True)
 class UserKnowledgeGraphRebuildSummary:
-    """Aggregate, redaction-safe owner graph rebuild result."""
+    """Безопасный итог пересборки графа владельца."""
 
     user_id: Any
     structural_summary: Any
@@ -49,13 +50,16 @@ class UserKnowledgeGraphRebuildSummary:
 
     @property
     def processed_questions(self) -> int:
+        """Обрабатывает processed вопросы."""
         return self.structural_summary.processed_questions
 
     @property
     def processed_activity_sources(self) -> int:
+        """Обрабатывает processed активность источники."""
         return self.activity_summary.processed_sources
 
     def as_stdout_fields(self) -> dict[str, int]:
+        """Обрабатывает вывод в консоль поля."""
         fields = {
             f'structural_{name}': value
             for name, value in self.structural_summary.as_stdout_fields().items()
@@ -70,10 +74,12 @@ class UserKnowledgeGraphRebuildSummary:
 
 
 def _user_id(user_or_id: Any) -> Any:
+    """Обрабатывает пользователя id."""
     return getattr(user_or_id, 'pk', user_or_id)
 
 
 def _validate_reason(reason: str) -> str:
+    """Проверяет reason."""
     valid_reasons = {choice.value for choice in UserKnowledgeGraphState.StaleReason}
     if reason not in valid_reasons:
         raise ValidationError({'stale_reason': [f'Unsupported graph stale reason: {reason}']})
@@ -81,6 +87,7 @@ def _validate_reason(reason: str) -> str:
 
 
 def _safe_phase(phase: str | None) -> str:
+    """Возвращает безопасные данные: phase."""
     if not phase:
         return ''
     normalized = _SAFE_PHASE_RE.sub('_', str(phase).strip()).strip('_.:-')
@@ -90,7 +97,7 @@ def _safe_phase(phase: str | None) -> str:
 
 
 def _safe_error_message(*, reason: str, phase: str, error: BaseException | None) -> str:
-    """Return a fixed diagnostic that never includes raw exception text."""
+    """Возвращает безопасные данные: ошибку сообщение."""
 
     if error is None:
         return ''
@@ -101,13 +108,14 @@ def _safe_error_message(*, reason: str, phase: str, error: BaseException | None)
 
 
 def _save_state(state: UserKnowledgeGraphState, update_fields: list[str]) -> UserKnowledgeGraphState:
+    """Сохраняет состояние."""
     state.full_clean()
     state.save(update_fields=[*update_fields, 'updated_at'])
     return state
 
 
 def get_user_graph_state(user_or_id: Any) -> UserKnowledgeGraphState:
-    """Return the durable per-user graph freshness row, creating a fresh default row once."""
+    """Возвращает данные пользователя графа состояния."""
 
     user_id = _user_id(user_or_id)
     if user_id is None:
@@ -123,7 +131,7 @@ def mark_user_graph_stale(
     phase: str | None = None,
     error: BaseException | None = None,
 ) -> UserKnowledgeGraphState:
-    """Mark a user's graph stale with aggregate-safe diagnostics."""
+    """Помечает состояние пользователя графа stale."""
 
     safe_reason = _validate_reason(reason)
     safe_phase = _safe_phase(phase)
@@ -142,7 +150,7 @@ def mark_user_graph_failed(
     phase: str | None = None,
     error: BaseException | None = None,
 ) -> UserKnowledgeGraphState:
-    """Mark a user's graph failed with aggregate-safe diagnostics."""
+    """Помечает состояние пользователя графа failed."""
 
     safe_reason = _validate_reason(reason)
     safe_phase = _safe_phase(phase)
@@ -155,7 +163,7 @@ def mark_user_graph_failed(
 
 
 def mark_user_graph_rebuilding(user_or_id: Any, *, phase: str | None = None) -> UserKnowledgeGraphState:
-    """Record that an owner-scoped graph rebuild is in progress."""
+    """Помечает состояние пользователя графа rebuilding."""
 
     state = get_user_graph_state(user_or_id)
     state.status = UserKnowledgeGraphState.Status.REBUILDING
@@ -178,7 +186,7 @@ def mark_user_graph_rebuilding(user_or_id: Any, *, phase: str | None = None) -> 
 
 
 def mark_user_graph_fresh(user_or_id: Any, *, phase: str | None = None) -> UserKnowledgeGraphState:
-    """Record that a user's graph is fresh after a successful rebuild/sync."""
+    """Помечает состояние пользователя графа fresh."""
 
     state = get_user_graph_state(user_or_id)
     state.status = UserKnowledgeGraphState.Status.FRESH
@@ -193,7 +201,7 @@ def mark_user_graph_fresh(user_or_id: Any, *, phase: str | None = None) -> UserK
 
 
 def validate_user_for_graph_state(user_id: Any):
-    """Return a user for callers that need to validate owner-scoped graph state input."""
+    """Проверяет поле пользователя for графа состояния перед сохранением."""
 
     if user_id is None:
         return None
@@ -202,10 +210,12 @@ def validate_user_for_graph_state(user_id: Any):
 
 
 def _safe_rebuild_failure(*, phase: str, exc: BaseException) -> UserKnowledgeGraphRebuildError:
+    """Возвращает безопасные данные: failure."""
     return UserKnowledgeGraphRebuildError(f'User knowledge graph rebuild failed during {_safe_phase(phase)}')
 
 
 def _semantic_state_payload(state: UserKnowledgeGraphSemanticState) -> dict[str, Any]:
+    """Обрабатывает семантические данные состояние ответ API."""
     return {
         'status': state.status,
         'reason_code': state.reason_code,
@@ -229,6 +239,7 @@ def _semantic_state_payload(state: UserKnowledgeGraphSemanticState) -> dict[str,
 
 
 def _mark_semantic_boundary_unavailable(user) -> dict[str, Any]:
+    """Помечает семантические данные boundary unavailable."""
     now = timezone.now()
     state, _ = UserKnowledgeGraphSemanticState.objects.get_or_create(user=user)
     state.status = UserKnowledgeGraphSemanticState.Status.PROVIDER_ERROR
@@ -242,6 +253,7 @@ def _mark_semantic_boundary_unavailable(user) -> dict[str, Any]:
 
 
 def _question_id_from_ledger_source(source_object: object | None):
+    """Обрабатывает вопрос id журнал источник."""
     if source_object is None:
         return None
     if isinstance(source_object, Question):
@@ -256,6 +268,7 @@ def _question_id_from_ledger_source(source_object: object | None):
 
 
 def _tracked_structural_question_ids(user) -> set[Any]:
+    """Обрабатывает tracked structural вопрос ids."""
     question_ids = set(
         Question.objects.filter(user=user).values_list('pk', flat=True)
     )
@@ -281,7 +294,7 @@ def _tracked_structural_question_ids(user) -> set[Any]:
 
 
 def get_user_structural_question_queryset(user_or_id):
-    """Return questions whose graph structure can affect one owner's activity rebuild."""
+    """Возвращает данные пользователя structural вопроса выборки."""
 
     user = validate_user_for_graph_state(_user_id(user_or_id))
     question_ids = _tracked_structural_question_ids(user)
@@ -289,13 +302,7 @@ def get_user_structural_question_queryset(user_or_id):
 
 
 def rebuild_user_knowledge_graph(user_or_id) -> UserKnowledgeGraphRebuildSummary:
-    """Synchronously rebuild one owner's structural inputs and concept activity.
-
-    The state row is marked rebuilding first, failed with fixed diagnostics on any
-    structural/activity exception, and fresh only after the activity rebuild has
-    completed successfully. The service accepts a user instance or primary key so
-    the later owner-only API can validate ownership before delegating here.
-    """
+    """Пересобирает данные пользователя knowledge графа."""
 
     try:
         user = validate_user_for_graph_state(_user_id(user_or_id))

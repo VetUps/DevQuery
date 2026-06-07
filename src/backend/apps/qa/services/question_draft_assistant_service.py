@@ -1,3 +1,4 @@
+# Кратко: помогает проверить черновик вопроса.
 from rest_framework import serializers
 
 from apps.qa.serializers import MAX_QUESTION_TAGS, normalize_question_tags
@@ -25,16 +26,11 @@ class QuestionDraftAssistantService:
     WARNING_TOO_MANY_SUGGESTED_TAGS = 'too_many_suggested_tags'
 
     def __init__(self, provider: QuestionDraftAssistantProvider | None = None):
+        """Готовит объект к работе и сохраняет начальные данные."""
         self.provider = provider if provider is not None else OpenAICompatibleQuestionDraftAssistantProvider()
 
     def review_draft(self, *, user, draft):
-        """
-        Return a strict, read-only draft-assistant DTO from an injected provider.
-
-        The caller must pass serializer-validated draft data. Provider output is
-        parsed through a strict schema before it can influence the DTO, and tag
-        suggestions are normalized only through the existing question tag contract.
-        """
+        """Проверяет черновик вопроса через помощника и возвращает безопасный ответ."""
         mode = draft.get('mode', self.MODE_CREATE)
 
         if self.provider is None:
@@ -86,6 +82,7 @@ class QuestionDraftAssistantService:
         }
 
     def _safe_unavailable_dto(self, *, mode, warning_code, warning_message):
+        """Возвращает безопасный ответ, когда помощник недоступен."""
         return {
             'status': self.ASSISTANT_UNAVAILABLE_STATUS,
             'mode': mode,
@@ -103,6 +100,7 @@ class QuestionDraftAssistantService:
         }
 
     def _normalize_suggested_tags(self, raw_tags):
+        """Приводит suggested теги к рабочему виду."""
         normalized_tags = []
         seen_tags = set()
         warnings = []

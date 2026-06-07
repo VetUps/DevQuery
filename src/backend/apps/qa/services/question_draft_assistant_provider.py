@@ -1,3 +1,4 @@
+# Кратко: помогает проверить черновик вопроса.
 import json
 import socket
 import urllib.error
@@ -10,24 +11,24 @@ from jsonschema import Draft202012Validator, ValidationError as JsonSchemaValida
 
 
 class DraftAssistantProviderError(Exception):
-    """Base class for provider failures that must not leak to API clients."""
+    """Базовая ошибка провайдера без утечки деталей в API."""
 
 
 class DraftAssistantProviderConfigurationError(DraftAssistantProviderError):
-    """Raised when provider configuration is missing or invalid."""
+    """Ошибка при отсутствующих или неверных настройках провайдера."""
 
 
 class DraftAssistantProviderTimeout(DraftAssistantProviderError):
-    """Raised when a provider call exceeds its timeout budget."""
+    """Ошибка при превышении таймаута провайдера."""
 
 
 class DraftAssistantProviderMalformedResponse(DraftAssistantProviderError):
-    """Raised when raw provider output does not match the strict assistant schema."""
+    """Ошибка, если ответ провайдера не совпал со строгой схемой."""
 
 
 class QuestionDraftAssistantProvider(Protocol):
     def review_draft(self, *, user: Any, draft: Mapping[str, Any]) -> Mapping[str, Any]:
-        """Return raw assistant output for a validated draft without persistence."""
+        """Обрабатывает review draft."""
 
 
 RAW_ASSISTANT_RESPONSE_SCHEMA = {
@@ -77,6 +78,7 @@ class OpenAICompatibleDraftAssistantConfig:
 
     @classmethod
     def from_django_settings(cls) -> 'OpenAICompatibleDraftAssistantConfig':
+        """Читает настройки из Django settings."""
         return cls(
             api_key=getattr(settings, 'QUESTION_DRAFT_ASSISTANT_OPENAI_API_KEY', None),
             base_url=getattr(
@@ -89,6 +91,7 @@ class OpenAICompatibleDraftAssistantConfig:
         )
 
     def validate(self) -> None:
+        """Проверяет связанные поля перед сохранением."""
         if not self.api_key or not self.api_key.strip():
             raise DraftAssistantProviderConfigurationError('Draft assistant provider API key is not configured.')
         if not self.model or not self.model.strip():
@@ -100,7 +103,7 @@ class OpenAICompatibleDraftAssistantConfig:
 
 
 class OpenAICompatibleQuestionDraftAssistantProvider:
-    """Read-only OpenAI-compatible chat/completions adapter for draft assistance."""
+    """Read-only адаптер chat/completions для проверки черновика."""
 
     def __init__(
         self,
@@ -108,10 +111,12 @@ class OpenAICompatibleQuestionDraftAssistantProvider:
         config: OpenAICompatibleDraftAssistantConfig | None = None,
         opener: Callable[..., Any] | None = None,
     ):
+        """Готовит объект к работе и сохраняет начальные данные."""
         self.config = config or OpenAICompatibleDraftAssistantConfig.from_django_settings()
         self.opener = opener or urllib.request.urlopen
 
     def review_draft(self, *, user: Any, draft: Mapping[str, Any]) -> Mapping[str, Any]:
+        """Обрабатывает review draft."""
         self.config.validate()
         request = self._build_request(user=user, draft=draft)
 
@@ -134,6 +139,7 @@ class OpenAICompatibleQuestionDraftAssistantProvider:
         return self._extract_assistant_json(response_body)
 
     def _build_request(self, *, user: Any, draft: Mapping[str, Any]) -> urllib.request.Request:
+        """Собирает request."""
         payload = {
             'model': self.config.model,
             'messages': build_openai_compatible_messages(user=user, draft=draft),
@@ -154,6 +160,7 @@ class OpenAICompatibleQuestionDraftAssistantProvider:
         )
 
     def _extract_assistant_json(self, response_body: str) -> Mapping[str, Any]:
+        """Разбирает assistant json."""
         try:
             provider_payload = json.loads(response_body)
             content = provider_payload['choices'][0]['message']['content']
@@ -175,7 +182,7 @@ class OpenAICompatibleQuestionDraftAssistantProvider:
 
 
 def build_openai_compatible_messages(*, user: Any, draft: Mapping[str, Any]) -> list[dict[str, str]]:
-    """Build a no-tools prompt that quotes draft data as untrusted user content."""
+    """Собирает данные openai compatible messages в нужный формат."""
     user_identifier = getattr(user, 'user_id', None) or getattr(user, 'pk', None) or 'unknown'
     untrusted_draft_json = json.dumps(
         {
@@ -218,7 +225,7 @@ def build_openai_compatible_messages(*, user: Any, draft: Mapping[str, Any]) -> 
 
 
 def parse_raw_assistant_response(raw_response: Mapping[str, Any]) -> dict[str, Any]:
-    """Validate and copy raw provider output into the stable assistant DTO core."""
+    """Разбирает данные raw assistant ответа."""
     try:
         _RAW_ASSISTANT_RESPONSE_VALIDATOR.validate(raw_response)
     except JsonSchemaValidationError as exc:

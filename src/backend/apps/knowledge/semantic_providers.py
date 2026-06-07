@@ -1,3 +1,4 @@
+# Кратко: прячет работу внешних провайдеров за простым контрактом.
 from __future__ import annotations
 
 import hashlib
@@ -38,7 +39,7 @@ logger = logging.getLogger(__name__)
 
 
 class KnowledgeGraphProviderError(Exception):
-    """Base safe semantic provider failure; messages are public-safe by construction."""
+    """Базовая безопасная ошибка семантического провайдера."""
 
     code = 'provider_error'
     phase = 'semantic_provider'
@@ -51,6 +52,7 @@ class KnowledgeGraphProviderError(Exception):
         model: str | None = None,
         phase: str | None = None,
     ):
+        """Готовит объект к работе и сохраняет начальные данные."""
         super().__init__(message)
         self.provider = provider
         self.model = model
@@ -58,6 +60,7 @@ class KnowledgeGraphProviderError(Exception):
 
     @property
     def diagnostics(self) -> dict[str, str | None]:
+        """Возвращает диагностику в безопасном виде."""
         return {
             'status': 'error',
             'code': self.code,
@@ -86,6 +89,7 @@ class KnowledgeGraphProviderBudgetExceeded(KnowledgeGraphProviderError):
 
 
 def _validate_live_provider_url(url: str | None, *, provider: str, field: str) -> None:
+    """Проверяет провайдера URL."""
     if not url or not url.strip():
         raise KnowledgeGraphProviderConfigurationError(f'Knowledge graph {field} is not configured.')
     parsed = urlparse(url.strip())
@@ -100,6 +104,7 @@ def _validate_live_provider_url(url: str | None, *, provider: str, field: str) -
 
 
 def _blank_to_none(value: str | None) -> str | None:
+    """Меняет пустую строку на None."""
     if value is None:
         return None
     normalized = value.strip()
@@ -107,6 +112,7 @@ def _blank_to_none(value: str | None) -> str | None:
 
 
 def _redact_provider_diagnostic_text(value: Any) -> str:
+    """Возвращает безопасные данные: провайдера диагностику текст."""
     text = ' '.join(str(value or '').split())
     for pattern in _PROVIDER_SECRET_PATTERNS:
         text = pattern.sub('[redacted-secret]', text)
@@ -116,6 +122,7 @@ def _redact_provider_diagnostic_text(value: Any) -> str:
 
 
 def _safe_provider_error_hint(error: Exception) -> str:
+    """Возвращает безопасные данные: провайдера ошибку hint."""
     status_code = getattr(error, 'status_code', None)
     try:
         status_number = int(status_code) if status_code is not None else None
@@ -140,6 +147,7 @@ def _safe_provider_error_hint(error: Exception) -> str:
 
 
 def _safe_provider_exception_log_fields(error: Exception) -> dict[str, Any]:
+    """Возвращает безопасные данные: провайдера исключение лог поля."""
     fields: dict[str, Any] = {
         'error_type': error.__class__.__name__,
         'provider_error_hint': _safe_provider_error_hint(error),
@@ -172,6 +180,7 @@ class KnowledgeGraphProviderMetadata:
     price_per_1k_tokens: float | None = None
 
     def as_diagnostics(self) -> dict[str, str | int | float | None]:
+        """Возвращает as диагностику в безопасном виде."""
         return {
             'provider': self.provider,
             'model': self.model,
@@ -189,6 +198,7 @@ class KnowledgeGraphSemanticConfig:
 
     @classmethod
     def from_django_settings(cls) -> 'KnowledgeGraphSemanticConfig':
+        """Читает настройки из Django settings."""
         return cls(
             enabled=bool(getattr(settings, 'KNOWLEDGE_GRAPH_AI_ENABLED', False)),
             dry_run=bool(getattr(settings, 'KNOWLEDGE_GRAPH_AI_DRY_RUN', True)),
@@ -196,6 +206,7 @@ class KnowledgeGraphSemanticConfig:
         )
 
     def validate_budget(self, estimated_cost: float) -> None:
+        """Проверяет поле budget перед сохранением."""
         if estimated_cost < 0:
             raise KnowledgeGraphProviderBudgetExceeded('Knowledge graph estimated cost is invalid.')
         if self.rebuild_budget_cap > 0 and estimated_cost > self.rebuild_budget_cap:
@@ -203,7 +214,7 @@ class KnowledgeGraphSemanticConfig:
 
 
 def _django_settings_gigachat_verify_ssl_certs() -> bool:
-    """Read the GigaChat TLS flag while keeping local .env overrides out of SQLite tests."""
+    """Читает настройку проверки SSL для GigaChat."""
 
     if bool(getattr(settings, 'DJANGO_TEST_SQLITE', False)):
         return True
@@ -227,6 +238,7 @@ class KnowledgeGraphEmbeddingConfig:
 
     @classmethod
     def from_django_settings(cls) -> 'KnowledgeGraphEmbeddingConfig':
+        """Читает настройки из Django settings."""
         return cls(
             api_key=getattr(settings, 'KNOWLEDGE_GRAPH_EMBEDDING_API_KEY', None),
             base_url=getattr(settings, 'KNOWLEDGE_GRAPH_EMBEDDING_BASE_URL', None),
@@ -244,6 +256,7 @@ class KnowledgeGraphEmbeddingConfig:
 
     @property
     def metadata(self) -> KnowledgeGraphProviderMetadata:
+        """Возвращает метаданные в безопасном виде."""
         return KnowledgeGraphProviderMetadata(
             provider=self.provider or LIVE_EMBEDDING_PROVIDER_GIGACHAT,
             model=self.model or 'unconfigured',
@@ -253,6 +266,7 @@ class KnowledgeGraphEmbeddingConfig:
         )
 
     def validate(self, *, enabled: bool) -> None:
+        """Проверяет связанные поля перед сохранением."""
         if self.dimensions <= 0:
             raise KnowledgeGraphProviderConfigurationError('Knowledge graph embedding dimensions must be positive.')
         if self.timeout_seconds <= 0:
@@ -285,6 +299,7 @@ class KnowledgeGraphGroupingConfig:
 
     @classmethod
     def from_django_settings(cls) -> 'KnowledgeGraphGroupingConfig':
+        """Читает настройки из Django settings."""
         return cls(
             api_key=getattr(settings, 'KNOWLEDGE_GRAPH_CHAT_API_KEY', None),
             base_url=getattr(settings, 'KNOWLEDGE_GRAPH_CHAT_BASE_URL', None),
@@ -296,6 +311,7 @@ class KnowledgeGraphGroupingConfig:
 
     @property
     def metadata(self) -> KnowledgeGraphProviderMetadata:
+        """Возвращает метаданные в безопасном виде."""
         return KnowledgeGraphProviderMetadata(
             provider=self.provider or LIVE_GROUPING_PROVIDER_DEEPSEEK,
             model=self.model or 'unconfigured',
@@ -304,6 +320,7 @@ class KnowledgeGraphGroupingConfig:
         )
 
     def validate(self, *, enabled: bool) -> None:
+        """Проверяет связанные поля перед сохранением."""
         if self.timeout_seconds <= 0:
             raise KnowledgeGraphProviderConfigurationError('Knowledge graph grouping timeout must be positive.')
         if self.price_per_1k_tokens < 0:
@@ -354,14 +371,14 @@ class KnowledgeGraphEmbeddingProvider(Protocol):
     metadata: KnowledgeGraphProviderMetadata
 
     def embed(self, request: KnowledgeGraphEmbeddingRequest) -> KnowledgeGraphEmbeddingResult:
-        """Return bounded embedding vectors without mutating storage."""
+        """Возвращает embedding-векторы для входных текстов."""
 
 
 class KnowledgeGraphGroupingProvider(Protocol):
     metadata: KnowledgeGraphProviderMetadata
 
     def group(self, request: KnowledgeGraphGroupingRequest) -> KnowledgeGraphGroupingResult:
-        """Return validated concept groups without mutating storage."""
+        """Группирует концепты по смысловой близости."""
 
 
 GROUPING_RESPONSE_SCHEMA = {
@@ -398,6 +415,7 @@ _GROUPING_RESPONSE_VALIDATOR = Draft202012Validator(GROUPING_RESPONSE_SCHEMA)
 
 
 def validate_embedding_vectors(vectors: Any, *, expected_count: int, expected_dimensions: int) -> list[list[float]]:
+    """Проверяет поле embedding vectors перед сохранением."""
     if not isinstance(vectors, list) or len(vectors) != expected_count:
         raise KnowledgeGraphProviderMalformedResponse('Knowledge graph embedding provider returned an invalid vector count.')
 
@@ -415,6 +433,7 @@ def validate_embedding_vectors(vectors: Any, *, expected_count: int, expected_di
 
 
 def parse_grouping_response(raw_response: str | bytes | Mapping[str, Any]) -> list[KnowledgeGraphGroup]:
+    """Разбирает данные grouping ответа."""
     if isinstance(raw_response, bytes):
         raw_size = len(raw_response)
         raw_text = raw_response.decode('utf-8', errors='replace')
@@ -457,10 +476,12 @@ def parse_grouping_response(raw_response: str | bytes | Mapping[str, Any]) -> li
 
 def estimate_text_tokens(texts: Sequence[str]) -> int:
     # Conservative deterministic approximation for dry-run/budget decisions; no provider calls.
+    """Считает значение для estimate text tokens."""
     return sum(max(1, (len(text) + 3) // 4) for text in texts)
 
 
 def _is_timeout_exception(error: Exception) -> bool:
+    """Проверяет условие: таймаут исключение."""
     name = error.__class__.__name__.lower()
     return isinstance(error, (TimeoutError, socket.timeout)) or 'timeout' in name or 'timedout' in name
 
@@ -472,6 +493,7 @@ def _safe_provider_error(
     model: str | None,
     phase: str,
 ) -> KnowledgeGraphProviderError:
+    """Возвращает безопасные данные: провайдера ошибку."""
     if isinstance(error, KnowledgeGraphProviderError):
         return error
     if _is_timeout_exception(error):
@@ -490,6 +512,7 @@ def _safe_provider_error(
 
 
 def _embedding_from_sdk_item(item: Any) -> list[float]:
+    """Достаёт embedding из элемента SDK."""
     if isinstance(item, Mapping):
         embedding = item.get('embedding')
     else:
@@ -500,14 +523,16 @@ def _embedding_from_sdk_item(item: Any) -> list[float]:
 
 
 class GigaChatKnowledgeGraphEmbeddingProvider:
-    """Live GigaChat embedding adapter for production semantic graph rebuilds."""
+    """Адаптер GigaChat для embeddings при пересборке графа."""
 
     def __init__(self, config: KnowledgeGraphEmbeddingConfig):
+        """Готовит объект к работе и сохраняет начальные данные."""
         config.validate(enabled=True)
         self.config = config
         self.metadata = config.metadata
 
     def embed(self, request: KnowledgeGraphEmbeddingRequest) -> KnowledgeGraphEmbeddingResult:
+        """Возвращает embedding-векторы для входных текстов."""
         texts = list(request.texts)
         for text in texts:
             if not isinstance(text, str) or not text.strip():
@@ -608,6 +633,7 @@ class GigaChatKnowledgeGraphEmbeddingProvider:
 
 
 def _deepseek_grouping_messages(concepts: Sequence[Mapping[str, Any]]) -> list[dict[str, str]]:
+    """Собирает сообщения для группировки через DeepSeek."""
     payload = {
         'concepts': [
             {
@@ -639,6 +665,7 @@ def _deepseek_grouping_messages(concepts: Sequence[Mapping[str, Any]]) -> list[d
 
 
 def _message_content_from_openai_response(response: Any) -> str:
+    """Достаёт текст сообщения из ответа OpenAI API."""
     choices = response.get('choices') if isinstance(response, Mapping) else getattr(response, 'choices', None)
     if not choices:
         raise KnowledgeGraphProviderMalformedResponse('Knowledge graph grouping provider returned malformed output.', phase='grouping')
@@ -651,14 +678,16 @@ def _message_content_from_openai_response(response: Any) -> str:
 
 
 class DeepSeekKnowledgeGraphGroupingProvider:
-    """Live DeepSeek OpenAI-compatible adapter for semantic concept grouping."""
+    """Адаптер DeepSeek для группировки семантических концептов."""
 
     def __init__(self, config: KnowledgeGraphGroupingConfig):
+        """Готовит объект к работе и сохраняет начальные данные."""
         config.validate(enabled=True)
         self.config = config
         self.metadata = config.metadata
 
     def group(self, request: KnowledgeGraphGroupingRequest) -> KnowledgeGraphGroupingResult:
+        """Группирует концепты по смысловой близости."""
         concepts = list(request.concepts)
         for concept in concepts:
             slug = concept.get('slug') if isinstance(concept, Mapping) else None
@@ -749,9 +778,10 @@ class DeepSeekKnowledgeGraphGroupingProvider:
 
 
 class FakeKnowledgeGraphEmbeddingProvider:
-    """Deterministic local provider for tests and dry-run estimation surfaces."""
+    """Локальный детерминированный провайдер для проверок и dry-run."""
 
     def __init__(self, *, dimensions: int = 8, model: str = 'fake-embedding-v1'):
+        """Готовит объект к работе и сохраняет начальные данные."""
         if dimensions <= 0:
             raise KnowledgeGraphProviderConfigurationError('Knowledge graph fake embedding dimensions must be positive.')
         self.metadata = KnowledgeGraphProviderMetadata(
@@ -763,6 +793,7 @@ class FakeKnowledgeGraphEmbeddingProvider:
         )
 
     def embed(self, request: KnowledgeGraphEmbeddingRequest) -> KnowledgeGraphEmbeddingResult:
+        """Возвращает embedding-векторы для входных текстов."""
         texts = list(request.texts)
         for text in texts:
             if not isinstance(text, str) or not text.strip():
@@ -779,15 +810,17 @@ class FakeKnowledgeGraphEmbeddingProvider:
         )
 
     def _vector_for_text(self, text: str) -> list[float]:
+        """Строит детерминированный вектор для текста."""
         digest = hashlib.sha256(text.encode('utf-8')).digest()
         dimensions = self.metadata.dimensions or 0
         return [round(digest[index % len(digest)] / 255.0, 8) for index in range(dimensions)]
 
 
 class FakeKnowledgeGraphGroupingProvider:
-    """Deterministic grouping provider that emits strict schema-compatible groups."""
+    """Детерминированный провайдер группировки со строгой схемой ответа."""
 
     def __init__(self, *, model: str = 'fake-grouping-v1'):
+        """Готовит объект к работе и сохраняет начальные данные."""
         self.metadata = KnowledgeGraphProviderMetadata(
             provider=DEFAULT_FAKE_GROUPING_PROVIDER,
             model=model,
@@ -796,6 +829,7 @@ class FakeKnowledgeGraphGroupingProvider:
         )
 
     def group(self, request: KnowledgeGraphGroupingRequest) -> KnowledgeGraphGroupingResult:
+        """Группирует концепты по смысловой близости."""
         concepts = list(request.concepts)
         slugs: list[str] = []
         for concept in concepts:

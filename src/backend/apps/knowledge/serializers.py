@@ -1,15 +1,18 @@
+# Кратко: проверяет данные и готовит ответы API для графа знаний.
 from rest_framework import serializers
 
 
 class _RedactedReprKey(str):
-    """String key that preserves lookup equality while avoiding unsafe substrings in repr()."""
+    """Строковый ключ, который скрывает опасные фрагменты в repr()."""
 
     def __new__(cls, value, safe_repr):
+        """Создаёт новый экземпляр объекта."""
         instance = super().__new__(cls, value)
         instance.safe_repr = safe_repr
         return instance
 
     def __repr__(self):
+        """Возвращает безопасное представление объекта для отладки."""
         return repr(self.safe_repr)
 
 
@@ -52,7 +55,7 @@ class UserGraphConceptEntrySerializer(serializers.Serializer):
 
 
 class UserGraphNodeSerializer(UserGraphConceptEntrySerializer):
-    """Explicit graph topology node entry matching the aggregate concept shape."""
+    """Узел графа, приведённый к общей форме концепта."""
 
 
 class KnowledgeGraphEdgeSerializer(serializers.Serializer):
@@ -261,6 +264,7 @@ class UserGraphInsightConceptSerializer(serializers.Serializer):
     evidence = InsightEvidenceSerializer(many=True)
 
     def to_representation(self, instance):
+        """Преобразует объект в данные для ответа API."""
         representation = super().to_representation(instance)
         if 'tone_token' in representation:
             representation[_RedactedReprKey('tone_token', 'tone_marker')] = representation.pop('tone_token')

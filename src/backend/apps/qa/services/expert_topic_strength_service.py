@@ -1,3 +1,4 @@
+# Кратко: работает с подбором экспертов.
 from __future__ import annotations
 
 from django.db.models import Count, DecimalField, Q, Sum, Value
@@ -8,10 +9,11 @@ from apps.qa.models import Question
 
 
 class ExpertTopicStrengthService:
-    """Build candidate annotations for invitation ranking by topic strength."""
+    """Готовит данные для ранжирования экспертов по силе темы."""
 
     @classmethod
     def build_candidate_annotations(cls, question: Question) -> dict:
+        """Собирает данные кандидата annotations в нужный формат."""
         topic_ids = list(QuestionConceptEdge.objects.filter(question=question).values_list('concept_id', flat=True))
 
         if topic_ids:

@@ -1,3 +1,4 @@
+# Кратко: описывает данные графа знаний.
 from decimal import Decimal
 
 from django.conf import settings
@@ -37,9 +38,10 @@ SEMANTIC_GROUP_LIFECYCLE_REASON_VALIDATOR = RegexValidator(
 
 
 def validate_semantic_group_safe_json(value):
-    """Reject owner-private semantic-group evidence that looks like raw source/provider data."""
+    """Проверяет поле семантических данных группы json перед сохранением."""
 
     def visit(item, path='evidence'):
+        """Обходит значение и возвращает безопасную копию."""
         if isinstance(item, dict):
             for key, child in item.items():
                 normalized_key = str(key).lower().replace('-', '_')
@@ -58,6 +60,7 @@ def validate_semantic_group_safe_json(value):
 
 
 def validate_semantic_group_safe_text(value):
+    """Проверяет поле семантических данных группы text перед сохранением."""
     if not value:
         return
     normalized_value = str(value).lower()
@@ -91,6 +94,7 @@ class KnowledgeConcept(models.Model):
         ]
 
     def __str__(self):
+        """Возвращает короткое текстовое описание объекта."""
         return self.name
 
 
@@ -124,6 +128,7 @@ class ConceptTagMapping(models.Model):
         ]
 
     def __str__(self):
+        """Возвращает короткое текстовое описание объекта."""
         return f'{self.tag} -> {self.concept}'
 
 
@@ -172,6 +177,7 @@ class QuestionConceptEdge(models.Model):
         ]
 
     def __str__(self):
+        """Возвращает короткое текстовое описание объекта."""
         return f'{self.question_id} -> {self.concept}'
 
 
@@ -210,6 +216,7 @@ class UserKnowledgeGraphState(models.Model):
         ]
 
     def __str__(self):
+        """Возвращает короткое текстовое описание объекта."""
         return f'{self.user_id} graph {self.status}'
 
 
@@ -231,6 +238,7 @@ class UserKnowledgeGraphLayout(models.Model):
         ]
 
     def __str__(self):
+        """Возвращает короткое текстовое описание объекта."""
         return f'{self.user_id} graph layout v{self.schema_version}'
 
 
@@ -290,6 +298,7 @@ class UserKnowledgeGraphSemanticState(models.Model):
         ]
 
     def __str__(self):
+        """Возвращает короткое текстовое описание объекта."""
         return f'{self.user_id} semantic graph {self.status}'
 
 
@@ -324,6 +333,7 @@ class UserKnowledgeGraphEmbeddingSnapshot(models.Model):
         ]
 
     def __str__(self):
+        """Возвращает короткое текстовое описание объекта."""
         return f'{self.user_id} {self.source_type}:{self.source_id} embedding {self.model}'
 
 
@@ -367,6 +377,7 @@ class UserKnowledgeGraphSemanticCandidate(models.Model):
         ]
 
     def __str__(self):
+        """Возвращает короткое текстовое описание объекта."""
         return f'{self.user_id} semantic candidate {self.rank}'
 
 
@@ -425,6 +436,7 @@ class UserKnowledgeGraphSemanticGroup(models.Model):
         ]
 
     def __str__(self):
+        """Возвращает короткое текстовое описание объекта."""
         return f'{self.user_id} semantic group {self.group_key}'
 
 
@@ -460,6 +472,7 @@ class UserKnowledgeGraphSemanticGroupMembership(models.Model):
         ]
 
     def __str__(self):
+        """Возвращает короткое текстовое описание объекта."""
         return f'{self.group_id} semantic group member {self.concept_id}'
 
 
@@ -524,4 +537,5 @@ class UserConceptActivity(models.Model):
         ]
 
     def __str__(self):
+        """Возвращает короткое текстовое описание объекта."""
         return f'{self.user_id} {self.activity_type} {self.concept_id}'

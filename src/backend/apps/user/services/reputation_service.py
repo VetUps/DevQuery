@@ -1,3 +1,4 @@
+# Кратко: считает изменения репутации.
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -43,6 +44,7 @@ class ReputationService:
 
     @classmethod
     def _thresholds(cls) -> list[ReputationLevelThreshold]:
+        """Обрабатывает thresholds."""
         thresholds = list(ReputationLevelThreshold.objects.filter(is_active=True).order_by('minimum_score'))
         if thresholds:
             cls.validate_thresholds(thresholds)
@@ -55,6 +57,7 @@ class ReputationService:
 
     @classmethod
     def get_policy_config(cls) -> ReputationPolicyConfig:
+        """Возвращает данные policy настроек."""
         config = ReputationPolicyConfig.objects.order_by('created_at').first()
         if config is not None:
             config.full_clean()
@@ -64,14 +67,17 @@ class ReputationService:
 
     @classmethod
     def get_protected_newcomer_window(cls):
+        """Возвращает данные protected newcomer window."""
         return cls.get_policy_config().protected_newcomer_window
 
     @classmethod
     def get_protected_newcomer_window_hours(cls) -> int:
+        """Возвращает данные protected newcomer window hours."""
         return cls.get_policy_config().protected_newcomer_window_hours
 
     @classmethod
     def update_protected_newcomer_window_hours(cls, protected_newcomer_window_hours: int) -> ReputationPolicyConfig:
+        """Обновляет данные protected newcomer window hours."""
         with transaction.atomic():
             config = ReputationPolicyConfig.objects.select_for_update().filter(singleton_key='default').first()
             if config is None:
@@ -87,16 +93,19 @@ class ReputationService:
 
     @classmethod
     def _level_label(cls, level: str) -> str:
+        """Обрабатывает level метку."""
         return CustomUser.ReputationLevel(level).label
 
     @classmethod
     def _minimum_score_for_level(cls, level: str) -> int:
+        """Обрабатывает minimum оценку level."""
         return next(
             threshold.minimum_score for threshold in cls._thresholds() if threshold.level == level
         )
 
     @classmethod
     def _resolve_level_from_score(cls, score: int) -> ResolvedReputationLevel:
+        """Обрабатывает resolve level оценку."""
         matching_threshold = cls._thresholds()[0]
         for threshold in cls._thresholds():
             if score >= threshold.minimum_score:
@@ -117,6 +126,7 @@ class ReputationService:
 
     @classmethod
     def validate_thresholds(cls, thresholds: Iterable[ReputationLevelThreshold]) -> None:
+        """Проверяет поле thresholds перед сохранением."""
         ordered_thresholds = sorted(thresholds, key=lambda threshold: threshold.minimum_score)
         seen_levels = {threshold.level for threshold in ordered_thresholds}
         expected_levels = set(cls.LEVEL_ORDER)
@@ -139,6 +149,7 @@ class ReputationService:
 
     @classmethod
     def resolve_level(cls, *, score: int | None = None, user: CustomUser | None = None) -> ResolvedReputationLevel:
+        """Обрабатывает resolve level."""
         if user is not None:
             derived_resolution = cls._resolve_level_from_score(user.user_reputation_score)
             if user.manual_reputation_level:
@@ -163,6 +174,7 @@ class ReputationService:
 
     @classmethod
     def get_progress(cls, user: CustomUser) -> dict:
+        """Возвращает данные progress."""
         thresholds = cls._thresholds()
         resolved_level = cls.resolve_level(user=user)
         progression_level = resolved_level.derived_level or resolved_level.value
@@ -194,6 +206,7 @@ class ReputationService:
         actor: CustomUser | None = None,
         note: str = '',
     ) -> CustomUser:
+        """Обновляет данные manual level override."""
         if manual_level in {'', None}:
             normalized_level = None
         else:
@@ -270,6 +283,7 @@ class ReputationService:
         source=None,
         note: str = '',
     ) -> ReputationTransaction:
+        """Обрабатывает record транзакцию."""
         if amount == 0:
             raise ValidationError('Изменение репутации не может быть нулевым.')
 

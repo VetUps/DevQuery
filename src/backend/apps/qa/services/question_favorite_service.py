@@ -1,3 +1,4 @@
+# Кратко: работает с избранными вопросами.
 from __future__ import annotations
 
 from django.db import IntegrityError, transaction
@@ -10,20 +11,14 @@ from ...user.models import CustomUser
 
 class QuestionFavoriteService:
     """
-    Question-specific favorite operations.
+    Работает только с избранными вопросами.
 
-    The service is intentionally not generic: this slice only supports favoriting
-    questions, and all methods return persisted server truth rather than toggling
-    state.
+    Методы возвращают состояние из базы, а не переключают локальный флаг.
     """
 
     @staticmethod
     def add_favorite(user: CustomUser, question: Question) -> tuple[QuestionFavorite, bool]:
-        """
-        Idempotently add a favorite row for a user/question pair.
-
-        :return: (favorite, created) where created is False when the row already existed.
-        """
+        """Добавляет вопрос в избранное для пользователя."""
         try:
             with transaction.atomic():
                 return QuestionFavorite.objects.get_or_create(user=user, question=question)
@@ -34,23 +29,13 @@ class QuestionFavoriteService:
 
     @staticmethod
     def remove_favorite(user: CustomUser, question: Question) -> int:
-        """
-        Idempotently remove a favorite row.
-
-        :return: number of favorite rows deleted (0 or 1 with the unique constraint).
-        """
+        """Убирает вопрос из избранного пользователя."""
         deleted_count, _ = QuestionFavorite.objects.filter(user=user, question=question).delete()
         return deleted_count
 
     @staticmethod
     def annotate_favorites(queryset: QuerySet[Question], user: CustomUser | None = None) -> QuerySet[Question]:
-        """
-        Annotate questions with aggregate and viewer-specific favorite state.
-
-        Adds:
-        - favorites_count: public aggregate count, defaulting to 0.
-        - is_favorited: True only for an authenticated viewer who favorited the row.
-        """
+        """Добавляет к вопросам счётчик и признак избранного."""
         queryset = queryset.annotate(
             favorites_count=Coalesce(Count('favorites', distinct=True), Value(0)),
         )
@@ -66,12 +51,7 @@ class QuestionFavoriteService:
 
     @staticmethod
     def get_favorite_state(question: Question, user: CustomUser | None = None) -> dict[str, int | bool]:
-        """
-        Return the public count plus current viewer state for a question.
-
-        Uses annotations when present and falls back to direct database truth for
-        unannotated objects.
-        """
+        """Возвращает состояние избранного для вопроса."""
         favorites_count = getattr(question, 'favorites_count', None)
         if favorites_count is None:
             favorites_count = QuestionFavorite.objects.filter(question=question).count()

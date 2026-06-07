@@ -1,3 +1,4 @@
+# Подключает маршруты API для уведомлений.
 from django.urls import path
 
 from apps.notifications.views import (

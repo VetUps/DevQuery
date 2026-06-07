@@ -1,3 +1,4 @@
+# Кратко: проверяет данные и готовит ответы API для пользователей.
 from pathlib import Path
 
 from django.http import QueryDict
@@ -22,22 +23,26 @@ class UserRegisterSerializer(serializers.ModelSerializer):
         }
 
     def validate_user_name(self, value):
+        """Проверяет поле пользователя name перед сохранением."""
         if CustomUser.objects.filter(user_name=value).exists():
             raise serializers.ValidationError('Пользователь с таким логином уже существует')
         return value
 
     def validate_user_email(self, value):
+        """Проверяет поле пользователя email перед сохранением."""
         if CustomUser.objects.filter(user_email=value).exists():
             raise serializers.ValidationError('Пользователь с такой почтой уже существует')
         return value
 
     def validate(self, data):
+        """Проверяет связанные поля перед сохранением."""
         if data['password'] != data['password_confirm']:
             raise serializers.ValidationError('Пароль не совпадают')
 
         return data
 
     def create(self, validated_data):
+        """Создаёт объект из проверенных данных."""
         return UserService.register_user(validated_data)
 
 class ReputationLedgerEntrySerializer(serializers.ModelSerializer):
@@ -52,6 +57,7 @@ class ReputationLedgerEntrySerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
     def get_actor_name(self, obj) -> str | None:
+        """Возвращает данные actor name."""
         return obj.actor.user_name if obj.actor else None
 
 
@@ -76,9 +82,11 @@ class UserProfileSerializer(serializers.ModelSerializer):
         )
 
     def get_reputation(self, obj) -> dict:
+        """Возвращает данные репутации."""
         return ReputationService.get_progress(obj)
 
     def get_reputation_ledger(self, obj) -> list:
+        """Возвращает данные репутации ledger."""
         limit = self.context.get('reputation_ledger_limit', 10)
         transactions = obj.reputation_transactions.select_related('actor').order_by('-created_at')[:limit]
         return ReputationLedgerEntrySerializer(transactions, many=True).data
@@ -104,6 +112,7 @@ class PublicUserProfileSerializer(serializers.ModelSerializer):
         )
 
     def get_reputation(self, obj) -> dict:
+        """Возвращает данные репутации."""
         progress = ReputationService.get_progress(obj)
         return {
             'score': progress['score'],
@@ -137,6 +146,7 @@ class AdminActivityTimelineQuerySerializer(serializers.Serializer):
     )
 
     def to_internal_value(self, data):
+        """Обрабатывает внутреннее значение значение."""
         if isinstance(data, QueryDict):
             mutable_data = data.copy()
             type_values = []
@@ -150,9 +160,11 @@ class AdminActivityTimelineQuerySerializer(serializers.Serializer):
         return super().to_internal_value(data)
 
     def validate_limit(self, value: int) -> int:
+        """Проверяет поле limit перед сохранением."""
         return min(value, AdminActivityService.MAX_LIMIT)
 
     def validate(self, attrs):
+        """Проверяет связанные поля перед сохранением."""
         attrs.setdefault('limit', AdminActivityService.DEFAULT_LIMIT)
         attrs.setdefault('page', 1)
         attrs.setdefault('type', sorted(AdminActivityService.ALLOWED_TYPES))
@@ -191,6 +203,7 @@ class AdminManualReputationOverrideSerializer(serializers.Serializer):
     )
 
     def validate_note(self, value: str) -> str:
+        """Проверяет поле note перед сохранением."""
         if not value.strip():
             raise serializers.ValidationError('Укажите причину ручного изменения уровня репутации.')
         return value.strip()
@@ -202,6 +215,7 @@ class AdminReputationPolicySerializer(serializers.Serializer):
     updated_at = serializers.DateTimeField(read_only=True, allow_null=True)
 
     def to_representation(self, instance) -> dict:
+        """Преобразует объект в данные для ответа API."""
         return {
             'protected_newcomer_window_hours': instance.protected_newcomer_window_hours,
             'max_protected_newcomer_window_hours': ReputationPolicyConfig.MAX_PROTECTED_NEWCOMER_WINDOW_HOURS,
@@ -209,6 +223,7 @@ class AdminReputationPolicySerializer(serializers.Serializer):
         }
 
     def validate_protected_newcomer_window_hours(self, value: int) -> int:
+        """Проверяет поле protected newcomer window hours перед сохранением."""
         raw_value = self.initial_data.get('protected_newcomer_window_hours') if hasattr(self, 'initial_data') else value
         if not isinstance(raw_value, int) or isinstance(raw_value, bool):
             raise serializers.ValidationError('Укажите целое количество часов.')
@@ -241,9 +256,11 @@ class AdminUserReputationDetailSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
     def get_reputation(self, obj) -> dict:
+        """Возвращает данные репутации."""
         return ReputationService.get_progress(obj)
 
     def get_reputation_ledger(self, obj) -> list:
+        """Возвращает данные репутации ledger."""
         limit = self.context.get('reputation_ledger_limit', 10)
         transactions = obj.reputation_transactions.select_related('actor').order_by('-created_at')[:limit]
         return ReputationLedgerEntrySerializer(transactions, many=True).data
@@ -263,6 +280,7 @@ class UserAvatarUploadSerializer(serializers.ModelSerializer):
         fields = ('user_avatar_url',)
 
     def _avatar_extension(self, uploaded_file) -> str:
+        """Обрабатывает аватар extension."""
         suffix = Path(uploaded_file.name or '').suffix.lower()
         if suffix in self.allowed_extensions:
             return '.jpg' if suffix == '.jpeg' else suffix
@@ -277,6 +295,7 @@ class UserAvatarUploadSerializer(serializers.ModelSerializer):
         )
 
     def update(self, instance: CustomUser, validated_data):
+        """Обновляет объект проверенными данными."""
         avatar = validated_data.get('user_avatar_url')
         if avatar is None:
             return instance
@@ -298,11 +317,13 @@ class UserLoginSerializer(serializers.Serializer):
     password = serializers.CharField(write_only=True, min_length=6, max_length=20, required=True)
 
     def validate_user_email(self, value):
+        """Проверяет поле пользователя email перед сохранением."""
         if not value.strip():
             raise serializers.ValidationError('Почта обязательна')
         return value
 
     def validate_password(self, value):
+        """Проверяет поле password перед сохранением."""
         if not value.strip():
             raise serializers.ValidationError('Пароль обязателен')
         return value

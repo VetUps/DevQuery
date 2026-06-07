@@ -1,3 +1,4 @@
+# Обрабатывает HTTP-запросы для пользователей.
 from django.db.models import Q
 from rest_framework import viewsets, status, mixins, parsers
 from rest_framework.decorators import action
@@ -35,6 +36,7 @@ class UserViewSet(viewsets.GenericViewSet):
     serializer_class = UserRegisterSerializer
 
     def get_serializer_class(self):
+        """Выбирает сериализатор для текущего действия."""
         if self.action == 'register':
             return UserRegisterSerializer
         if self.action == 'login':
@@ -55,6 +57,7 @@ class UserViewSet(viewsets.GenericViewSet):
     )
     @action(detail=False, methods=['post'], permission_classes=[AllowAny])
     def register(self, request):
+        """Регистрирует пользователя и возвращает его профиль."""
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
@@ -69,6 +72,7 @@ class UserViewSet(viewsets.GenericViewSet):
     )
     @action(detail=False, methods=['post'], permission_classes=[AllowAny])
     def login(self, request):
+        """Проверяет логин и пароль, затем возвращает токены."""
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
@@ -89,6 +93,7 @@ class UserViewSet(viewsets.GenericViewSet):
     )
     @action(detail=False, methods=['post'], permission_classes=[IsAuthenticated])
     def logout(self, request):
+        """Завершает сессию по refresh-токену."""
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
@@ -100,6 +105,7 @@ class UserViewSet(viewsets.GenericViewSet):
     )
     @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated], url_path='profile')
     def profile(self, request):
+        """Возвращает профиль текущего пользователя."""
         user = UserService.get_user_profile(request.user)
         serializer = self.get_serializer(instance=user)
         return Response(serializer.data, status=status.HTTP_200_OK)
@@ -110,6 +116,7 @@ class UserViewSet(viewsets.GenericViewSet):
     )
     @action(detail=False, methods=['patch'], permission_classes=[IsAuthenticated], url_path='profile/avatar', parser_classes=[parsers.MultiPartParser, parsers.FormParser])
     def avatar(self, request):
+        """Обновляет аватар текущего пользователя."""
         user = request.user
         serializer = self.get_serializer(instance=user, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
@@ -124,6 +131,7 @@ class UserViewSet(viewsets.GenericViewSet):
     )
     @action(detail=True, methods=['get'], permission_classes=[AllowAny], url_path='public-profile')
     def public_profile(self, request, user_id=None):
+        """Возвращает публичный профиль пользователя."""
         user = UserService.get_public_user_profile(user_id)
         serializer = self.get_serializer(instance=user)
         return Response(serializer.data, status=status.HTTP_200_OK)
@@ -133,6 +141,7 @@ class UserViewSet(viewsets.GenericViewSet):
     )
     @action(detail=False, methods=['get'], permission_classes=[AllowAny], url_path='top-global')
     def top_global(self, request):
+        """Возвращает общий рейтинг пользователей."""
         queryset = CustomUser.objects.filter(is_active=True).order_by('-user_reputation_score')
         
         paginator = PageNumberPagination()
@@ -151,6 +160,7 @@ class UserViewSet(viewsets.GenericViewSet):
     )
     @action(detail=False, methods=['get'], permission_classes=[AllowAny], url_path='top-weekly')
     def top_weekly(self, request):
+        """Возвращает недельный рейтинг пользователей."""
         from django.utils import timezone
         from datetime import timedelta
         from django.db.models import Sum, Q, IntegerField
@@ -183,6 +193,7 @@ class AdminReputationPolicyView(APIView):
 
     @extend_schema(responses={200: AdminReputationPolicySerializer})
     def get(self, request):
+        """Обрабатывает HTTP GET-запрос."""
         config = ReputationService.get_policy_config()
         serializer = AdminReputationPolicySerializer(instance=config)
         return Response(serializer.data, status=status.HTTP_200_OK)
@@ -192,6 +203,7 @@ class AdminReputationPolicyView(APIView):
         responses={200: AdminReputationPolicySerializer},
     )
     def patch(self, request):
+        """Обрабатывает HTTP PATCH-запрос."""
         serializer = AdminReputationPolicySerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         config = ReputationService.update_protected_newcomer_window_hours(
@@ -211,6 +223,7 @@ class AdminUserViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewset
     DETAIL_LEDGER_LIMIT = 10
 
     def get_serializer_class(self):
+        """Выбирает сериализатор для текущего действия."""
         if self.action == 'retrieve':
             return AdminUserReputationDetailSerializer
         if self.action == 'reputation_override':
@@ -222,6 +235,7 @@ class AdminUserViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewset
         return AdminUserListSerializer
 
     def get_queryset(self):
+        """Возвращает queryset с учётом текущего запроса."""
         queryset = CustomUser.objects.all().order_by('-user_created_at', 'user_id')
         search = self.request.query_params.get('search') or self.request.query_params.get('q')
         if search:
@@ -235,6 +249,7 @@ class AdminUserViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewset
         return queryset
 
     def _list_limit(self) -> int:
+        """Возвращает безопасный лимит списка."""
         try:
             requested_limit = int(self.request.query_params.get('limit', self.DEFAULT_LIST_LIMIT))
         except (TypeError, ValueError):
@@ -243,12 +258,14 @@ class AdminUserViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewset
 
     @extend_schema(responses={200: AdminUserListSerializer(many=True)})
     def list(self, request, *args, **kwargs):
+        """Возвращает данные для ответа API."""
         queryset = self.filter_queryset(self.get_queryset())[:self._list_limit()]
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     @extend_schema(responses={200: AdminUserReputationDetailSerializer})
     def retrieve(self, request, *args, **kwargs):
+        """Возвращает данные для ответа API."""
         instance = self.get_object()
         serializer = self.get_serializer(
             instance,
@@ -262,6 +279,7 @@ class AdminUserViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewset
     )
     @action(detail=True, methods=['patch'], url_path='reputation-override')
     def reputation_override(self, request, *args, **kwargs):
+        """Создаёт ручную корректировку репутации."""
         target_user = self.get_object()
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -284,6 +302,7 @@ class AdminUserViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewset
     )
     @action(detail=True, methods=['get'], url_path='activity')
     def activity(self, request, *args, **kwargs):
+        """Возвращает активность пользователя."""
         target_user = self.get_object()
         query_serializer = self.get_serializer(data=request.query_params)
         query_serializer.is_valid(raise_exception=True)
@@ -310,6 +329,7 @@ class AdminUserViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewset
     @extend_schema(responses={200: ReputationLedgerEntrySerializer(many=True)})
     @action(detail=True, methods=['get'], url_path='reputation-ledger')
     def reputation_ledger(self, request, *args, **kwargs):
+        """Возвращает журнал изменений репутации."""
         target_user = self.get_object()
         queryset = target_user.reputation_transactions.select_related('actor').order_by('-created_at')
         

@@ -1,3 +1,4 @@
+# Кратко: описывает данные вопросов и ответов.
 import uuid
 
 from django.contrib.contenttypes.fields import GenericForeignKey
@@ -14,6 +15,7 @@ class Tag(models.Model):
         db_table = 'tags'
 
     def __str__(self):
+        """Возвращает короткое текстовое описание объекта."""
         return self.name
 
 
@@ -44,6 +46,7 @@ class Question(models.Model):
         db_table = 'questions'
 
     def __str__(self):
+        """Возвращает короткое текстовое описание объекта."""
         return self.question_title
 
 
@@ -68,6 +71,7 @@ class QuestionFavorite(models.Model):
         ]
 
     def __str__(self):
+        """Возвращает короткое текстовое описание объекта."""
         return f'{self.user.user_name if self.user else "Anonymous"} favorited {self.question_id}'
 
 
@@ -94,6 +98,7 @@ class Solution(models.Model):
         ]
 
     def __str__(self):
+        """Возвращает короткое текстовое описание объекта."""
         return f'{self.solution_id}'
 
 class SolutionEdits(models.Model):
@@ -116,6 +121,7 @@ class SolutionEdits(models.Model):
         db_table = 'solution_edits'
 
     def __str__(self):
+        """Возвращает короткое текстовое описание объекта."""
         return f'{self.solution_edit_id}'
 
 
@@ -155,6 +161,7 @@ class QuestionEditProposal(models.Model):
         ]
 
     def __str__(self):
+        """Возвращает короткое текстовое описание объекта."""
         return f'{self.question_edit_id}'
 
 
@@ -198,6 +205,7 @@ class QuestionRevision(models.Model):
         ]
 
     def __str__(self):
+        """Возвращает короткое текстовое описание объекта."""
         return f'{self.revision_id}'
 
 
@@ -231,6 +239,7 @@ class QuestionEditEvent(models.Model):
         ]
 
     def __str__(self):
+        """Возвращает короткое текстовое описание объекта."""
         return f'{self.event_id}'
 
 
@@ -260,10 +269,12 @@ class Comment(models.Model):
         ]
 
     def __str__(self):
+        """Возвращает короткое текстовое описание объекта."""
         return f'Comment {self.comment_id} by {self.user.user_name if self.user else "Anonymous"}'
 
     @property
     def target_type(self):
+        """Возвращает тип объекта, к которому относится комментарий."""
         return self.content_type.model
 
 
@@ -298,4 +309,5 @@ class Vote(models.Model):
         ]
 
     def __str__(self):
+        """Возвращает короткое текстовое описание объекта."""
         return f'{self.vote_type} by {self.user.user_name if self.user else "Anonymous"} on {self.target}'

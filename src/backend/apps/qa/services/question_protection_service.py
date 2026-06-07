@@ -1,3 +1,4 @@
+# Кратко: управляет защитой вопросов.
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -56,6 +57,7 @@ class QuestionProtectionService:
 
     @classmethod
     def get_protection_state(cls, question: Question) -> QuestionProtectionState:
+        """Возвращает данные protection состояния."""
         author = question.user
         if author is None:
             return QuestionProtectionState(
@@ -83,6 +85,7 @@ class QuestionProtectionService:
 
     @classmethod
     def get_answer_eligibility(cls, question: Question, viewer: CustomUser | None) -> ProtectionDecision:
+        """Возвращает данные answer eligibility."""
         state = cls.get_protection_state(question)
         if not state.is_protected:
             return cls._build_decision(
@@ -120,6 +123,7 @@ class QuestionProtectionService:
 
     @classmethod
     def get_question_downvote_eligibility(cls, question: Question, viewer: CustomUser | None) -> ProtectionDecision:
+        """Возвращает данные вопроса downvote eligibility."""
         state = cls.get_protection_state(question)
         if not state.is_protected:
             return cls._build_decision(
@@ -142,6 +146,7 @@ class QuestionProtectionService:
 
     @classmethod
     def format_window_hours(cls, hours: int | None = None) -> str:
+        """Готовит данные window hours для вывода."""
         window_hours = hours if hours is not None else ReputationService.get_protected_newcomer_window_hours()
         if 11 <= window_hours % 100 <= 14:
             suffix = 'часов'
@@ -156,6 +161,7 @@ class QuestionProtectionService:
 
     @classmethod
     def format_window_hours_genitive(cls, hours: int | None = None) -> str:
+        """Готовит данные window hours genitive для вывода."""
         window_hours = hours if hours is not None else ReputationService.get_protected_newcomer_window_hours()
         suffix = 'часа' if window_hours % 10 == 1 and window_hours % 100 != 11 else 'часов'
 
@@ -163,6 +169,7 @@ class QuestionProtectionService:
 
     @classmethod
     def get_decision_window_hours(cls, decision: ProtectionDecision | None = None) -> int:
+        """Возвращает данные decision window hours."""
         if decision is not None and decision.protected_until is not None:
             return ReputationService.get_protected_newcomer_window_hours()
 
@@ -170,6 +177,7 @@ class QuestionProtectionService:
 
     @classmethod
     def build_answer_denied_message(cls, decision: ProtectionDecision | None = None) -> str:
+        """Собирает данные answer denied message в нужный формат."""
         window_label = cls.format_window_hours_genitive(cls.get_decision_window_hours(decision))
         return (
             f'В течение {window_label} после публикации на вопросы новичков могут отвечать '
@@ -178,6 +186,7 @@ class QuestionProtectionService:
 
     @classmethod
     def build_answer_reason_message(cls, reason_code: str, decision: ProtectionDecision | None = None) -> str:
+        """Собирает данные answer reason message в нужный формат."""
         window_label = cls.format_window_hours(cls.get_decision_window_hours(decision))
         if reason_code == cls.ANSWER_BLOCKED_ANONYMOUS:
             return (
@@ -194,11 +203,13 @@ class QuestionProtectionService:
 
     @classmethod
     def build_downvote_denied_message(cls, decision: ProtectionDecision | None = None) -> str:
+        """Собирает данные downvote denied message в нужный формат."""
         window_label = cls.format_window_hours_genitive(cls.get_decision_window_hours(decision))
         return f'В течение {window_label} после публикации вопросы новичков нельзя минусовать.'
 
     @classmethod
     def build_downvote_reason_message(cls, reason_code: str, decision: ProtectionDecision | None = None) -> str:
+        """Собирает данные downvote reason message в нужный формат."""
         if reason_code != cls.DOWNVOTE_BLOCKED_PROTECTED:
             return ''
 
@@ -210,6 +221,7 @@ class QuestionProtectionService:
 
     @classmethod
     def _build_progress(cls, user: CustomUser) -> ProtectionProgress:
+        """Собирает progress."""
         progress = ReputationService.get_progress(user)
         return ProtectionProgress(
             points_to_next_level=progress.get('points_to_next_level'),
@@ -228,6 +240,7 @@ class QuestionProtectionService:
         protected_until,
         required_level: str | None = ANSWER_REQUIRED_LEVEL,
     ) -> ProtectionDecision:
+        """Собирает decision."""
         viewer_progress = ReputationService.get_progress(viewer) if viewer is not None else None
         if viewer is not None and viewer_resolution is None:
             viewer_resolution = ReputationService.resolve_level(user=viewer)
@@ -253,5 +266,6 @@ class QuestionProtectionService:
 
     @classmethod
     def _is_level_at_least(cls, actual_level: str, required_level: str) -> bool:
+        """Проверяет условие: level at least."""
         ordered_levels = ReputationService.LEVEL_ORDER
         return ordered_levels.index(actual_level) >= ordered_levels.index(required_level)
