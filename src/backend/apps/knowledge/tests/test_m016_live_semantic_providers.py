@@ -96,7 +96,7 @@ class LiveSemanticProviderAdapterTests(SimpleTestCase):
     def embedding_config(self, **overrides):
         values = {
             'api_key': 'test-key',
-            'base_url': 'https://gigachat.example.test/api/v1',
+            'base_url': 'https://gigachat.devices.sberbank.ru/api/v1',
             'model': 'Embeddings',
             'dimensions': 3,
             'timeout_seconds': 7.0,
